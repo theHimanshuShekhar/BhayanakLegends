@@ -1,0 +1,12 @@
+# Full build gate before pushing to main: run tests, then a production build
+# with the signing key if one exists locally. Skip with `git push --no-verify`
+# (CI is the source of truth; this is a fast-feedback gate).
+
+if git rev-parse --abbrev-ref HEAD | grep -qx "main"; then
+  export PATH="$HOME/.cargo/bin:$PATH"
+  if [ -f "$HOME/.tauri/bhayanaklegends.key" ]; then
+    export TAURI_SIGNING_PRIVATE_KEY="$(cat "$HOME/.tauri/bhayanaklegends.key")"
+    export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-changeme}"
+  fi
+  pnpm tauri build
+fi

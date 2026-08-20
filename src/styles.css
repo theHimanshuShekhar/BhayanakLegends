@@ -1,144 +1,125 @@
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
+@import "tailwindcss";
+
+@theme {
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --color-rc-bg: #0e1020;
+  --color-rc-deep: #0a0b16;
+  --color-rc-s1: #181b2e;
+  --color-rc-s2: #20243a;
+  --color-rc-s3: #2a2f49;
+
+  --color-rc-line: rgba(233, 233, 237, 0.1);
+  --color-rc-dim: rgba(233, 233, 237, 0.46);
+  --color-rc-dimmer: rgba(233, 233, 237, 0.3);
+
+  --color-rc-acc: #9184d9;
+  --color-rc-acc-lo: #5d5294;
+  --color-rc-red: #e5738f;
+  --color-rc-red-lo: #4d2436;
+  --color-rc-teal: #57cfb4;
+  --color-rc-teal-lo: #1b463f;
+  --color-rc-amber: #e8b96b;
+  --color-rc-amber-lo: #4a3a1c;
+  --color-rc-blue: #7bb0ef;
+  --color-rc-blue-lo: #1e3350;
+  --color-rc-text: #e9e9ed;
+  --color-rc-soft: #cfd3e5;
+
+  --shadow-z1:
+    0 2px 0 rgba(0, 0, 0, 0.5), 0 10px 22px -10px rgba(0, 0, 0, 0.85),
+    inset 0 1px 0 rgba(255, 255, 255, 0.055);
+  --shadow-z2:
+    0 3px 0 rgba(0, 0, 0, 0.55), 0 20px 34px -14px rgba(0, 0, 0, 0.9),
+    inset 0 1px 0 rgba(255, 255, 255, 0.075);
+  --shadow-z3:
+    0 5px 0 rgba(0, 0, 0, 0.6), 0 34px 54px -18px rgba(0, 0, 0, 0.95),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
-.logo.typescript:hover {
-  filter: drop-shadow(0 0 2em #2d79c7);
-}
-:root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
-
-  color: #0f0f0f;
-  background-color: #f6f6f6;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
-}
-
-.container {
+body {
   margin: 0;
-  padding-top: 10vh;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  text-align: center;
+  background: #08090f;
+  color: var(--color-rc-text);
+  font-family: var(--font-mono);
+  letter-spacing: -0.01em;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: 0.75s;
+@utility pill {
+  @apply inline-flex items-center gap-[5px] rounded-full px-2.5 py-[3px] text-[10px] font-semibold uppercase tracking-[0.04em] whitespace-nowrap;
 }
 
-.logo.tauri:hover {
-  filter: drop-shadow(0 0 2em #24c8db);
+@utility pill-acc {
+  @apply pill bg-rc-acc text-rc-deep shadow-[0_3px_0_var(--color-rc-acc-lo),0_8px_16px_-6px_rgba(145,132,217,.6)];
 }
 
-.row {
-  display: flex;
-  justify-content: center;
+@utility pill-s2 {
+  @apply pill bg-rc-s2 text-rc-dim shadow-z1;
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
+@utility pill-teal {
+  @apply pill bg-rc-teal-lo text-rc-teal shadow-z1;
 }
 
-a:hover {
-  color: #535bf2;
+@utility pill-red {
+  @apply pill bg-rc-red-lo text-[#f4c3ce] shadow-z1;
 }
 
-h1 {
-  text-align: center;
+@utility pill-amber {
+  @apply pill bg-rc-amber-lo text-rc-amber shadow-z1;
 }
 
-input,
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
+@utility pill-blue {
+  @apply pill bg-rc-blue-lo text-rc-blue shadow-z1;
 }
 
-button {
-  cursor: pointer;
+@utility pill-outline {
+  @apply pill text-rc-dimmer shadow-[inset_0_0_0_1px_var(--color-rc-line)];
 }
 
-button:hover {
-  border-color: #396cd8;
-}
-button:active {
-  border-color: #396cd8;
-  background-color: #e8e8e8;
+@utility avatar {
+  @apply grid shrink-0 place-items-center rounded-full font-bold;
 }
 
-input,
-button {
-  outline: none;
+@utility avatar-plain {
+  @apply avatar bg-linear-to-br from-[#454a66] to-[#22263a] text-[#b2b6ca] shadow-z1;
 }
 
-#greet-input {
-  margin-right: 5px;
+@utility avatar-acc {
+  @apply avatar bg-linear-to-br from-rc-acc to-[#4b4180] text-rc-deep shadow-[0_3px_0_rgba(0,0,0,.5),0_14px_26px_-8px_rgba(145,132,217,.6)];
 }
 
-.hidden {
-  display: none;
+@utility avatar-red {
+  @apply avatar bg-linear-to-br from-rc-red to-[#7d3348] text-[#2c1520] shadow-[0_3px_0_rgba(0,0,0,.5),0_14px_26px_-8px_rgba(229,115,143,.55)];
 }
 
-.update-banner {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  margin: 0 auto 16px;
-  padding: 10px 16px;
-  max-width: 480px;
-  border-radius: 8px;
-  background-color: #e8f4ff;
-  border: 1px solid #396cd8;
+@utility avatar-enemy {
+  @apply avatar bg-linear-to-br from-[#5a3644] to-[#2b1a22] text-[#e5a8b8];
 }
 
-.update-status {
-  font-size: 0.9em;
-  opacity: 0.7;
+@utility avatar-teal {
+  @apply avatar bg-linear-to-br from-rc-teal to-[#1f6b5c] text-rc-deep shadow-[0_3px_0_rgba(0,0,0,.5)];
 }
 
-@media (prefers-color-scheme: dark) {
-  .update-banner {
-    background-color: #1b2a4a;
+@utility section-title {
+  @apply text-[10px] font-bold uppercase tracking-[0.12em] text-rc-dim;
+}
+
+@utility mono-n {
+  font-variant-numeric: tabular-nums;
+}
+
+@utility view-enter {
+  animation: rc-view 0.22s ease both;
+}
+
+@keyframes rc-view {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
   }
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
-  }
-
-  a:hover {
-    color: #24c8db;
-  }
-
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
-  }
-  button:active {
-    background-color: #0f0f0f69;
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }

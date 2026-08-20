@@ -34,10 +34,18 @@ git commit -m "feat: initial tauri app with commit-driven auto-update"
 Replace `YOUR-USERNAME` with your GitHub username (or use an org):
 
 ```bash
-gh repo create BhayanakLegends --private --source=. --remote=origin --push
+git init -b main
+git add .
+git commit -m "feat: initial tauri app with commit-driven auto-update"
+gh repo create BhayanakLegends --public --source=. --remote=origin --push
 ```
 
-If you want it public: replace `--private` with `--public`.
+> **The repo must be public.** GitHub Pages is not available for private repos
+> on the free plan, and the app's update endpoint must be publicly reachable
+> anyway (installed apps download it with no credentials).
+>
+> If you already created it as private, flip it:
+> `gh repo edit theHimanshuShekhar/BhayanakLegends --visibility public`
 
 ## 5. Add the updater signing secrets
 
@@ -51,13 +59,15 @@ gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --body "changeme"
 
 ## 6. Enable GitHub Pages (Actions source)
 
+> Requires the repo to be **public** (free plan). If you get HTTP 422
+> "Your current plan does not support GitHub Pages", flip visibility first:
+> `gh repo edit theHimanshuShekhar/BhayanakLegends --visibility public`
+
 Try the API first:
 
 ```bash
-gh api repos/{owner}/{repo}/pages -f build_type=workflow
+gh api repos/theHimanshuShekhar/BhayanakLegends/pages -f build_type=workflow
 ```
-
-(replace `{owner}` and `{repo}` with your username and `BhayanakLegends`)
 
 If it errors, do it manually: repo Settings → Pages → Source: **GitHub Actions**.
 

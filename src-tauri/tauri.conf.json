@@ -12,9 +12,11 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "BhayanakLegends",
-        "width": 800,
-        "height": 600
+        "title": "Rift Coach",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1180,
+        "minHeight": 760
       }
     ],
     "security": {

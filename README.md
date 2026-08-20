@@ -28,7 +28,7 @@ pnpm tauri build
 
 ## One-time setup
 
-1. Create the GitHub repo and push (see `docs/SETUP_COMMANDS.md` for the ordered commands).
+1. Create the GitHub repo **public** and push (Pages isn't available for private repos on the free plan; see `docs/SETUP_COMMANDS.md` for the ordered commands).
 2. Add secrets `TAURI_SIGNING_PRIVATE_KEY` (content of `~/.tauri/bhayanaklegends.key`) and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
 3. Enable GitHub Pages in repo Settings → Pages → source **GitHub Actions** (or run the `gh api` command in the setup file).
 4. Push to `main`. The first workflow run publishes version `0.1.<N>`.
