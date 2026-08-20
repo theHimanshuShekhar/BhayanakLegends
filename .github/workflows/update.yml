@@ -1,0 +1,148 @@
+name: build-and-publish-updates
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: update-publish
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+          - os: ubuntu-latest
+            platform: linux
+    runs-on: ${{ matrix.os }}
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set version from commit count on main
+        shell: bash
+        run: |
+          COUNT=$(git rev-list --count HEAD)
+          VERSION="0.1.$COUNT"
+          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "Building version $VERSION from commit $(git rev-parse --short HEAD)"
+
+      - name: Point updater at this repo's GitHub Pages
+        shell: bash
+        run: |
+          BASE="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}"
+          sed -i "s|https://CHANGE-ME.github.io/CHANGE-ME/latest.json|$BASE/latest.json|" src-tauri/tauri.conf.json
+          grep -n '"endpoints"' -A 2 src-tauri/tauri.conf.json
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Tauri app (signs updater artifacts)
+        run: pnpm tauri build
+
+      - name: Collect artifacts under stable names
+        shell: bash
+        run: |
+          mkdir -p dist-artifacts
+          if [ "${{ matrix.platform }}" = "windows" ]; then
+            EXE=$(find src-tauri/target/release/bundle/nsis -maxdepth 1 -name "*setup.exe" | head -1)
+            cp "$EXE" dist-artifacts/BhayanakLegends-setup.exe
+            cp "$EXE.sig" dist-artifacts/BhayanakLegends-setup.exe.sig
+            ls -la dist-artifacts
+          else
+            APPIMAGE=$(find src-tauri/target/release/bundle/appimage -maxdepth 1 -name "*.AppImage" | head -1)
+            cp "$APPIMAGE" dist-artifacts/BhayanakLegends.AppImage
+            cp "$APPIMAGE.sig" dist-artifacts/BhayanakLegends.AppImage.sig
+            ls -la dist-artifacts
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-${{ matrix.platform }}
+          path: dist-artifacts
+          retention-days: 7
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Build latest.json manifest
+        shell: bash
+        run: |
+          COUNT=$(git rev-list --count HEAD)
+          VERSION="0.1.$COUNT"
+          SHA=$(git rev-parse --short HEAD)
+          BASE="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}"
+          WINDOWS_SIG=$(cat artifacts/BhayanakLegends-setup.exe.sig)
+          LINUX_SIG=$(cat artifacts/BhayanakLegends.AppImage.sig)
+          mkdir -p deploy
+          jq -n \
+            --arg version "$VERSION" \
+            --arg notes "Auto-build from commit $SHA on main" \
+            --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg win_url "$BASE/windows/BhayanakLegends-setup.exe" \
+            --arg win_sig "$WINDOWS_SIG" \
+            --arg linux_url "$BASE/linux/BhayanakLegends.AppImage" \
+            --arg linux_sig "$LINUX_SIG" \
+            '{version: $version, notes: $notes, pub_date: $pub_date,
+              platforms: {
+                "windows-x86_64": {url: $win_url, signature: $win_sig},
+                "linux-x86_64": {url: $linux_url, signature: $linux_sig}
+              }}' > deploy/latest.json
+          mkdir -p deploy/windows deploy/linux
+          cp artifacts/BhayanakLegends-setup.exe deploy/windows/
+          cp artifacts/BhayanakLegends-setup.exe.sig deploy/windows/
+          cp artifacts/BhayanakLegends.AppImage deploy/linux/
+          cp artifacts/BhayanakLegends.AppImage.sig deploy/linux/
+          cat deploy/latest.json
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: deploy
+          publish_branch: gh-pages
+          force_orphan: true

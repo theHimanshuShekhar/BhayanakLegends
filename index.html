@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BhayanakLegends</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+
+  <body>
+    <main class="container">
+      <h1>BhayanakLegends</h1>
+
+      <div id="update-banner" class="update-banner hidden">
+        <span id="update-message"></span>
+        <button id="update-btn" type="button">Update &amp; Restart</button>
+      </div>
+
+      <div class="row">
+        <a href="https://vite.dev" target="_blank">
+          <img src="/src/assets/vite.svg" class="logo vite" alt="Vite logo" />
+        </a>
+        <a href="https://tauri.app" target="_blank">
+          <img
+            src="/src/assets/tauri.svg"
+            class="logo tauri"
+            alt="Tauri logo"
+          />
+        </a>
+      </div>
+
+      <p class="update-status" id="update-status">
+        Checking for updates...
+      </p>
+      <button id="check-btn" type="button">Check for updates</button>
+    </main>
+  </body>
+</html>
