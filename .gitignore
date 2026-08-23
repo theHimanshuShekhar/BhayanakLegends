@@ -1,0 +1,17 @@
+# secrets
+.env
+
+# node / frontend
+node_modules/
+dist/
+
+# rust / tauri
+src-tauri/target/
+
+# python
+__pycache__/
+.venv/
+*.pyc
+
+# local app data during dev
+data/
