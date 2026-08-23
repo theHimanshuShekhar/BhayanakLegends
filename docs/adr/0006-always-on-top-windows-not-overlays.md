@@ -1,0 +1,3 @@
+# Always-on-top windows instead of true in-game overlays
+
+The Live Companion presents as always-on-top windows: a small companion window beside the client during champ select, and a compact translucent widget during games (win-probability gauge, objective nudges), expandable mid-game. True click-through overlays are not reliably achievable over exclusive-fullscreen from a non-injected process, so the in-game widget assumes borderless-windowed mode and the limitation is documented honestly for users. Overlay-injection frameworks (Overwolf-style) were rejected: they abandon pure Tauri and drag in a marketplace/compliance layer this friend-group project doesn't need.
