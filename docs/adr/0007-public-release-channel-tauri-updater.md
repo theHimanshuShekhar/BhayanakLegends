@@ -1,0 +1,3 @@
+# Public repo doubles as the distribution and auto-update channel
+
+BhayanakLegends is public so GitHub Releases can serve installers, `latest.json`, and Findings Pack assets to unauthenticated installs; LoLTrends (private research) stays closed, and CI copies new pack artifacts into this repo's releases. App updates ship via the Tauri updater pointed at the stable `releases/latest/download/latest.json` URL, built by GitHub Actions (`tauri-action`) with update signatures produced from a keypair whose private half exists only as an Actions secret. Private-repo release assets were rejected because they would force an embedded GitHub token into every friend's binary.
