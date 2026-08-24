@@ -173,14 +173,7 @@ def test_postgame_latest_and_none(tmp_path: Path):
         "gold_diff_15": None,
         "gold_diff_20": None,
     }
-    habit_keys = {h["key"] for h in digest["habits"]}
-    assert habit_keys == {
-        "recall_safety",
-        "fast_first_dragon",
-        "spend_before_backing",
-        "plates_by_14",
-    }
-    assert all(h["verdict"] == "n/a" for h in digest["habits"])
+    assert digest["habits"] == []
     assert "lost" in digest["headline"]
 
 

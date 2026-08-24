@@ -96,6 +96,16 @@ describe("PostGamePage — digest rendered into the design", () => {
     expect(screen.getByTestId("habit-fast_first_dragon")).toHaveTextContent("n/a");
   });
 
+  it("shows an honest unavailable state when no contracted habit can be computed", async () => {
+    vi.mocked(api.postgameLatest).mockResolvedValue({ ...digest, habits: [] });
+    renderPage();
+
+    expect(await screen.findByTestId("habit-unavailable")).toHaveTextContent(
+      "No habit outcomes available",
+    );
+    expect(screen.queryByTestId("habit-outcomes")).not.toBeInTheDocument();
+  });
+
   it("binds objective read cards and comeback odds to pack + digest numbers", async () => {
     renderPage();
 

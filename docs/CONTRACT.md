@@ -76,9 +76,12 @@ interface PostGameDigest {
   played_at: string;              // ISO
   champion: string; role: string; win: boolean; duration_s: number;
   checkpoints: { gold_diff_10: number|null; gold_diff_15: number|null; gold_diff_20: number|null };
-  habits: HabitOutcome[];         // four surviving habits where computable
+  habits: HabitOutcome[];         // only outcomes with an exact extractor + threshold; empty when unavailable
   headline: string;               // one-line takeaway, tier-respecting phrasing
 }
+// The backend never emits a permanent value="n/a"/verdict="n/a" row. A
+// digest with no contracted habit outcome carries habits: [] and the UI says
+// that habit evaluation is unavailable.
 interface HabitOutcome { key: string; label: string; value: string; verdict: "good"|"bad"|"neutral"|"n/a"; }
 
 interface RoleBenchmark {
