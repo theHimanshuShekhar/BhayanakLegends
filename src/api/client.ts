@@ -20,6 +20,7 @@ const MAX_ERROR_DETAIL = 240;
 export interface SidecarConnection {
   base: string;
   token: string;
+  status: "ok" | "degraded";
 }
 
 /**
@@ -40,11 +41,11 @@ export class ApiError extends Error {
 }
 
 let connectionPromise: Promise<SidecarConnection> | null = null;
-
 function browserConnection(): SidecarConnection {
   return {
     base: `http://127.0.0.1:${import.meta.env.VITE_BL_PORT ?? 23110}`,
     token: import.meta.env.VITE_BL_TOKEN ?? "dev",
+    status: "ok",
   };
 }
 
@@ -56,12 +57,16 @@ function browserConnection(): SidecarConnection {
 export function resolveConnection(): Promise<SidecarConnection> {
   if (!connectionPromise) {
     const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-    connectionPromise = (isTauri
-      ? invoke<{ port: number; token: string }>("sidecar_info").then((info) => ({
-          base: `http://127.0.0.1:${info.port}`,
-          token: info.token,
-        }))
-      : Promise.resolve(browserConnection())
+    connectionPromise = (
+      isTauri
+        ? invoke<{ port: number; token: string; status: "ok" | "degraded" }>("sidecar_info").then(
+            (info) => ({
+              base: `http://127.0.0.1:${info.port}`,
+              token: info.token,
+              status: info.status,
+            }),
+          )
+        : Promise.resolve(browserConnection())
     ).catch((error) => {
       connectionPromise = null;
       throw error;

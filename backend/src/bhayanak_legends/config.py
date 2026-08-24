@@ -5,7 +5,9 @@ from pydantic_settings import BaseSettings
 
 
 class SidecarConfig(BaseSettings):
-    port: int = 23110
+    # Port zero asks the sidecar's own loopback listener to choose an ephemeral port.
+    # Desktop clients learn the chosen port from the readiness handshake.
+    port: int = 0
     token: str = "dev"
     data_dir: Path = Path.home() / ".local" / "share" / "BhayanakLegends"
     pack_dir: Path | None = None
