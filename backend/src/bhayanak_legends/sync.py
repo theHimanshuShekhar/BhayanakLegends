@@ -187,14 +187,22 @@ class SyncService:
             self._publish("sync.done")
 
     async def _riot_flow(self, settings: dict[str, Any]) -> None:
-        client = self._client_factory(str(settings["riot_key"]), str(settings.get("region_route") or "sea"))
+        region_route = str(settings.get("region_route") or "sea")
+        riot_id = str(settings.get("riot_id") or "").strip()
+        client = self._client_factory(str(settings["riot_key"]), region_route)
         try:
             puuid = self.store.get_setting("puuid")
+            cached_identity = self.store.get_setting("puuid_identity")
+            cached_region = self.store.get_setting("puuid_region")
+            if puuid and (cached_identity != riot_id or cached_region != region_route):
+                self.store.delete_raw_setting("puuid")
+                puuid = None
             if not puuid:
-                riot_id = settings.get("riot_id")
-                account = await client.account_by_riot_id(str(riot_id))
+                account = await client.account_by_riot_id(riot_id)
                 puuid = str(account["puuid"])
                 self.store.set_setting("puuid", puuid)
+                self.store.set_setting("puuid_identity", riot_id)
+                self.store.set_setting("puuid_region", region_route)
             ids = await client.match_ids(str(puuid), BACKFILL_TOTAL)
             added = 0
             for priority, match_id in enumerate(ids):

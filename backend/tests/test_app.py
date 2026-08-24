@@ -44,6 +44,11 @@ def test_requires_token(client):
     assert client.get("/settings", headers=bad).status_code == 401
     assert client.get("/settings", headers=AUTH).status_code == 200
 
+def test_fresh_install_has_empty_riot_identity(client):
+    response = client.get("/settings", headers=AUTH)
+    assert response.status_code == 200
+    assert response.json()["riot_id"] is None
+
 
 def test_settings_roundtrip(client):
     res = client.put(
@@ -64,6 +69,72 @@ def test_settings_key_delete(client):
     assert deleted.status_code == 200
     assert deleted.json()["has_key"] is False
 
+def test_settings_omitted_fields_preserve_and_nullable_fields_clear(client):
+    initial = client.put(
+        "/settings",
+        headers=AUTH,
+        json={
+            "riot_id": "Player#1234",
+            "region_route": "europe",
+            "riot_key": "RGAPI-test",
+            "auto_sync": True,
+        },
+    )
+    assert initial.status_code == 200
+
+    preserved = client.put(
+        "/settings", headers=AUTH, json={"auto_sync": False}
+    )
+    assert preserved.status_code == 200
+    assert preserved.json() == {
+        "riot_id": "Player#1234",
+        "region_route": "europe",
+        "has_key": True,
+        "auto_sync": False,
+    }
+
+    cleared = client.put(
+        "/settings", headers=AUTH, json={"riot_id": None, "riot_key": None}
+    )
+    assert cleared.status_code == 200
+    assert cleared.json() == {
+        "riot_id": None,
+        "region_route": "europe",
+        "has_key": False,
+        "auto_sync": False,
+    }
+
+
+def test_sync_start_rejects_missing_or_invalid_identity(client):
+    saved = client.put("/settings", headers=AUTH, json={"riot_key": "RGAPI-test"})
+    assert saved.status_code == 200
+
+    missing = client.post("/sync/start", headers=AUTH)
+    assert missing.status_code == 400
+    assert "riot id" in missing.json()["detail"].lower()
+
+    invalid = client.put("/settings", headers=AUTH, json={"riot_id": "not-an-id"})
+    assert invalid.status_code == 200
+    rejected = client.post("/sync/start", headers=AUTH)
+    assert rejected.status_code == 400
+    assert "riot id" in rejected.json()["detail"].lower()
+
+
+def test_changing_identity_or_region_clears_cached_puuid(client):
+    store = client.app.state.store
+    store.set_setting("puuid", "stale-puuid")
+    changed_id = client.put(
+        "/settings", headers=AUTH, json={"riot_id": "Player#1234"}
+    )
+    assert changed_id.status_code == 200
+    assert store.get_setting("puuid") is None
+
+    store.set_setting("puuid", "stale-puuid")
+    changed_region = client.put(
+        "/settings", headers=AUTH, json={"region_route": "americas"}
+    )
+    assert changed_region.status_code == 200
+    assert store.get_setting("puuid") is None
 
 def test_sync_status_idle_stub(client):
     res = client.get("/sync/status", headers=AUTH)

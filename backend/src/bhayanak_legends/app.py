@@ -131,9 +131,19 @@ def create_app(
 
     @app.put("/settings")
     def put_settings(patch: SettingsPatch):
-        if patch.riot_id is not None:
-            store.set_setting("riot_id", patch.riot_id)
-        if patch.region_route is not None:
+        if "riot_id" in patch.model_fields_set:
+            current_riot_id = store.get_setting("riot_id")
+            next_riot_id = patch.riot_id.strip() if patch.riot_id is not None else None
+            if current_riot_id != next_riot_id or next_riot_id is None:
+                store.delete_raw_setting("puuid")
+            if next_riot_id is None:
+                store.delete_raw_setting("riot_id")
+            else:
+                store.set_setting("riot_id", next_riot_id)
+        if "region_route" in patch.model_fields_set and patch.region_route is not None:
+            current_region = store.get_setting("region_route") or "sea"
+            if current_region != patch.region_route:
+                store.delete_raw_setting("puuid")
             store.set_setting("region_route", patch.region_route)
         if "riot_key" in patch.model_fields_set:
             try:
@@ -143,7 +153,7 @@ def create_app(
                     credentials.save(patch.riot_key)
             except CredentialError as exc:
                 raise HTTPException(status_code=503, detail=str(exc)) from None
-        if patch.auto_sync is not None:
+        if "auto_sync" in patch.model_fields_set and patch.auto_sync is not None:
             store.set_setting("auto_sync", "1" if patch.auto_sync else "0")
         return _settings_view(store, credentials)
 
@@ -165,7 +175,13 @@ def create_app(
 
     @app.post("/sync/start")
     def sync_start():
-        if not _settings_view(store, credentials)["has_key"]:
+        settings = _settings_view(store, credentials)
+        if not _is_valid_riot_id(settings["riot_id"]):
+            raise HTTPException(
+                status_code=400,
+                detail="valid riot id required (GameName#TAG)",
+            )
+        if not settings["has_key"]:
             raise HTTPException(status_code=400, detail="riot key required")
         svc = app.state.sync_service
         if svc is None:
@@ -218,6 +234,13 @@ def create_app(
     app.include_router(data_router)
 
     return app
+
+
+def _is_valid_riot_id(riot_id: object) -> bool:
+    if not isinstance(riot_id, str):
+        return False
+    game_name, separator, tag_line = riot_id.strip().partition("#")
+    return bool(separator and game_name.strip() and tag_line.strip() and "#" not in tag_line)
 
 
 def _settings_view(
