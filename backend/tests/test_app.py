@@ -164,7 +164,14 @@ def test_auto_sync_startup_schedules_backfill_without_waiting(tmp_path: Path, mo
     started: list[bool] = []
     monkeypatch.setattr(app.state.sync_service, "start", lambda: started.append(True))
 
+    import time
+
     with TestClient(app):
+        # The startup task runs deferred on the loop; wait bounded so the
+        # assertion is deterministic rather than timing-dependent.
+        deadline = time.monotonic() + 2.0
+        while not started and time.monotonic() < deadline:
+            time.sleep(0.01)
         assert started == [True]
 
 
