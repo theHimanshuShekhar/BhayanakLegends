@@ -168,12 +168,22 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["role", "cs10_median", "level10_median", "gold10_median", "sample"],
+        "required": ["role", "cs10_median", "level10_median", "gold_diff_10_median", "feature_contract", "sample"],
         "properties": {
           "role": { "enum": ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"] },
           "cs10_median": { "type": ["number", "null"] },
           "level10_median": { "type": ["number", "null"] },
-          "gold10_median": { "type": ["number", "null"] },
+          "gold_diff_10_median": { "type": ["number", "null"] },
+          "feature_contract": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["cs10_median", "level10_median", "gold_diff_10_median"],
+            "properties": {
+              "cs10_median": { "type": "string", "minLength": 1 },
+              "level10_median": { "type": "string", "minLength": 1 },
+              "gold_diff_10_median": { "type": "string", "minLength": 1 }
+            }
+          },
           "sample": { "type": "integer", "minimum": 1 }
         }
       }

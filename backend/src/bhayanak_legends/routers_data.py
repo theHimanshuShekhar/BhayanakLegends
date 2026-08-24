@@ -3,14 +3,51 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import statistics
-from typing import Any
 
 from fastapi import APIRouter, Request
 
 from .models import HabitOutcome, PatchAggregate, PostGameDigest, RoleBenchmark, RoleRow, TrajectoryPoint
 from .pack import PackError
+
+BENCHMARK_FIELD_CONTRACT = (
+    {
+        "canonical_name": "cs10",
+        "unit": "minions",
+        "population_feature": "cs10",
+        "personal_extractor": "cs10",
+        "population_column": "cs10_median",
+        "eligible_roles": frozenset({"TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"}),
+        "missing_data_rule": "omit the comparison when either side is missing",
+        "source_ref": "docs/CONTRACT.md#benchmark-feature-contract",
+    },
+    {
+        "canonical_name": "level10",
+        "unit": "levels",
+        "population_feature": "level10",
+        "personal_extractor": "level10",
+        "population_column": "level10_median",
+        "eligible_roles": frozenset({"TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"}),
+        "missing_data_rule": "omit the comparison when either side is missing",
+        "source_ref": "docs/CONTRACT.md#benchmark-feature-contract",
+    },
+    {
+        "canonical_name": "gold_diff_10",
+        "unit": "gold",
+        "population_feature": "gold_diff_10",
+        "personal_extractor": "gold_diff_10",
+        "population_column": "gold_diff_10_median",
+        "eligible_roles": frozenset({"TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"}),
+        "missing_data_rule": "omit the comparison when either side is missing",
+        "source_ref": "docs/CONTRACT.md#benchmark-feature-contract",
+    },
+)
+
+
+def _finite_number(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value))
 
 router = APIRouter()
 
@@ -167,20 +204,33 @@ def benchmarks(request: Request) -> list[dict]:
     for entry in pack.get("benchmarks", []):
         role = str(entry.get("role"))
         mine = personal.get(role, {})
+        feature_contract = entry.get("feature_contract")
+        if not isinstance(feature_contract, dict):
+            continue
+        personal_values: dict[str, float] = {}
+        population_values: dict[str, float | int] = {}
+        for definition in BENCHMARK_FIELD_CONTRACT:
+            if role not in definition["eligible_roles"]:
+                continue
+            if definition["population_feature"] != definition["personal_extractor"]:
+                continue
+            population_column = definition["population_column"]
+            if feature_contract.get(population_column) != definition["population_feature"]:
+                continue
+            personal_value = mine.get(definition["canonical_name"])
+            population_value = entry.get(population_column)
+            if not _finite_number(personal_value) or not _finite_number(population_value):
+                continue
+            personal_values[definition["canonical_name"]] = float(personal_value)
+            population_values[population_column] = float(population_value)
+        if not personal_values:
+            continue
+        population_values["sample"] = entry.get("sample", 0)
         result.append(
             RoleBenchmark(
                 role=role,
-                personal={
-                    "cs10": mine.get("cs10"),
-                    "level10": mine.get("level10"),
-                    "gold10": mine.get("gold10"),
-                },
-                population={
-                    "cs10_median": entry.get("cs10_median"),
-                    "level10_median": entry.get("level10_median"),
-                    "gold10_median": entry.get("gold10_median"),
-                    "sample": entry.get("sample", 0),
-                },
+                personal=personal_values,
+                population=population_values,
             ).model_dump()
         )
     return result
@@ -193,11 +243,14 @@ def _personal_medians(rows: list[dict[str, Any]]) -> dict[str, dict[str, float]]
         if not role:
             continue
         features = json.loads(row["features_json"] or "{}")
-        bucket = per_role.setdefault(role, {"cs10": [], "level10": [], "gold10": []})
-        for key, source in (("cs10", "cs10"), ("level10", "level10"), ("gold10", "gold_diff_10")):
-            value = features.get(source)
-            if isinstance(value, (int, float)):
-                bucket[key].append(float(value))
+        bucket = per_role.setdefault(
+            role,
+            {definition["canonical_name"]: [] for definition in BENCHMARK_FIELD_CONTRACT},
+        )
+        for definition in BENCHMARK_FIELD_CONTRACT:
+            value = features.get(definition["personal_extractor"])
+            if _finite_number(value):
+                bucket[definition["canonical_name"]].append(float(value))
     medians: dict[str, dict[str, float]] = {}
     for role, bucket in per_role.items():
         medians[role] = {

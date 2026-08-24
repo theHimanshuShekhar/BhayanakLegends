@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-08-23T23:27:33Z",
+  "generated_at": "2026-08-24T16:28:04Z",
   "dataset": {
     "matches": 26036,
     "player_games": 260360,
@@ -591,35 +591,60 @@
       "role": "TOP",
       "cs10_median": 61.0,
       "level10_median": null,
-      "gold10_median": null,
+      "gold_diff_10_median": null,
+      "feature_contract": {
+        "cs10_median": "lane_minions_first_10m",
+        "level10_median": "level10",
+        "gold_diff_10_median": "gold_diff_10"
+      },
       "sample": 52048
     },
     {
       "role": "JUNGLE",
       "cs10_median": 1.0,
       "level10_median": null,
-      "gold10_median": null,
+      "gold_diff_10_median": null,
+      "feature_contract": {
+        "cs10_median": "lane_minions_first_10m",
+        "level10_median": "level10",
+        "gold_diff_10_median": "gold_diff_10"
+      },
       "sample": 52039
     },
     {
       "role": "MIDDLE",
       "cs10_median": 64.0,
       "level10_median": null,
-      "gold10_median": null,
+      "gold_diff_10_median": null,
+      "feature_contract": {
+        "cs10_median": "lane_minions_first_10m",
+        "level10_median": "level10",
+        "gold_diff_10_median": "gold_diff_10"
+      },
       "sample": 52048
     },
     {
       "role": "BOTTOM",
       "cs10_median": 55.0,
       "level10_median": null,
-      "gold10_median": null,
+      "gold_diff_10_median": null,
+      "feature_contract": {
+        "cs10_median": "lane_minions_first_10m",
+        "level10_median": "level10",
+        "gold_diff_10_median": "gold_diff_10"
+      },
       "sample": 52049
     },
     {
       "role": "UTILITY",
       "cs10_median": 13.0,
       "level10_median": null,
-      "gold10_median": null,
+      "gold_diff_10_median": null,
+      "feature_contract": {
+        "cs10_median": "lane_minions_first_10m",
+        "level10_median": "level10",
+        "gold_diff_10_median": "gold_diff_10"
+      },
       "sample": 52041
     }
   ],

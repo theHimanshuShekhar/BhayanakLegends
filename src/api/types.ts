@@ -67,7 +67,12 @@ export interface BenchmarkRow {
   role: string;
   cs10_median: number | null;
   level10_median: number | null;
-  gold10_median: number | null;
+  gold_diff_10_median: number | null;
+  feature_contract: {
+    cs10_median: string;
+    level10_median: string;
+    gold_diff_10_median: string;
+  };
   sample: number;
 }
 
@@ -145,13 +150,12 @@ export interface HabitOutcome {
   verdict: "good" | "bad" | "neutral" | "n/a";
 }
 
+export type BenchmarkMetric = "cs10" | "level10" | "gold_diff_10";
+
 export interface RoleBenchmark {
   role: string;
-  personal: { cs10: number | null; level10: number | null; gold10: number | null };
-  population: {
-    cs10_median: number;
-    level10_median: number | null;
-    gold10_median: number | null;
+  personal: Partial<Record<BenchmarkMetric, number>>;
+  population: Partial<Record<`${BenchmarkMetric}_median`, number>> & {
     sample: number;
   };
 }

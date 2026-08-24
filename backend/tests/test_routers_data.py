@@ -187,12 +187,23 @@ def test_postgame_latest_and_none(tmp_path: Path):
 PACK = {
     "schema_version": 1,
     "benchmarks": [
-        {"role": "MIDDLE", "cs10_median": 64.0, "level10_median": None, "gold10_median": None, "sample": 100},
+        {
+            "role": "MIDDLE",
+            "cs10_median": 64.0,
+            "level10_median": 8.0,
+            "gold_diff_10_median": 50.0,
+            "feature_contract": {
+                "cs10_median": "lane_minions_first_10m",
+                "level10_median": "level10",
+                "gold_diff_10_median": "gold_diff_10",
+            },
+            "sample": 100,
+        },
     ],
 }
 
 
-def test_benchmarks_joins_pack_with_personal_medians(tmp_path: Path):
+def test_benchmarks_only_join_definition_matching_fields(tmp_path: Path):
     client = build_client(tmp_path, pack=PACK)
     store = client.app.state.store
     seed(store, "a1", features={"cs10": 50, "level10": 8, "gold_diff_10": 100.0})
@@ -202,13 +213,65 @@ def test_benchmarks_joins_pack_with_personal_medians(tmp_path: Path):
     with client:
         rows = client.get("/benchmarks", headers=AUTH).json()
 
-    middle = next(r for r in rows if r["role"] == "MIDDLE")
-    assert middle["personal"]["cs10"] == 60.0
-    assert middle["personal"]["level10"] == 8.5
-    assert middle["personal"]["gold10"] == 150.0
-    assert middle["population"]["cs10_median"] == 64.0
-    assert middle["population"]["sample"] == 100
+    assert rows == [
+        {
+            "role": "MIDDLE",
+            "personal": {"level10": 8.5, "gold_diff_10": 150.0},
+            "population": {
+                "level10_median": 8.0,
+                "gold_diff_10_median": 50.0,
+                "sample": 100,
+            },
+        },
+    ]
 
+
+def test_benchmarks_join_total_cs_only_when_pack_defines_total_cs(tmp_path: Path):
+    pack = {**PACK, "benchmarks": [{**PACK["benchmarks"][0], "feature_contract": {
+        **PACK["benchmarks"][0]["feature_contract"],
+        "cs10_median": "cs10",
+    }}]}
+    client = build_client(tmp_path, pack=pack)
+    seed(client.app.state.store, "a1", features={"cs10": 50})
+
+    with client:
+        rows = client.get("/benchmarks", headers=AUTH).json()
+
+    assert rows[0]["personal"] == {"cs10": 50.0}
+    assert rows[0]["population"] == {"cs10_median": 64.0, "sample": 100}
+
+
+
+def test_benchmarks_all_roles_use_same_unit_total_cs_fixture(tmp_path: Path):
+    roles = ("TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY")
+    pack = {
+        "schema_version": 1,
+        "benchmarks": [
+            {
+                "role": role,
+                "cs10_median": 60.0,
+                "level10_median": None,
+                "gold_diff_10_median": None,
+                "feature_contract": {
+                    "cs10_median": "cs10",
+                    "level10_median": "level10",
+                    "gold_diff_10_median": "gold_diff_10",
+                },
+                "sample": 100,
+            }
+            for role in roles
+        ],
+    }
+    client = build_client(tmp_path, pack=pack)
+    for index, role in enumerate(roles):
+        seed(client.app.state.store, f"match-{role}", role=role, features={"cs10": 50 + index})
+
+    with client:
+        rows = client.get("/benchmarks", headers=AUTH).json()
+
+    assert {row["role"] for row in rows} == set(roles)
+    assert all(set(row["personal"]) == {"cs10"} for row in rows)
+    assert all(set(row["population"]) == {"cs10_median", "sample"} for row in rows)
 
 def test_benchmarks_empty_when_pack_missing(tmp_path: Path):
     client = build_client(tmp_path, pack=None)

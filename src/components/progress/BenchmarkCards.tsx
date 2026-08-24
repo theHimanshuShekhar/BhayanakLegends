@@ -4,6 +4,12 @@ function deltaLabel(delta: number): string {
   return delta >= 0 ? `+${delta.toFixed(1)}` : delta.toFixed(1);
 }
 
+const METRICS = [
+  { key: "cs10", populationKey: "cs10_median", label: "CS@10" },
+  { key: "level10", populationKey: "level10_median", label: "LEVEL@10" },
+  { key: "gold_diff_10", populationKey: "gold_diff_10_median", label: "GOLD DIFF@10" },
+] as const;
+
 export function BenchmarkCards({ rows }: { rows: RoleBenchmark[] }) {
   return (
     <div
@@ -14,30 +20,30 @@ export function BenchmarkCards({ rows }: { rows: RoleBenchmark[] }) {
       }}
       data-testid="benchmark-cards"
     >
-      {rows.map((r) => {
-        const personal = r.personal.cs10;
-        const median = r.population.cs10_median;
-        const delta = personal != null && median != null ? personal - median : null;
-        const good = (delta ?? 0) >= 0;
-        const scale =
-          personal != null && median != null && Math.max(personal, median) > 0
-            ? Math.max(personal, median)
-            : null;
-        const fill =
-          scale != null && personal != null
-            ? `${Math.round((personal / scale) * 1000) / 10}%`
-            : "0%";
-        const tick =
-          scale != null && median != null
-            ? `${Math.round((median / scale) * 1000) / 10}%`
-            : null;
-        return (
-          <div className="card3" style={{ padding: 11 }} key={r.role} data-testid={`benchmark-${r.role}`}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-              <span style={{ fontSize: 9, letterSpacing: ".08em", color: "var(--color-dimmer)" }}>
-                CS@10 · {r.role}
-              </span>
-              {delta != null && (
+      {rows.flatMap((r) =>
+        METRICS.map((metric) => {
+          const personal = r.personal[metric.key] ?? null;
+          const median = r.population[metric.populationKey] ?? null;
+          if (personal == null || median == null) return null;
+          const delta = personal - median;
+          const good = delta >= 0;
+          const scale = Math.max(Math.abs(personal), Math.abs(median));
+          const fill =
+            scale > 0 ? `${Math.round((Math.abs(personal) / scale) * 1000) / 10}%` : "0%";
+          const tick =
+            scale > 0 ? `${Math.round((Math.abs(median) / scale) * 1000) / 10}%` : null;
+          const testSuffix = metric.key === "cs10" ? r.role : `${r.role}-${metric.key}`;
+          return (
+            <div
+              className="card3"
+              style={{ padding: 11 }}
+              key={`${r.role}-${metric.key}`}
+              data-testid={`benchmark-${testSuffix}`}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                <span style={{ fontSize: 9, letterSpacing: ".08em", color: "var(--color-dimmer)" }}>
+                  {metric.label} · {r.role}
+                </span>
                 <span
                   className="pill"
                   style={{
@@ -48,61 +54,56 @@ export function BenchmarkCards({ rows }: { rows: RoleBenchmark[] }) {
                 >
                   {deltaLabel(delta)}
                 </span>
-              )}
-            </div>
-            <div
-              className="mono-n"
-              style={{
-                font: "700 25px/1.1 var(--font-mono)",
-                marginTop: 6,
-                color:
-                  personal == null
-                    ? "var(--color-dim)"
-                    : good
-                      ? undefined
-                      : "var(--color-danger)",
-              }}
-            >
-              {personal != null ? personal.toFixed(1) : "—"}
-            </div>
-            <div
-              data-testid={`benchmark-bar-${r.role}`}
-              style={{
-                position: "relative",
-                marginTop: 8,
-                height: 6,
-                borderRadius: 999,
-                background: "var(--color-deep)",
-                overflow: "hidden",
-              }}
-            >
+              </div>
               <div
+                className="mono-n"
                 style={{
-                  width: fill,
-                  height: "100%",
-                  background: good ? "var(--color-teal)" : "var(--color-danger)",
+                  font: "700 25px/1.1 var(--font-mono)",
+                  marginTop: 6,
+                  color: good ? undefined : "var(--color-danger)",
                 }}
-              />
-              {tick != null && (
+              >
+                {personal.toFixed(1)}
+              </div>
+              <div
+                data-testid={`benchmark-bar-${testSuffix}`}
+                style={{
+                  position: "relative",
+                  marginTop: 8,
+                  height: 6,
+                  borderRadius: 999,
+                  background: "var(--color-deep)",
+                  overflow: "hidden",
+                }}
+              >
                 <div
-                  title={`population median ${median}`}
                   style={{
-                    position: "absolute",
-                    top: 0,
-                    bottom: 0,
-                    left: tick,
-                    width: 2,
-                    background: "var(--color-dimmer)",
+                    width: fill,
+                    height: "100%",
+                    background: good ? "var(--color-teal)" : "var(--color-danger)",
                   }}
                 />
-              )}
+                {tick != null && (
+                  <div
+                    title={`population median ${median}`}
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      bottom: 0,
+                      left: tick,
+                      width: 2,
+                      background: "var(--color-dimmer)",
+                    }}
+                  />
+                )}
+              </div>
+              <div style={{ marginTop: 6, fontSize: 9, color: "var(--color-dimmer)" }}>
+                pop median {median} · {Math.round(r.population.sample / 1000)}k games
+              </div>
             </div>
-            <div style={{ marginTop: 6, fontSize: 9, color: "var(--color-dimmer)" }}>
-              pop median {median ?? "—"} · {Math.round(r.population.sample / 1000)}k games
-            </div>
-          </div>
-        );
-      })}
+          );
+        }),
+      )}
     </div>
   );
 }
