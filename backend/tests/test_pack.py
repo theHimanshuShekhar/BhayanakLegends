@@ -1,11 +1,14 @@
 """Validate the shipped Findings Pack v1 against its schema and the research contract."""
 
+import copy
 import json
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, ValidationError
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PACK_DIR = REPO_ROOT / "pack"
@@ -31,6 +34,94 @@ IMPERATIVE = re.compile(
 def test_pack_matches_schema():
     Draft202012Validator.check_schema(SCHEMA)
     Draft202012Validator(SCHEMA).validate(PACK)
+
+
+NUMERIC_TABLES = (
+    "dataset",
+    "findings",
+    "habits",
+    "objectives",
+    "comeback_odds",
+    "ban_advisor",
+    "trap_picks",
+    "tier_list",
+    "matchup_examples",
+    "benchmarks",
+    "checkpoints",
+)
+
+
+def test_every_numeric_table_has_complete_provenance():
+    assert set(PACK["provenance"]) == set(NUMERIC_TABLES)
+    for table in NUMERIC_TABLES:
+        provenance = PACK["provenance"][table]
+        assert provenance["source_document"]
+        assert provenance["source_section"]
+        assert re.fullmatch(r"[0-9a-f]{64}", provenance["feature_store_manifest_sha256"])
+        assert re.fullmatch(r"sha256:[0-9a-f]{64}", provenance["generator_revision"])
+        assert provenance["feature_contract_version"] == "loltrends-parity-v1"
+
+
+@pytest.mark.parametrize(
+    ("table", "field", "value"),
+    [
+        ("tier_list", "provenance", None),
+        ("tier_list", "feature_store_manifest_sha256", "not-a-sha"),
+        ("tier_list", "feature_contract_version", "loltrends-parity-v0"),
+    ],
+)
+def test_schema_rejects_invalid_table_provenance(table, field, value):
+    broken = copy.deepcopy(PACK)
+    if field == "provenance":
+        del broken["provenance"][table]
+    else:
+        broken["provenance"][table][field] = value
+    with pytest.raises(ValidationError):
+        Draft202012Validator(SCHEMA).validate(broken)
+
+
+def test_generator_reproduces_from_declared_feature_store(tmp_path):
+    pd = pytest.importorskip("pandas")
+    rows = [
+        {
+            "match_id": f"match-{role.lower()}",
+            "champion_name": "Ahri",
+            "opponent_champion_name": None,
+            "role": role,
+            "win": True,
+            "patch": "16.16",
+            "lane_minions_first_10m": 10,
+        }
+        for role in ("TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY")
+    ]
+    feature_store = tmp_path / "feature_store"
+    feature_store.mkdir()
+    pd.DataFrame(rows).to_parquet(feature_store / "analysis_rows.parquet")
+    pd.DataFrame(
+        [{"match_id": row["match_id"], "champion_name": "Ahri"} for row in rows]
+    ).to_parquet(feature_store / "champion_bans.parquet")
+
+    outputs = []
+    generator = REPO_ROOT / "backend" / "tools" / "build_pack.py"
+    for index in (1, 2):
+        output_dir = tmp_path / f"output-{index}"
+        subprocess.run(
+            [
+                sys.executable,
+                str(generator),
+                "--feature-store",
+                str(feature_store),
+                "--out",
+                str(output_dir),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        generated = json.loads((output_dir / "findings-pack.v1.json").read_text())
+        generated.pop("generated_at")
+        outputs.append(generated)
+    assert outputs[0] == outputs[1]
 
 
 def test_header_fields():

@@ -2,12 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://bhayanak-legends.local/pack.schema.json",
   "title": "Findings Pack v1",
-  "description": "Versioned export of population findings from the LoLTrends research. Field names are frozen: they mirror FindingsPack in src/api/types.ts and docs/CONTRACT.md. Every number must trace to a research doc (source_ref) or be computed from the Feature Store by backend/tools/build_pack.py.",
+  "description": "Versioned export of population findings from the LoLTrends research. Every numeric-bearing table has a provenance block identifying its source document/section, Feature Store manifest, generator revision, and feature-contract version; findings retain per-finding source_ref.",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "schema_version",
     "generated_at",
+    "provenance",
     "dataset",
     "findings",
     "habits",
@@ -21,6 +22,24 @@
     "checkpoints"
   ],
   "properties": {
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dataset", "findings", "habits", "objectives", "comeback_odds", "ban_advisor", "trap_picks", "tier_list", "matchup_examples", "benchmarks", "checkpoints"],
+      "properties": {
+        "dataset": { "$ref": "#/$defs/provenance" },
+        "findings": { "$ref": "#/$defs/provenance" },
+        "habits": { "$ref": "#/$defs/provenance" },
+        "objectives": { "$ref": "#/$defs/provenance" },
+        "comeback_odds": { "$ref": "#/$defs/provenance" },
+        "ban_advisor": { "$ref": "#/$defs/provenance" },
+        "trap_picks": { "$ref": "#/$defs/provenance" },
+        "tier_list": { "$ref": "#/$defs/provenance" },
+        "matchup_examples": { "$ref": "#/$defs/provenance" },
+        "benchmarks": { "$ref": "#/$defs/provenance" },
+        "checkpoints": { "$ref": "#/$defs/provenance" }
+      }
+    },
     "schema_version": { "const": 1 },
     "generated_at": { "type": "string", "format": "date-time", "description": "UTC ISO-8601 build timestamp" },
     "dataset": {
@@ -199,6 +218,20 @@
           "gold_diff_bucket": { "type": "string", "minLength": 1 },
           "win_rate": { "type": "number", "minimum": 0, "maximum": 1 }
         }
+      }
+    }
+  },
+  "$defs": {
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_document", "source_section", "feature_store_manifest_sha256", "generator_revision", "feature_contract_version"],
+      "properties": {
+        "source_document": { "type": "string", "minLength": 1 },
+        "source_section": { "type": "string", "minLength": 1 },
+        "feature_store_manifest_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "generator_revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "feature_contract_version": { "const": "loltrends-parity-v1" }
       }
     }
   }

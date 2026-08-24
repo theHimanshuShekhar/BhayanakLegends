@@ -6,9 +6,33 @@ export interface Health {
   pack_version: string;
 }
 
+export interface TableProvenance {
+  source_document: string;
+  source_section: string;
+  feature_store_manifest_sha256: string;
+  generator_revision: string;
+  feature_contract_version: "loltrends-parity-v1";
+}
+
+export type PackProvenance = Record<
+  | "dataset"
+  | "findings"
+  | "habits"
+  | "objectives"
+  | "comeback_odds"
+  | "ban_advisor"
+  | "trap_picks"
+  | "tier_list"
+  | "matchup_examples"
+  | "benchmarks"
+  | "checkpoints",
+  TableProvenance
+>;
+
 export interface FindingsPack {
   schema_version: number;
   generated_at: string;
+  provenance: PackProvenance;
   dataset: { matches: number; player_games: number; patches: string[] };
   findings: PackFinding[];
   habits: HabitDef[];
