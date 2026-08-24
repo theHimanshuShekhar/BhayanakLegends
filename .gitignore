@@ -1,17 +1,37 @@
 # secrets
 .env
 
+# logs
+logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
 # node / frontend
-node_modules/
-dist/
+node_modules
+dist
+dist-ssr
+*.local
 
 # rust / tauri
 src-tauri/target/
+src-tauri/gen/
 
 # python
 __pycache__/
-.venv/
 *.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
 
-# local app data during dev
+# local app data (Personal History dev imports etc.)
 data/
+
+# editor
+.idea
+.DS_Store
+
+# playwright
+.playwright-mcp/
+test-results/
+playwright-report/
