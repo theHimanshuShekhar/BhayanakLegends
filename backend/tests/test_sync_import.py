@@ -157,6 +157,9 @@ async def test_riot_backfill_resolves_and_persists_match(tmp_path: Path):
         json.loads((fixture_dir / "SG2_170114893_timeline.json").read_text()),
     )
     store = Store(tmp_path / "app.db")
+    store.set_setting("puuid", "stale-puuid")
+    store.set_setting("puuid_identity", "OldPlayer#9999")
+    store.set_setting("puuid_region", "sea")
     hub = Hub()
     queue = hub.subscribe()
     settings = {

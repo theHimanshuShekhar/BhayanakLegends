@@ -79,6 +79,14 @@ describe("SyncPanel", () => {
     ).toBeInTheDocument();
   });
 
+  it("disables Backfill until an explicit Riot ID is entered", async () => {
+    vi.mocked(api.settings).mockResolvedValue({ ...settings, riot_id: null });
+    renderPanel();
+
+    expect(await screen.findByTestId("riot-id-error")).toBeInTheDocument();
+    expect(screen.getByTestId("start-sync")).toBeDisabled();
+  });
+
   it("saves settings via PUT, including a typed key, and shows inline confirmation", async () => {
     vi.mocked(api.updateSettings).mockResolvedValue(settings);
     renderPanel();
@@ -131,7 +139,8 @@ describe("SyncPanel", () => {
     vi.mocked(api.cancelSync).mockResolvedValue({ ...running, state: "cancelled", current_match_id: null });
     renderPanel();
 
-    fireEvent.click(await screen.findByTestId("start-sync"));
+    await waitFor(() => expect(screen.getByTestId("start-sync")).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId("start-sync"));
     await waitFor(() => expect(screen.getByTestId("cancel-sync")).not.toBeDisabled());
 
     fireEvent.click(screen.getByTestId("cancel-sync"));

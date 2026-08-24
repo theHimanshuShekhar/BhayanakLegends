@@ -4,9 +4,10 @@ import { useCancelSync, useSaveSettings, useSettings, useStartSync, useSyncStatu
 import { useEvents } from "../../api/sse";
 import type { SseMessage } from "../../api/sse";
 import type { SettingsPatch, SyncStatus } from "../../api/types";
+import { isValidRiotId } from "./identity";
 
 const REGIONS = ["sea", "europe", "americas", "asia"] as const;
-const DEFAULT_RIOT_ID = "SacredButtholio#OOF";
+const DEFAULT_RIOT_ID = "";
 
 function isTerminal(state: SyncStatus["state"]): boolean {
   return state !== "running";
@@ -58,6 +59,7 @@ export function SyncPanel() {
   const [key, setKey] = useState("");
   const [autoSync, setAutoSync] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const riotIdValid = isValidRiotId(riotId);
 
   useEffect(() => {
     if (settings.data && !dirty) {
@@ -114,6 +116,11 @@ export function SyncPanel() {
             style={inputStyle}
             className="rounded-[10px] border border-line bg-deep px-2.5 py-1.5 font-mono text-[11px] outline-none focus:border-accent"
           />
+          {!riotIdValid && (
+            <span data-testid="riot-id-error" className="text-[10px] text-danger">
+              Enter a valid GameName#TAG before starting Backfill.
+            </span>
+          )}
         </label>
         <label className="flex flex-col gap-1">
           <FieldLabel>Region route</FieldLabel>
@@ -204,8 +211,8 @@ export function SyncPanel() {
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={() => start.mutate(undefined, { onSuccess: () => setLive(null) })}
-              disabled={running || start.isPending}
+              onClick={() => start.mutate(undefined, { onSuccess: (next) => setLive(next) })}
+              disabled={running || start.isPending || !riotIdValid}
               data-testid="start-sync"
               className="pill"
               style={{
@@ -213,14 +220,14 @@ export function SyncPanel() {
                 color: "var(--color-teal)",
                 border: "none",
                 cursor: "pointer",
-                opacity: running || start.isPending ? 0.4 : undefined,
+                opacity: running || start.isPending || !riotIdValid ? 0.4 : undefined,
               }}
             >
               Start sync
             </button>
             <button
               type="button"
-              onClick={() => cancel.mutate(undefined, { onSuccess: () => setLive(null) })}
+              onClick={() => cancel.mutate(undefined, { onSuccess: (next) => setLive(next) })}
               disabled={!running || cancel.isPending}
               data-testid="cancel-sync"
               className="pill"

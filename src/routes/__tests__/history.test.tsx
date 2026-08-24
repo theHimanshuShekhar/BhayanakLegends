@@ -108,11 +108,13 @@ describe("HistoryPage", () => {
     expect(cancel.style.background).toContain("var(--color-surface-3)");
   });
 
-  it("prefills the settings form defaults and shows saved-key state", async () => {
+  it("shows an empty identity and requires it before Backfill", async () => {
     renderPage(<HistoryPage />);
 
     const riotId = await screen.findByTestId("input-riot-id");
-    expect(riotId).toHaveValue("SacredButtholio#OOF");
+    expect(riotId).toHaveValue("");
+    expect(screen.getByTestId("riot-id-error")).toHaveTextContent("GameName#TAG");
+    expect(screen.getByTestId("start-sync")).toBeDisabled();
     const region = screen.getByTestId("input-region");
     await waitFor(() => expect(region).toHaveValue("europe"));
     expect(screen.getByTestId("input-riot-key")).toHaveAttribute(
@@ -121,11 +123,15 @@ describe("HistoryPage", () => {
     );
   });
 
-  it("starts a sync via the API and disables Start while running", async () => {
+  it("starts a sync only after an explicit identity is entered", async () => {
     vi.mocked(api.startSync).mockResolvedValue(running);
     renderPage(<HistoryPage />);
 
     const startBtn = await screen.findByTestId("start-sync");
+    expect(startBtn).toBeDisabled();
+    fireEvent.change(screen.getByTestId("input-riot-id"), {
+      target: { value: "Player#1234" },
+    });
     await waitFor(() => expect(startBtn).not.toBeDisabled());
 
     fireEvent.click(startBtn);
@@ -135,11 +141,16 @@ describe("HistoryPage", () => {
     expect(screen.getByText(/Current-patch games download first/)).toBeInTheDocument();
   });
 
+
   it("updates the progress bar from SSE sync.progress events", async () => {
     vi.mocked(api.startSync).mockResolvedValue(running);
     renderPage(<HistoryPage />);
 
-    fireEvent.click(await screen.findByTestId("start-sync"));
+    fireEvent.change(screen.getByTestId("input-riot-id"), {
+      target: { value: "Player#1234" },
+    });
+    await waitFor(() => expect(screen.getByTestId("start-sync")).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId("start-sync"));
     await waitFor(() => expect(api.startSync).toHaveBeenCalled());
 
     await act(async () => {
