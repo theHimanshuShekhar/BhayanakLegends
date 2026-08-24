@@ -149,19 +149,18 @@ describe("ProgressPage", () => {
     );
   });
 
-  it("parks the what-if simulator: disabled inputs and the model-bearing caption", async () => {
+  it("shows the unavailable what-if state without fabricated personal estimates", async () => {
     renderPage(<ProgressPage />);
 
-    await screen.findByTestId("what-if-panel");
-    for (const key of ["gold10", "plates14", "safe-recalls"]) {
-      expect(screen.getByTestId(`what-if-input-${key}`)).toBeDisabled();
-    }
+    const panel = await screen.findByTestId("what-if-panel");
     expect(screen.getByTestId("what-if-caption")).toHaveTextContent(
-      /what-if activates with the model-bearing pack/i,
+      "Honest Model unavailable; personal estimates withheld until it ships (ADR-0003).",
     );
-    expect(screen.getByTestId("what-if-panel")).toHaveTextContent("Predicted win rate");
-    // no invented prediction
-    expect(screen.getByTestId("what-if-prediction")).toHaveTextContent("—");
+    expect(panel).toHaveTextContent("Unavailable");
+    expect(panel).not.toHaveTextContent("−280g");
+    expect(panel).not.toHaveTextContent("1 of 6");
+    expect(panel).not.toHaveTextContent("62%");
+    expect(screen.getByTestId("what-if-prediction")).toHaveTextContent("Unavailable");
   });
 
   it("renders the rolling win-rate sparkline per patch with mono patch labels", async () => {
