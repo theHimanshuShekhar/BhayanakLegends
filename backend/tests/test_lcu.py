@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 
 from bhayanak_legends.app import create_app
 from bhayanak_legends.config import SidecarConfig
+import bhayanak_legends.lcu as lcu_module
 from bhayanak_legends.lcu import (
     ChampionDirectory,
     HttpxIngameTransport,
@@ -101,25 +102,62 @@ def drain(queue: asyncio.Queue) -> list[dict]:
 # ---------------------------------------------------------------- lockfile
 
 
-def test_parse_lockfile_plain_token():
-    info = parse_lockfile("LeagueClient:54321:tok123:https\n")
-    assert info.port == 54321
-    assert info.token == "tok123"
+def test_parse_lockfile_documented_shape():
+    info = parse_lockfile((FIXTURES / "lockfile.txt").read_text(encoding="utf-8"))
+    assert info.port == 63569
+    assert info.token == "secret"
     assert info.protocol == "https"
 
 
-def test_parse_lockfile_token_may_contain_colons():
-    info = parse_lockfile("LeagueClient:54321:ab:cd:ef:https")
-    assert info.port == 54321
-    assert info.token == "ab:cd:ef"
-    assert info.protocol == "https"
+@pytest.mark.parametrize(
+    "text",
+    [
+        "LeagueClient:63569:secret:https",
+        "LeagueClient:13268:notaport:secret:https",
+        "LeagueClient:notapid:63569:secret:https",
+        "LeagueClient:13268:63569::https",
+        "LeagueClient:13268:63569:secret:",
+        "LeagueClient:13268:63569:secret:https:extra",
+    ],
+)
+def test_parse_lockfile_rejects_malformed_shapes(text):
+    with pytest.raises(ValueError):
+        parse_lockfile(text)
 
 
-def test_parse_lockfile_rejects_garbage():
-    with pytest.raises(ValueError):
-        parse_lockfile("no-colons-here")
-    with pytest.raises(ValueError):
-        parse_lockfile("LeagueClient:notaport:tok:https")
+async def test_httpx_lcu_connection_uses_lockfile_fields_for_gameflow_request(
+    tmp_path, monkeypatch
+):
+    lockfile = tmp_path / "lockfile"
+    lockfile.write_text("LeagueClient:13268:63569:secret:http", encoding="utf-8")
+    monkeypatch.setattr(lcu_module, "find_lockfile", lambda: lockfile)
+
+    class FakeResponse:
+        def json(self):
+            return "ChampSelect"
+        def raise_for_status(self):
+            return None
+
+    class FakeAsyncClient:
+        instances = []
+
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.paths = []
+            self.__class__.instances.append(self)
+
+        async def get(self, path):
+            self.paths.append(path)
+            return FakeResponse()
+
+    monkeypatch.setattr(lcu_module.httpx, "AsyncClient", FakeAsyncClient)
+
+    connection = HttpxLcuConnection()
+    assert await connection.gameflow_phase() == "ChampSelect"
+    client = FakeAsyncClient.instances[0]
+    assert str(client.kwargs["base_url"]) == "http://127.0.0.1:63569"
+    assert client.kwargs["auth"] == ("riot", "secret")
+    assert client.paths == ["/lol-gameflow/v1/gameflow-phase"]
 
 
 def test_lockfile_candidates_cover_windows_and_wsl(monkeypatch):
@@ -133,7 +171,7 @@ def test_lockfile_candidates_cover_windows_and_wsl(monkeypatch):
 def test_find_lockfile_picks_first_existing(tmp_path):
     missing = tmp_path / "missing.lockfile"
     present = tmp_path / "present.lockfile"
-    present.write_text("LeagueClient:1:t:https", encoding="utf-8")
+    present.write_text("LeagueClient:13268:63569:secret:https", encoding="utf-8")
     assert find_lockfile([missing, present]) == present
     assert find_lockfile([missing]) is None
 

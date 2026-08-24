@@ -1,0 +1,1 @@
+LeagueClient:13268:63569:secret:https
