@@ -36,3 +36,17 @@ Run all four; a change is not done while any is red.
 
 - Decision questions go one at a time through the question tool, always with a recommendation.
 - Commit only after the four gates pass; never commit `.env` or `data/`.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in this repo's GitHub Issues via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Five canonical triage-role labels used verbatim (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
