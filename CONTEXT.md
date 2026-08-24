@@ -27,3 +27,13 @@ _Avoid_: history screen, stats page
 **Backfill**:
 The era-first historical download that fills Personal History: current-patch-era games first, older matches continuing in the background across sessions from a resumable queue.
 _Avoid_: initial sync, bulk download
+
+### Comparison
+
+**Benchmark**:
+A Findings Pack population median shown beside the user's own value for the same feature and role; a comparison is valid only when both sides use the identical feature definition.
+_Avoid_: baseline, average
+
+**Trajectory**:
+The per-match rolling win-rate line across a player's Personal History.
+_Avoid_: progress chart, trend line
