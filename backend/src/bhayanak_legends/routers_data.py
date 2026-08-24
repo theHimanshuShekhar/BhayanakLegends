@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import statistics
 from typing import Any
 
@@ -15,6 +16,25 @@ router = APIRouter()
 
 HABIT_KEYS = ("recall_safety", "fast_first_dragon", "spend_before_backing", "plates_by_14")
 ROLLING_WINDOW = 10
+_PATCH_RE = re.compile(r"^(\d+)\.(\d+)$")
+
+
+def _patch_sort_key(patch: str | None) -> tuple[int, int, int, str]:
+    """Order valid numeric patches first; malformed values sort last by text.
+
+    Missing patches are omitted by the summary and trajectory filters because
+    there is no patch range to render, making omission the deterministic fallback.
+    """
+    if not patch:
+        return (1, 0, 0, "")
+    match = _PATCH_RE.fullmatch(patch)
+    if match:
+        return (0, int(match.group(1)), int(match.group(2)), patch)
+    return (1, 0, 0, patch)
+
+
+def _patch_group_sort_key(key: tuple[str, str, str | None]) -> tuple:
+    return (_patch_sort_key(key[0]), key[1], key[2] or "")
 
 
 @router.get("/history/summary")
@@ -22,7 +42,7 @@ def history_summary(request: Request) -> dict:
     rows = request.app.state.store.all_matches()
     games = len(rows)
     wins = sum(1 for r in rows if r["win"])
-    patches = sorted({r["patch"] for r in rows if r["patch"]})
+    patches = sorted({r["patch"] for r in rows if r["patch"]}, key=_patch_sort_key)
     by_role: dict[str, RoleRow] = {}
     for row in rows:
         role = row["role"]
@@ -61,7 +81,7 @@ def trajectories(
         groups.setdefault(key, []).append(row)
 
     points: list[dict] = []
-    for key in sorted(groups):
+    for key in sorted(groups, key=_patch_group_sort_key):
         ordered = sorted(groups[key], key=lambda r: r["played_at"] or "")
         for index in range(len(ordered)):
             window = ordered[max(0, index - ROLLING_WINDOW + 1) : index + 1]
