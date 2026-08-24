@@ -78,6 +78,8 @@ def create_app(
             app.state.sync_service.attach_loop(loop)
         if app.state.live_service is not None:
             await app.state.live_service.start()
+        # Auto-sync is intentionally scheduled after the readiness-critical hooks.
+        _schedule_auto_sync_startup(app)
         yield
         if app.state.sync_service is not None:
             app.state.sync_service.shutdown()
@@ -263,3 +265,51 @@ def _settings_view(
         "has_key": credentials.has_key() if credentials is not None else store.has_setting("riot_key"),
         "auto_sync": (store.get_setting("auto_sync") or "0") == "1",
     }
+
+
+async def _start_auto_sync(app: FastAPI) -> None:
+    """Start the eligible startup Backfill after the app yields readiness."""
+    await asyncio.sleep(0)
+    settings = _settings_view(app.state.store, app.state.credential_store)
+    if not settings["auto_sync"]:
+        return
+    if not _is_valid_riot_id(settings["riot_id"]):
+        log.info("auto-sync skipped: valid Riot ID required")
+        return
+    if settings["region_route"] not in {"sea", "americas", "europe", "asia"}:
+        log.info("auto-sync skipped: valid region route required")
+        return
+    try:
+        riot_key = await asyncio.to_thread(app.state.credential_store.load)
+    except CredentialError as exc:
+        log.info("auto-sync skipped: Riot key unavailable: %s", exc)
+        return
+    if not isinstance(riot_key, str) or not riot_key.strip():
+        log.info("auto-sync skipped: Riot key required")
+        return
+    service = app.state.sync_service
+    if service is None:
+        return
+    try:
+        await asyncio.to_thread(service.start)
+    except CredentialError as exc:
+        # Credential state can change between eligibility and worker start.
+        log.warning("auto-sync skipped: %s", exc)
+
+
+def _schedule_auto_sync_startup(app: FastAPI) -> None:
+    """Schedule at most one startup Backfill for an eligible installation."""
+    if getattr(app.state, "auto_sync_startup_scheduled", False):
+        return
+    app.state.auto_sync_startup_scheduled = True
+
+    settings = _settings_view(app.state.store, app.state.credential_store)
+    if not settings["auto_sync"]:
+        return
+    if not _is_valid_riot_id(settings["riot_id"]):
+        log.info("auto-sync skipped: valid Riot ID required")
+        return
+    if settings["region_route"] not in {"sea", "americas", "europe", "asia"}:
+        log.info("auto-sync skipped: valid region route required")
+        return
+    app.state.auto_sync_startup_task = asyncio.create_task(_start_auto_sync(app))

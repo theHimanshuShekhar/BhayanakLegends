@@ -6,6 +6,35 @@ import type { SseMessage } from "../../api/sse";
 import type { RegionRoute, SettingsPatch, SyncStatus } from "../../api/types";
 import { isValidRiotId } from "./identity";
 
+function isSyncStatus(value: unknown): value is SyncStatus {
+  if (typeof value !== "object" || value === null) return false;
+  if (
+    !("state" in value) ||
+    !("mode" in value) ||
+    !("total_queued" in value) ||
+    !("downloaded" in value) ||
+    !("skipped" in value) ||
+    !("failed" in value) ||
+    !("current_match_id" in value) ||
+    !("started_at" in value)
+  ) {
+    return false;
+  }
+  return (
+    (value.state === "idle" ||
+      value.state === "running" ||
+      value.state === "cancelled" ||
+      value.state === "error") &&
+    (value.mode === "era_first" || value.mode === "import") &&
+    typeof value.total_queued === "number" &&
+    typeof value.downloaded === "number" &&
+    typeof value.skipped === "number" &&
+    typeof value.failed === "number" &&
+    (typeof value.current_match_id === "string" || value.current_match_id === null) &&
+    (typeof value.started_at === "string" || value.started_at === null)
+  );
+}
+
 const REGIONS: readonly RegionRoute[] = ["sea", "europe", "americas", "asia"];
 const DEFAULT_RIOT_ID = "";
 
@@ -41,8 +70,11 @@ export function SyncPanel() {
 
   const [live, setLive] = useState<SyncStatus | null>(null);
   useEvents((msg: SseMessage) => {
-    if (msg.type === "sync.progress" || msg.type === "sync.done") {
-      setLive(msg.data as SyncStatus);
+    if (
+      (msg.type === "sync.progress" || msg.type === "sync.done") &&
+      isSyncStatus(msg.data)
+    ) {
+      setLive(msg.data);
     }
   });
 
@@ -155,6 +187,14 @@ export function SyncPanel() {
             className="rounded-[10px] border border-line bg-deep px-2.5 py-1.5 font-mono text-[11px] outline-none placeholder:text-dimmer focus:border-accent"
           />
         </label>
+        {autoSync && settings.data && !settings.data.has_key && (
+          <span
+            data-testid="auto-sync-prerequisite"
+            className="col-span-2 text-[10px] text-amber"
+          >
+            Save a Riot API key to enable auto-sync when the app opens.
+          </span>
+        )}
         <label className="mt-4 flex items-center gap-2 text-xs text-dim">
           <input
             type="checkbox"

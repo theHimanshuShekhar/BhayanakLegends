@@ -1,6 +1,7 @@
 import asyncio
 import json
 import shutil
+import threading
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -150,6 +151,34 @@ def test_http_fetcher_factory_is_callable(tmp_path: Path):
     assert callable(service._http_fetcher(object()))
 
 
+def test_start_is_idempotent_while_backfill_worker_is_running(tmp_path: Path):
+    service = SyncService(
+        Store(tmp_path / "app.db"),
+        Hub(),
+        lambda: {
+            "riot_key": "test-key",
+            "riot_id": "Player#1234",
+            "region_route": "sea",
+        },
+    )
+    entered = threading.Event()
+    release = threading.Event()
+
+    def blocked_run(_settings: dict) -> None:
+        entered.set()
+        release.wait(1.0)
+
+    service._run_riot = blocked_run  # type: ignore[method-assign]
+    first = service.start()
+    assert entered.wait(1.0)
+    second = service.start()
+    release.set()
+    service.shutdown()
+
+    assert first["state"] == "running"
+    assert second["state"] == "running"
+
+
 async def test_riot_backfill_resolves_and_persists_match(tmp_path: Path):
     fixture_dir = Path(__file__).parent / "fixtures"
     fake_client = FakeRiotClient(
@@ -157,6 +186,7 @@ async def test_riot_backfill_resolves_and_persists_match(tmp_path: Path):
         json.loads((fixture_dir / "SG2_170114893_timeline.json").read_text()),
     )
     store = Store(tmp_path / "app.db")
+    store.enqueue(["SG2_170114893"], priority=0)
     store.set_setting("puuid", "stale-puuid")
     store.set_setting("puuid_identity", "OldPlayer#9999")
     store.set_setting("puuid_region", "sea")

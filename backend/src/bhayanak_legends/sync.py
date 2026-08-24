@@ -57,6 +57,7 @@ class SyncService:
         self._cancel = threading.Event()
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
+        self._start_lock = threading.Lock()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._status: dict[str, Any] = {
             "state": "idle",
@@ -96,26 +97,27 @@ class SyncService:
 
     def start(self) -> dict[str, Any]:
         """Kick the era-first Backfill (no-op when already running)."""
-        if self._thread is not None and self._thread.is_alive():
+        with self._start_lock:
+            if self._thread is not None and self._thread.is_alive():
+                return self.status()
+            if self._loop is None:
+                try:
+                    self._loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    pass
+            settings = self._get_settings()
+            if not settings.get("riot_key"):
+                with self._lock:
+                    self._status.update(state="error", mode="era_first", started_at=None)
+                self._publish("sync.done")
+                return self.status()
+            self._begin_run("era_first")
+            self.store.reset_running_items()
+            self._thread = threading.Thread(
+                target=self._run_riot, args=(settings,), name="bl-sync", daemon=True
+            )
+            self._thread.start()
             return self.status()
-        if self._loop is None:
-            try:
-                self._loop = asyncio.get_running_loop()
-            except RuntimeError:
-                pass
-        settings = self._get_settings()
-        if not settings.get("riot_key"):
-            with self._lock:
-                self._status.update(state="error", mode="era_first", started_at=None)
-            self._publish("sync.done")
-            return self.status()
-        self._begin_run("era_first")
-        self.store.reset_running_items()
-        self._thread = threading.Thread(
-            target=self._run_riot, args=(settings,), name="bl-sync", daemon=True
-        )
-        self._thread.start()
-        return self.status()
 
     def import_from_dir(
         self, dir: Path, loop: asyncio.AbstractEventLoop | None = None
@@ -204,11 +206,10 @@ class SyncService:
                 self.store.set_setting("puuid_identity", riot_id)
                 self.store.set_setting("puuid_region", region_route)
             ids = await client.match_ids(str(puuid), BACKFILL_TOTAL)
-            added = 0
             for priority, match_id in enumerate(ids):
-                added += self.store.enqueue([match_id], priority=priority)
+                self.store.enqueue([match_id], priority=priority)
             with self._lock:
-                self._status["total_queued"] = added
+                self._status["total_queued"] = self.store.queue_stats()["pending"]
             self._publish("sync.progress")
             await self._process(self._http_fetcher(client), str(puuid))
         finally:

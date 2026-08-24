@@ -79,6 +79,14 @@ describe("SyncPanel", () => {
     ).toBeInTheDocument();
   });
 
+  it("surfaces the saved-key prerequisite for auto-sync", async () => {
+    renderPanel();
+
+    expect(await screen.findByTestId("auto-sync-prerequisite")).toHaveTextContent(
+      "Save a Riot API key to enable auto-sync when the app opens.",
+    );
+  });
+
   it("disables Backfill until an explicit Riot ID is entered", async () => {
     vi.mocked(api.settings).mockResolvedValue({ ...settings, riot_id: null });
     renderPanel();
