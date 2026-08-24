@@ -6,13 +6,13 @@ from fastapi import APIRouter, Request
 from starlette.responses import StreamingResponse
 
 
-def event_stream(hub, queue: asyncio.Queue, app_version: str):
+def event_stream(hub, queue: asyncio.Queue, app_version: str, pack_version: str | None = None):
     """Async generator yielding SSE frames; unsubscribes on cancellation."""
     hello = json.dumps(
         {
             "type": "hello",
             "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "data": {"app_version": app_version},
+            "data": {"app_version": app_version, "pack_version": pack_version},
         }
     )
 
@@ -39,7 +39,12 @@ def build_events_router() -> APIRouter:
         hub = request.app.state.hub
         queue = hub.subscribe()
         return StreamingResponse(
-            event_stream(hub, queue, request.app.state.app_version),
+            event_stream(
+                hub,
+                queue,
+                request.app.state.app_version,
+                request.app.state.pack_version,
+            ),
             media_type="text/event-stream",
         )
 

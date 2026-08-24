@@ -3,10 +3,10 @@ import type { FormEvent } from "react";
 import { useCancelSync, useSaveSettings, useSettings, useStartSync, useSyncStatus } from "../../api/hooks";
 import { useEvents } from "../../api/sse";
 import type { SseMessage } from "../../api/sse";
-import type { SettingsPatch, SyncStatus } from "../../api/types";
+import type { RegionRoute, SettingsPatch, SyncStatus } from "../../api/types";
 import { isValidRiotId } from "./identity";
 
-const REGIONS = ["sea", "europe", "americas", "asia"] as const;
+const REGIONS: readonly RegionRoute[] = ["sea", "europe", "americas", "asia"];
 const DEFAULT_RIOT_ID = "";
 
 function isTerminal(state: SyncStatus["state"]): boolean {
@@ -55,7 +55,7 @@ export function SyncPanel() {
   const running = status?.state === "running";
 
   const [riotId, setRiotId] = useState(DEFAULT_RIOT_ID);
-  const [region, setRegion] = useState<string>("sea");
+  const [region, setRegion] = useState<RegionRoute>("sea");
   const [key, setKey] = useState("");
   const [autoSync, setAutoSync] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -127,7 +127,7 @@ export function SyncPanel() {
           <select
             value={region}
             onChange={(e) => {
-              setRegion(e.target.value);
+              setRegion(e.target.value as RegionRoute);
               setDirty(true);
             }}
             data-testid="input-region"

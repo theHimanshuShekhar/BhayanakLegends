@@ -6,10 +6,22 @@ import json
 import math
 import re
 import statistics
+from typing import Any
 
 from fastapi import APIRouter, Request
 
-from .models import HabitOutcome, PatchAggregate, PostGameDigest, RoleBenchmark, RoleRow, TrajectoryPoint
+from .models import (
+    Checkpoints,
+    HabitOutcome,
+    HistorySummary,
+    PatchAggregate,
+    PostGameDigest,
+    RoleBenchmark,
+    RoleBenchmarkPersonal,
+    RoleBenchmarkPopulation,
+    RoleRow,
+    TrajectoryPoint,
+)
 from .pack import PackError
 
 BENCHMARK_FIELD_CONTRACT = (
@@ -91,7 +103,7 @@ def _match_sort_key(row: dict[str, Any]) -> tuple[str, str]:
     return (row["played_at"] or "", row["match_id"])
 
 
-@router.get("/progress/aggregates")
+@router.get("/progress/aggregates", response_model=list[PatchAggregate])
 def patch_aggregates(
     request: Request,
     patch: str | None = None,
@@ -117,8 +129,8 @@ def patch_aggregates(
     ]
 
 
-@router.get("/history/summary")
-def history_summary(request: Request) -> dict:
+@router.get("/history/summary", response_model=HistorySummary)
+def history_summary(request: Request) -> HistorySummary:
     rows = request.app.state.store.all_matches()
     games = len(rows)
     wins = sum(1 for r in rows if r["win"])
@@ -140,7 +152,7 @@ def history_summary(request: Request) -> dict:
     }
 
 
-@router.get("/progress/trajectories")
+@router.get("/progress/trajectories", response_model=list[TrajectoryPoint])
 def trajectories(
     request: Request,
     patch: str | None = None,
@@ -169,7 +181,7 @@ def trajectories(
     return points
 
 
-@router.get("/postgame/latest")
+@router.get("/postgame/latest", response_model=PostGameDigest | None)
 def postgame_latest(request: Request) -> dict | None:
     rows = request.app.state.store.all_matches()
     if not rows:
@@ -186,13 +198,17 @@ def postgame_latest(request: Request) -> dict | None:
         role=latest["role"] or "UNKNOWN",
         win=bool(latest["win"]),
         duration_s=int(latest["duration_s"] or 0),
-        checkpoints=checkpoints,
+        checkpoints=Checkpoints.model_validate(checkpoints),
         habits=_habit_outcomes(request),
         headline=_headline(latest),
     ).model_dump()
 
 
-@router.get("/benchmarks")
+@router.get(
+    "/benchmarks",
+    response_model=list[RoleBenchmark],
+    response_model_exclude_none=True,
+)
 def benchmarks(request: Request) -> list[dict]:
     try:
         pack = request.app.state.pack.load()
@@ -228,9 +244,9 @@ def benchmarks(request: Request) -> list[dict]:
         result.append(
             RoleBenchmark(
                 role=role,
-                personal=personal_values,
-                population=population_values,
-            ).model_dump()
+                personal=RoleBenchmarkPersonal.model_validate(personal_values),
+                population=RoleBenchmarkPopulation.model_validate(population_values),
+            ).model_dump(exclude_none=True)
         )
     return result
 

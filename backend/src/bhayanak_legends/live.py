@@ -23,7 +23,16 @@ import logging
 
 from pydantic import BaseModel, Field
 
-from .models import LiveState, LiveStatus
+from .models import (
+    CellState,
+    ChampSelectStatus,
+    GameMode,
+    GameflowPhase,
+    InGameStatus,
+    LiveEventName,
+    LiveState,
+    LiveStatus,
+)
 
 log = logging.getLogger("bhayanak_legends.live")
 
@@ -43,7 +52,7 @@ class AllyCell(BaseModel):
     champion: str | None = None  # Data Dragon display name; None → UI shows "Champion {id}"
     name: str | None = None
     is_local: bool = False
-    state: str = "none"  # intent | picked | hover | none
+    state: CellState = "none"
 
 
 class EnemyCell(BaseModel):
@@ -51,12 +60,12 @@ class EnemyCell(BaseModel):
     champion_id: int = 0
     champion: str | None = None
     name: str | None = None  # COMPLIANCE: always null — enemy summoner names never leave this module
-    state: str = "none"
+    state: CellState = "none"
 
 
 class ChampSelectSnapshot(BaseModel):
     active: bool = False
-    phase: str | None = None
+    phase: GameflowPhase | None = None
     timer_sec: int | None = None
     bans_ally: list[CsBan] = Field(default_factory=list)
     bans_enemy: list[CsBan] = Field(default_factory=list)
@@ -82,30 +91,35 @@ class PlayerLive(BaseModel):
 
 
 class LiveEvent(BaseModel):
-    name: str
+    name: LiveEventName
     t_s: float = 0.0
     actor: str | None = None
     victim: str | None = None
     detail: str | None = None
 
 
+class LiveTeams(BaseModel):
+    order: list[PlayerLive] = Field(default_factory=list)
+    chaos: list[PlayerLive] = Field(default_factory=list)
+
+    def __getitem__(self, key: str) -> list[PlayerLive]:
+        return getattr(self, key)
+
 class InGameSnapshot(BaseModel):
     active: bool = False
     clock_s: float = 0.0
-    mode: str | None = None
+    mode: GameMode | None = None
     local_summoner: str | None = None
     local_champion: str | None = None
-    teams: dict[str, list[PlayerLive]] = Field(default_factory=lambda: {"order": [], "chaos": []})
+    teams: LiveTeams = Field(default_factory=LiveTeams)
     events: list[LiveEvent] = Field(default_factory=list)
 
-
-def _participant_state(participant: dict) -> str:
+def _participant_state(participant: dict) -> CellState:
     if participant.get("championId"):
         return "picked"
     if participant.get("championPickIntent"):
         return "intent"
     return "none"
-
 
 def _cs_bans(raw_bans: dict | None, key: str, names: dict[int, str]) -> list[CsBan]:
     bans: list[CsBan] = []
@@ -119,7 +133,7 @@ def _cs_bans(raw_bans: dict | None, key: str, names: dict[int, str]) -> list[CsB
 
 def build_champ_select_snapshot(
     session: dict | None,
-    phase: str | None,
+    phase: GameflowPhase | None,
     names: dict[int, str],
 ) -> ChampSelectSnapshot:
     """Pure: LCU champ-select session payload → ChampSelectSnapshot."""
@@ -294,8 +308,8 @@ class LiveService:
         self, champ_select: ChampSelectSnapshot, ingame: InGameSnapshot, last_error: str | None
     ) -> LiveStatus:
         return LiveStatus(
-            champ_select=LiveState(active=champ_select.active, phase=champ_select.phase),
-            ingame=LiveState(
+            champ_select=ChampSelectStatus(active=champ_select.active, phase=champ_select.phase),
+            ingame=InGameStatus(
                 active=ingame.active,
                 game_id=self._game_id if ingame.active else None,
                 mode=ingame.mode,

@@ -36,9 +36,9 @@ function renderPage(ui: ReactElement) {
 }
 
 const points = [
-  { patch: "16.16", role: "TOP", champion: null, played_at: "2026-02-01T00:00:00Z", index: 2, rolling_wr: 0.42 },
-  { patch: "14.17", role: "TOP", champion: null, played_at: "2026-01-01T00:00:00Z", index: 0, rolling_wr: 0.6 },
-  { patch: "14.17", role: "MIDDLE", champion: null, played_at: "2026-01-15T00:00:00Z", index: 1, rolling_wr: 0.25 },
+  { patch: "16.16", role: "TOP" as const, champion: null, played_at: "2026-02-01T00:00:00Z", index: 2, rolling_wr: 0.42 },
+  { patch: "14.17", role: "TOP" as const, champion: null, played_at: "2026-01-01T00:00:00Z", index: 0, rolling_wr: 0.6 },
+  { patch: "14.17", role: "MIDDLE" as const, champion: null, played_at: "2026-01-15T00:00:00Z", index: 1, rolling_wr: 0.25 },
 ];
 
 const aggregates = [
@@ -50,20 +50,20 @@ const summary = {
   matches: 30,
   patches: ["14.17", "16.16"],
   by_role: [
-    { role: "TOP", games: 22, wins: 11 },
-    { role: "MIDDLE", games: 8, wins: 2 },
+    { role: "TOP" as const, games: 22, wins: 11 },
+    { role: "MIDDLE" as const, games: 8, wins: 2 },
   ],
   win_rate: 0.433,
 };
 
 const benchmarks = [
   {
-    role: "MIDDLE",
+    role: "MIDDLE" as const,
     personal: { cs10: 77, level10: 8, gold_diff_10: 247 },
     population: { cs10_median: 64, sample: 52048 },
   },
   {
-    role: "TOP",
+    role: "TOP" as const,
     personal: { cs10: 58.5, level10: 7, gold_diff_10: -12.5 },
     population: { cs10_median: 61, sample: 52048 },
   },

@@ -95,7 +95,7 @@ export const ingameSnapshot: InGameSnapshot = {
 };
 
 export const champSelectActive: LiveStatus = {
-  champ_select: { active: true, phase: "locked" },
+  champ_select: { active: true, phase: "ChampSelect" },
   ingame: { active: false, game_id: null, mode: null, clock_s: 0 },
   last_error: null,
 };

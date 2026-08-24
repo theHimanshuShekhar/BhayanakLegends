@@ -1,4 +1,5 @@
 import json
+from json import JSONDecodeError
 from pathlib import Path
 
 import jsonschema
@@ -20,11 +21,16 @@ class PackStore:
         schema_path = self.pack_dir / "pack.schema.json"
         if not path.exists():
             raise PackError(f"Findings Pack missing at {path}")
-        pack = json.loads(path.read_text())
+        try:
+            pack = json.loads(path.read_text())
+        except (OSError, JSONDecodeError) as e:
+            raise PackError(f"Findings Pack could not be read: {e}") from e
         if schema_path.exists():
-            schema = json.loads(schema_path.read_text())
             try:
+                schema = json.loads(schema_path.read_text())
                 jsonschema.validate(pack, schema)
+            except (OSError, JSONDecodeError, jsonschema.SchemaError) as e:
+                raise PackError(f"Findings Pack schema could not be read: {e}") from e
             except jsonschema.ValidationError as e:
                 raise PackError(f"Findings Pack failed schema validation: {e.message}") from e
         if pack.get("schema_version") != 1:
