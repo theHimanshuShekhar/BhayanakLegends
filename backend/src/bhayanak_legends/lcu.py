@@ -158,15 +158,19 @@ class IngameTransport(Protocol):
 
 
 class HttpxLcuConnection:
-    """Production LCU transport. Re-reads the lockfile per call and rebuilds the
-    underlying client whenever port/password/protocol rotate (client restarts mid-session)."""
+    """Production LCU transport.
 
-    def __init__(self) -> None:
+    ``lockfile_path`` is injectable for deterministic local replays. When it is
+    omitted, the normal Windows/WSL lockfile discovery remains unchanged.
+    """
+
+    def __init__(self, lockfile_path: Path | None = None) -> None:
+        self._lockfile_path = lockfile_path
         self._client: httpx.AsyncClient | None = None
         self._key: tuple[int, str, str] | None = None
 
     def _ensure_client(self) -> bool:
-        path = find_lockfile()
+        path = find_lockfile([self._lockfile_path]) if self._lockfile_path is not None else find_lockfile()
         if path is None:
             return False
         try:

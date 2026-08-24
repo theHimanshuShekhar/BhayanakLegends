@@ -159,6 +159,40 @@ async def test_httpx_lcu_connection_uses_lockfile_fields_for_gameflow_request(
     assert client.kwargs["auth"] == ("riot", "secret")
     assert client.paths == ["/lol-gameflow/v1/gameflow-phase"]
 
+async def test_httpx_lcu_connection_accepts_explicit_lockfile_path(tmp_path, monkeypatch):
+    lockfile = tmp_path / "fake.lockfile"
+    lockfile.write_text("Fake:123:23456:fake-token:http", encoding="utf-8")
+
+    class FakeResponse:
+        def json(self):
+            return "InProgress"
+
+        def raise_for_status(self):
+            return None
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        async def get(self, path):
+            return FakeResponse()
+
+    monkeypatch.setattr(lcu_module.httpx, "AsyncClient", FakeAsyncClient)
+    connection = HttpxLcuConnection(lockfile_path=lockfile)
+
+    assert await connection.gameflow_phase() == "InProgress"
+
+
+def test_replay_transport_settings_are_env_overridable(monkeypatch, tmp_path):
+    lockfile = tmp_path / "fake.lockfile"
+    lockfile.write_text("Fake:123:23456:fake-token:http", encoding="utf-8")
+    monkeypatch.setenv("BHAYANAK_LCU_LOCKFILE", str(lockfile))
+    monkeypatch.setenv("BHAYANAK_LIVE_CLIENT_DATA_URL", "http://127.0.0.1:23457/allgamedata")
+
+    config = SidecarConfig()
+
+    assert config.lcu_lockfile == lockfile
+    assert config.live_client_data_url.endswith(":23457/allgamedata")
 
 def test_lockfile_candidates_cover_windows_and_wsl(monkeypatch):
     monkeypatch.setenv("LOCALAPPDATA", "/w/AppData/Local")
