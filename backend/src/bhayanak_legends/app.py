@@ -145,8 +145,8 @@ def create_app(
 
         champions = ChampionDirectory(data_dir / "ddragon")
         app.state.live_service = LiveService(
-            HttpxLcuConnection(),
-            HttpxIngameTransport(),
+            HttpxLcuConnection(config.lcu_lockfile),
+            HttpxIngameTransport(config.live_client_data_url),
             hub,
             champion_names=champions.get,
         )

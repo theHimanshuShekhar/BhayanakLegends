@@ -11,6 +11,9 @@ class SidecarConfig(BaseSettings):
     token: str = "dev"
     data_dir: Path = Path.home() / ".local" / "share" / "BhayanakLegends"
     pack_dir: Path | None = None
+    # Optional local replay seams; production defaults retain normal discovery.
+    lcu_lockfile: Path | None = None
+    live_client_data_url: str = "https://127.0.0.1:2999/liveclientdata/allgamedata"
 
     model_config = {"env_prefix": "BHAYANAK_"}
 
