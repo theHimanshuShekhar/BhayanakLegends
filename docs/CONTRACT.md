@@ -25,7 +25,9 @@ Base URL: `http://127.0.0.1:{port}`
 | GET | /progress/trajectories | `TrajectoryPoint[]` | query: `patch?`, `role?`, `champion?` |
 | GET | /postgame/latest | `PostGameDigest \| null` | null = none yet |
 | GET | /benchmarks | `RoleBenchmark[]` | population medians + personal values |
-| GET | /live/status | `LiveStatus` | LCU + in-game detection |
+| GET | /live/status | `LiveStatus` | coarse LCU + in-game health |
+| GET | /live/session | `ChampSelectSnapshot` | rich champ-select state; idle → `{active:false,...}` |
+| GET | /live/ingame | `InGameSnapshot` | rich in-game state; idle → `{active:false,...}` |
 | GET | /events | SSE stream | see Events |
 
 ### Types (mirrored in `src/api/types.ts`; python side in `bhayanak_legends.models`)
@@ -84,6 +86,63 @@ interface LiveStatus {
   ingame: { active: boolean; game_id: number|null; mode: string|null; clock_s: number };
   last_error: string | null;
 }
+
+// Rich LCU-bridge snapshots (GET /live/session + SSE "champselect.state").
+// COMPLIANCE: enemy summoner names are stripped at the service layer —
+// ChampSelectSnapshot.enemy[].name is always null.
+interface ChampSelectBan { champion_id: number; name: string|null }   // name null → UI shows "Champion {id}"
+interface ChampSelectAllyCell {
+  cell_id: number;
+  champion_id: number;
+  champion: string|null;         // Data Dragon display name; null → UI shows "Champion {id}"
+  name: string|null;             // teammate summoner name when the LCU exposes it
+  is_local: boolean;
+  state: "intent"|"picked"|"hover"|"none";
+}
+interface ChampSelectEnemyCell {
+  cell_id: number;
+  champion_id: number;
+  champion: string|null;
+  name: string|null;             // always null — compliance
+  state: "intent"|"picked"|"hover"|"none";
+}
+interface ChampSelectSnapshot {
+  active: boolean;
+  phase: string|null;            // LCU gameflow phase, e.g. "ChampSelect"
+  timer_sec: number|null;        // adjustedTimeLeftInSec; client ticks down between frames
+  bans_ally: ChampSelectBan[];
+  bans_enemy: ChampSelectBan[];
+  ally: ChampSelectAllyCell[];
+  enemy: ChampSelectEnemyCell[];
+}
+
+// Rich in-game snapshots (GET /live/ingame + SSE "live.state"); from the Live
+// Client Data API on :2999. Summoner names here are official spectator data.
+interface ItemLive { id: number; count: number }
+interface PlayerLive {
+  summoner: string;
+  champion: string|null;
+  level: number;
+  kills: number; deaths: number; assists: number;
+  cs: number;                    // scores.creepScore
+  ward_score: number;            // scores.wardScore
+  items: ItemLive[];
+}
+interface LiveEvent {
+  name: string;                  // GameStart|MinionsSpawning|FirstBrick|DragonKill|HeraldKill|BaronKill|ChampionKill|TurretKilled|InhibKilled|GameEnd
+  t_s: number;                   // EventTime
+  actor: string|null; victim: string|null;
+  detail: string|null;           // DragonType on DragonKill
+}
+interface InGameSnapshot {
+  active: boolean;
+  clock_s: number;               // gameData.gameTime; client ticks between frames
+  mode: string|null;
+  local_summoner: string|null;
+  local_champion: string|null;
+  teams: { order: PlayerLive[]; chaos: PlayerLive[] };
+  events: LiveEvent[];           // last 40, oldest first
+}
 ```
 
 ### SSE events (envelope `{type, ts, data}`)
@@ -92,7 +151,9 @@ interface LiveStatus {
 |---|---|
 | `sync.progress` | `SyncStatus` |
 | `sync.done` | `SyncStatus` (terminal) |
-| `live.state` | `LiveStatus` |
+| `champselect.state` | `ChampSelectSnapshot` |
+| `live.state` | `InGameSnapshot` |
+| `live.status` | `LiveStatus` (coarse health) |
 | `pack.updated` | `{schema_version}` |
 | `hello` | `{app_version, pack_version}` (sent on connect) |
 

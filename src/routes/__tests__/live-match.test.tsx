@@ -1,19 +1,42 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { InGameSnapshot } from "../../api/types";
 import type { SseMessage } from "../../api/sse";
 import { LiveMatchPage } from "../live-match";
-import { forbiddenEnemyName, idleStatus, ingameActive, makePack } from "./fixtures";
+import {
+  forbiddenEnemyName,
+  idleIngame,
+  ingameSnapshot,
+  makePack,
+} from "./fixtures";
+
+// Mutable fixtures read lazily by the hook mocks below.
+const liveState = vi.hoisted(() => ({
+  ingame: null as InGameSnapshot | null,
+}));
 
 vi.mock("../../api/client", () => ({
   api: {
-    liveStatus: vi.fn(),
     pack: vi.fn(),
   },
+  connection: () => ({ base: "", token: "t" }),
   eventsUrl: () => "http://127.0.0.1:1/events?token=t",
 }));
 
-// SSE is mocked so tests can push live.state frames the way the sidecar would.
+// Real react-query hooks bound to the fixtures above, so SSE overlays that
+// write into ["live-ingame"] re-render exactly like production.
+vi.mock("../../api/hooks", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api/hooks")>();
+  const { useQuery } = await import("@tanstack/react-query");
+  return {
+    ...actual,
+    useLiveIngame: () =>
+      useQuery({ queryKey: ["live-ingame"], queryFn: () => Promise.resolve(liveState.ingame!) }),
+  };
+});
+
+// SSE is mocked so tests can push live.state frames like the sidecar.
 let pushSse: ((msg: SseMessage) => void) | null = null;
 vi.mock("../../api/sse", () => ({
   useEvents: (onMessage?: (msg: never) => void) => {
@@ -37,7 +60,7 @@ function renderPage() {
 
 beforeEach(() => {
   pushSse = null;
-  vi.mocked(api.liveStatus).mockResolvedValue(idleStatus);
+  liveState.ingame = idleIngame;
   vi.mocked(api.pack).mockResolvedValue(makePack());
 });
 
@@ -114,12 +137,53 @@ describe("LiveMatchPage — idle", () => {
 
 describe("LiveMatchPage — active game", () => {
   beforeEach(() => {
-    vi.mocked(api.liveStatus).mockResolvedValue(ingameActive);
+    liveState.ingame = ingameSnapshot;
+  });
+
+  it("renders REAL player rows with summoner, champion, level, K/D/A, CS and ward score", async () => {
+    renderPage();
+    const localRow = await screen.findByTestId("player-row-local"); // highlighted
+    expect(localRow).toHaveTextContent("SacredButtholio");
+    expect(localRow).toHaveTextContent("Viktor");
+    expect(localRow).toHaveTextContent("12");
+    expect(localRow).toHaveTextContent("4/2/7");
+    expect(localRow).toHaveTextContent("213"); // CS from creepScore
+
+    expect(screen.getByTestId("team-order")).toHaveTextContent("Ornn");
+    expect(screen.getByTestId("team-chaos")).toHaveTextContent("Lee Sin");
+    expect(within(localRow).getAllByTestId("row-ward")[0]).toHaveTextContent("1.4"); // ward score column
+  });
+
+  it("sums kills and turret events into the score strip", async () => {
+    renderPage();
+    await screen.findByTestId("player-row-local");
+    expect(screen.getByTestId("score-strip")).toHaveTextContent(
+      "23 kills · 1 turrets", // (2+3+4+5+1) + (3+2+2+1+0), one TurretKilled event
+    );
+  });
+
+  it("renders real feed events including DragonKill with its dragon type", async () => {
+    renderPage();
+    await screen.findByTestId("player-row-local");
+    const feed = screen.getByTestId("event-feed");
+    expect(feed).toHaveTextContent("6 events");
+    expect(feed).toHaveTextContent("DragonKill · Infernal");
+    expect(feed).toHaveTextContent("SacredButtholio → EnemyADC");
+    expect(feed).toHaveTextContent("FirstBrick");
+  });
+
+  it("binds the active player panel to the local player's stats", async () => {
+    renderPage();
+    await screen.findByTestId("player-row-local");
+    expect(screen.getByTestId("active-player-sub")).toHaveTextContent("SacredButtholio · Viktor");
+    expect(screen.getByTestId("active-kda")).toHaveTextContent("4 / 2 / 7");
+    expect(screen.getByTestId("active-stat-cs")).toHaveTextContent("213");
+    expect(screen.getByTestId("active-stat-level")).toHaveTextContent("12");
   });
 
   it("shows the nearest checkpoint bucket as the win probability estimate", async () => {
     renderPage();
-    // clock 20:54 → nearest bucket "-1000..0 @20m"
+    // clock 1254 → nearest bucket "-1000..0 @20m"
     expect(await screen.findByText("28.2%")).toBeInTheDocument();
     const band = screen.getByTestId("wp-band");
     expect(band).toHaveTextContent("-1000..0 @20m");
@@ -128,30 +192,26 @@ describe("LiveMatchPage — active game", () => {
   });
 
   it("ticks the game clock forward between SSE live.state frames", async () => {
-    // Keep poll responses consistent with the pushed frame so a refetch
-    // cannot rewind the clock mid-test.
-    vi.mocked(api.liveStatus).mockResolvedValue({
-      champ_select: { active: false, phase: null },
-      ingame: { active: true, game_id: 1, mode: "CLASSIC", clock_s: 120 },
-      last_error: null,
-    });
+    // Keep the underlying query fixture consistent with the pushed frame so a
+    // refetch cannot rewind the clock mid-test.
+    liveState.ingame = { ...ingameSnapshot, clock_s: 120 };
     renderPage();
-    // Let the initial poll settle first so it cannot overwrite the SSE frame.
-    await screen.findByTestId("game-clock");
-    pushSse!({
-      type: "live.state",
-      ts: "t",
-      data: {
-        champ_select: { active: false, phase: null },
-        ingame: { active: true, game_id: 1, mode: "CLASSIC", clock_s: 120 },
-        last_error: null,
-      },
-    });
+    await screen.findByTestId("player-row-local");
+    pushSse!({ type: "live.state", ts: "t", data: { ...ingameSnapshot, clock_s: 120 } });
     await waitFor(() => expect(screen.getByTestId("game-clock")).toHaveTextContent("2:00"));
     // Local ticker advances ~1s per second without waiting for the next frame.
     await new Promise((r) => setTimeout(r, 2200));
     await waitFor(() =>
       expect(screen.getByTestId("game-clock").textContent).toMatch(/^2:0[2-9]$/),
     );
+  });
+
+  it("drops back to idle chrome when the game ends via SSE", async () => {
+    renderPage();
+    await screen.findByTestId("player-row-local");
+    await waitFor(() => expect(pushSse).toBeTruthy());
+    pushSse!({ type: "live.state", ts: "t", data: idleIngame });
+    await screen.findByTestId("waiting-pill");
+    expect(screen.queryByTestId("player-row-local")).toBeNull();
   });
 });

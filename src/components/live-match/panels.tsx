@@ -1,7 +1,7 @@
-import type { FindingsPack } from "../../api/types";
-import { CardHead, Dot } from "./bits";
+import type { FindingsPack, LiveEvent, PlayerLive } from "../../api/types";
+import { clockLabel, CardHead, Dot } from "./bits";
 
-export function ActivePlayerCard() {
+export function ActivePlayerCard({ player }: { player: PlayerLive | null }) {
   return (
     <section
       className="card3b"
@@ -18,8 +18,10 @@ export function ActivePlayerCard() {
           <Dot color="var(--color-teal)" />
           Active player
         </span>
-        <span className="mono-n" style={{ fontSize: 10, color: "var(--color-dimmer)" }}>
-          level — · —g held
+        <span className="mono-n" data-testid="active-player-sub" style={{ fontSize: 10, color: player ? "var(--color-text)" : "var(--color-dimmer)" }}>
+          {player
+            ? `${player.summoner} · ${player.champion ?? "?"}`
+            : "level — · —g held"}
         </span>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
@@ -32,17 +34,19 @@ export function ActivePlayerCard() {
             display: "grid",
             placeItems: "center",
             font: "700 14px var(--font-mono)",
-            color: "var(--color-dimmer)",
+            color: player ? "#e9e9ed" : "var(--color-dimmer)",
           }}
         >
-          —
+          {player?.champion ? player.champion.replace(/[^a-zA-Z]/g, "").slice(0, 2).toUpperCase() : "—"}
         </div>
         <div style={{ flex: 1 }}>
           <div
             style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "var(--color-dim)", marginBottom: 3 }}
           >
-            <span>HEALTH</span>
-            <span className="mono-n">— / —</span>
+            <span>K / D / A</span>
+            <span className="mono-n" data-testid="active-kda">
+              {player ? `${player.kills} / ${player.deaths} / ${player.assists}` : "— / —"}
+            </span>
           </div>
           <div
             style={{
@@ -56,9 +60,21 @@ export function ActivePlayerCard() {
         </div>
       </div>
       <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
-        {["AP", "ARMOR", "MR"].map((label) => (
+        {(player
+          ? ([
+              ["LEVEL", String(player.level)],
+              ["CS", String(player.cs)],
+              ["WARD", player.ward_score.toFixed(1)],
+            ] as const)
+          : ([
+              ["LEVEL", "—"],
+              ["CS", "—"],
+              ["WARD", "—"],
+            ] as const)
+        ).map(([label, value]) => (
           <div
             key={label}
+            data-testid={`active-stat-${label.toLowerCase()}`}
             style={{
               padding: "7px 8px",
               borderRadius: 11,
@@ -66,29 +82,31 @@ export function ActivePlayerCard() {
               boxShadow: "inset 0 2px 5px rgba(0,0,0,.55)",
             }}
           >
-            <div className="mono-n" style={{ font: "700 14px var(--font-mono)", color: "var(--color-dimmer)" }}>
-              —
+            <div className="mono-n" style={{ font: "700 14px var(--font-mono)", color: player ? "var(--color-text)" : "var(--color-dimmer)" }}>
+              {value}
             </div>
             <div style={{ fontSize: 8, letterSpacing: ".06em", color: "var(--color-dimmer)" }}>{label}</div>
           </div>
         ))}
       </div>
-      <div
-        style={{
-          marginTop: 9,
-          display: "flex",
-          gap: 8,
-          padding: 9,
-          borderRadius: 13,
-          background: "var(--color-surface-2)",
-          boxShadow: "var(--shadow-z1)",
-        }}
-      >
-        <p style={{ margin: 0, fontSize: 10.5, lineHeight: 1.5, color: "var(--color-dim)" }}>
-          Health, level and held gold read from the game state — they land when the :2999 bridge
-          connects.
-        </p>
-      </div>
+      {!player && (
+        <div
+          style={{
+            marginTop: 9,
+            display: "flex",
+            gap: 8,
+            padding: 9,
+            borderRadius: 13,
+            background: "var(--color-surface-2)",
+            boxShadow: "var(--shadow-z1)",
+          }}
+        >
+          <p style={{ margin: 0, fontSize: 10.5, lineHeight: 1.5, color: "var(--color-dim)" }}>
+            Health, level and held gold read from the game state — they land when the :2999 bridge
+            connects.
+          </p>
+        </div>
+      )}
     </section>
   );
 }
@@ -157,7 +175,7 @@ export function TeamVsTeamCard({ pack }: { pack: FindingsPack | undefined }) {
   );
 }
 
-export function EventFeedCard() {
+export function EventFeedCard({ events }: { events: LiveEvent[] }) {
   return (
     <section
       className="card3"
@@ -169,24 +187,74 @@ export function EventFeedCard() {
         label="EVENT FEED"
         right={
           <span className="mono-n" style={{ fontSize: 9, color: "var(--color-dimmer)" }}>
-            0 events
+            {events.length} events
           </span>
         }
       />
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: "14px 8px",
-          borderRadius: 11,
-          border: "1px dashed var(--color-line)",
-          color: "var(--color-dim)",
-          fontSize: 10,
-        }}
-      >
-        event feed lands with the LCU bridge
-      </div>
+      {events.length ? (
+        <div
+          data-testid="event-feed-rows"
+          style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 168, overflowY: "auto" }}
+        >
+          {events.map((event, i) => (
+            <div
+              key={`${event.name}-${event.t_s}-${i}`}
+              data-testid={`event-row-${i}`}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "5px 8px",
+                borderRadius: 9,
+                background: "rgba(10,11,22,.45)",
+              }}
+            >
+              <span className="mono-n" style={{ fontSize: 9, color: "var(--color-dimmer)", flex: "none" }}>
+                {clockLabel(event.t_s)}
+              </span>
+              <span
+                className="mono-n"
+                data-testid={`event-name-${i}`}
+                style={{ fontSize: 9.5, color: "var(--color-text)" }}
+              >
+                {event.name}
+                {event.detail ? ` · ${event.detail}` : ""}
+              </span>
+              {(event.actor || event.victim) && (
+                <span
+                  className="mono-n"
+                  style={{
+                    fontSize: 9,
+                    marginLeft: "auto",
+                    color: "var(--color-dim)",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {event.actor ?? "?"}
+                  {event.victim ? ` → ${event.victim}` : ""}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "14px 8px",
+            borderRadius: 11,
+            border: "1px dashed var(--color-line)",
+            color: "var(--color-dim)",
+            fontSize: 10,
+          }}
+        >
+          event feed lands with the LCU bridge
+        </div>
+      )}
     </section>
   );
 }

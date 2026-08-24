@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import type { LiveStatus } from "../api/types";
+import type { InGameSnapshot, PlayerLive } from "../api/types";
 import { useEvents } from "../api/sse";
+import { useLiveIngame } from "../api/hooks";
 import {
   ActivePlayerCard,
   CheatSheetCard,
@@ -39,27 +40,30 @@ function useGameClock(active: boolean, serverClockS: number) {
   return display;
 }
 
+function findLocalPlayer(snapshot: InGameSnapshot | undefined): PlayerLive | null {
+  if (!snapshot?.local_summoner) return null;
+  const all = [...snapshot.teams.order, ...snapshot.teams.chaos];
+  return all.find((p) => p.summoner === snapshot.local_summoner) ?? null;
+}
+
 export function LiveMatchPage() {
   const queryClient = useQueryClient();
-  const statusQuery = useQuery({
-    queryKey: ["live-status"],
-    queryFn: api.liveStatus,
-    refetchInterval: 3000,
-  });
+  const ingameQuery = useLiveIngame();
   const packQuery = useQuery({ queryKey: ["pack"], queryFn: api.pack });
 
+  // Poll is primary; SSE live.state frames overlay the same cache instantly.
   useEvents((msg) => {
     if (msg.type === "live.state") {
-      queryClient.setQueryData<LiveStatus>(["live-status"], msg.data as LiveStatus);
+      queryClient.setQueryData<InGameSnapshot>(["live-ingame"], msg.data as InGameSnapshot);
     }
     if (msg.type === "pack.updated") {
       void queryClient.invalidateQueries({ queryKey: ["pack"] });
     }
   });
 
-  const status = statusQuery.data;
-  const active = status?.ingame.active ?? false;
-  const clockS = useGameClock(active, status?.ingame.clock_s ?? 0);
+  const ingame = ingameQuery.data;
+  const active = !!ingame?.active;
+  const clockS = useGameClock(active, ingame?.clock_s ?? 0);
 
   return (
     <div
@@ -101,6 +105,15 @@ export function LiveMatchPage() {
           />
           {active ? ":2999 · 1s poll" : "waiting for :2999"}
         </span>
+        {ingame?.mode && (
+          <div
+            className="pill mono-n"
+            data-testid="game-mode"
+            style={{ background: "var(--color-surface-3)", color: "var(--color-dim)", boxShadow: "var(--shadow-z1)" }}
+          >
+            {ingame.mode}
+          </div>
+        )}
         <div
           className="pill"
           style={{ background: "var(--color-info-low)", color: "#cfe3f9", boxShadow: "var(--shadow-z1)" }}
@@ -122,7 +135,7 @@ export function LiveMatchPage() {
         </div>
       </div>
 
-      <PlayerList active={active} />
+      <PlayerList snapshot={ingame} />
 
       <div
         style={{
@@ -135,7 +148,7 @@ export function LiveMatchPage() {
         }}
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 10, minHeight: 0 }}>
-          <ActivePlayerCard />
+          <ActivePlayerCard player={findLocalPlayer(ingame)} />
           <CheatSheetCard />
           <RightNowCard pack={packQuery.data} />
         </div>
@@ -144,7 +157,7 @@ export function LiveMatchPage() {
           <WinProbabilityCard pack={packQuery.data} clockS={clockS} active={active} />
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <TeamVsTeamCard pack={packQuery.data} />
-            <EventFeedCard />
+            <EventFeedCard events={ingame?.events ?? []} />
           </div>
           <ItemValueCard />
         </div>

@@ -1,10 +1,24 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "./client";
-import type { SettingsPatch } from "./types";
+import { api, connection } from "./client";
+import type { ChampSelectSnapshot, InGameSnapshot, SettingsPatch } from "./types";
 
 export function useHealth() {
   return useQuery({ queryKey: ["health"], queryFn: api.health });
 }
+
+// Live snapshot fetchers. client.ts is frozen for the bridge pass, so these
+// mirror its request shape (X-BL-Token header) against connection().
+async function liveRequest<T>(path: string): Promise<T> {
+  const { base, token } = connection();
+  const res = await fetch(`${base}${path}`, { headers: { "X-BL-Token": token } });
+  if (!res.ok) throw new Error(`GET ${path} -> ${res.status}`);
+  return (await res.json()) as T;
+}
+
+export const liveApi = {
+  session: () => liveRequest<ChampSelectSnapshot>("/live/session"),
+  ingame: () => liveRequest<InGameSnapshot>("/live/ingame"),
+};
 
 export function usePack() {
   return useQuery({ queryKey: ["pack"], queryFn: api.pack });
@@ -78,5 +92,32 @@ export function useSyncStatus() {
     queryKey: ["sync-status"],
     queryFn: api.syncStatus,
     refetchInterval: 5_000,
+  });
+}
+
+export function useLiveStatus() {
+  // coarse health; polled as the SSE fallback for the live screens
+  return useQuery({
+    queryKey: ["live-status"],
+    queryFn: api.liveStatus,
+    refetchInterval: 3_000,
+  });
+}
+
+export function useLiveSession() {
+  // rich champ-select snapshot; SSE "champselect.state" overlays this cache
+  return useQuery({
+    queryKey: ["live-session"],
+    queryFn: liveApi.session,
+    refetchInterval: 2_000,
+  });
+}
+
+export function useLiveIngame() {
+  // rich in-game snapshot; SSE "live.state" overlays this cache
+  return useQuery({
+    queryKey: ["live-ingame"],
+    queryFn: liveApi.ingame,
+    refetchInterval: 2_000,
   });
 }

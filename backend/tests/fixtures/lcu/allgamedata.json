@@ -1,0 +1,138 @@
+{
+  "gameData": {
+    "gameId": 5123456789,
+    "gameMode": "CLASSIC",
+    "gameTime": 754.32,
+    "mapName": "Map11",
+    "gameType": "MATCHED_GAME",
+    "queue": 420
+  },
+  "activePlayer": {
+    "summonerName": "SacredButtholio",
+    "championName": "Viktor"
+  },
+  "allPlayers": [
+    {
+      "summonerName": "AllyTop",
+      "championName": "Ornn",
+      "team": "ORDER",
+      "level": 11,
+      "position": "TOP",
+      "scores": { "kills": 2, "deaths": 3, "assists": 4, "creepScore": 178, "wardScore": 0.8 },
+      "items": [ { "itemID": 3065, "count": 1, "slot": 0 }, { "itemID": 2003, "count": 2, "slot": 6 } ]
+    },
+    {
+      "summonerName": "AllyJungle",
+      "championName": "Vi",
+      "team": "ORDER",
+      "level": 12,
+      "position": "JUNGLE",
+      "scores": { "kills": 3, "deaths": 2, "assists": 6, "creepScore": 141, "wardScore": 1.1 },
+      "items": [ { "itemID": 3053, "count": 1, "slot": 0 } ]
+    },
+    {
+      "summonerName": "SacredButtholio",
+      "championName": "Viktor",
+      "team": "ORDER",
+      "level": 12,
+      "position": "MIDDLE",
+      "scores": { "kills": 4, "deaths": 2, "assists": 7, "creepScore": 213, "wardScore": 1.42 },
+      "items": [
+        { "itemID": 3157, "count": 1, "slot": 0 },
+        { "itemID": 1056, "count": 1, "slot": 1 },
+        { "itemID": 2003, "count": 2, "slot": 6 }
+      ]
+    },
+    {
+      "summonerName": "AllyBot",
+      "championName": "Xayah",
+      "team": "ORDER",
+      "level": 12,
+      "position": "BOTTOM",
+      "scores": { "kills": 5, "deaths": 1, "assists": 3, "creepScore": 236, "wardScore": 0.4 },
+      "items": [ { "itemID": 3046, "count": 1, "slot": 0 } ]
+    },
+    {
+      "summonerName": "AllySupport",
+      "championName": "Leona",
+      "team": "ORDER",
+      "level": 10,
+      "position": "UTILITY",
+      "scores": { "kills": 1, "deaths": 4, "assists": 12, "creepScore": 32, "wardScore": 2.6 },
+      "items": [ { "itemID": 3190, "count": 1, "slot": 0 }, { "itemID": 3340, "count": 1, "slot": 7 } ]
+    },
+    {
+      "summonerName": "HiddenEnemy",
+      "championName": "Camille",
+      "team": "CHAOS",
+      "level": 12,
+      "position": "TOP",
+      "scores": { "kills": 3, "deaths": 2, "assists": 2, "creepScore": 195, "wardScore": 0.5 },
+      "items": [ { "itemID": 3142, "count": 1, "slot": 0 } ]
+    },
+    {
+      "summonerName": "EnemyJungle",
+      "championName": "Lee Sin",
+      "team": "CHAOS",
+      "level": 11,
+      "position": "JUNGLE",
+      "scores": { "kills": 2, "deaths": 3, "assists": 4, "creepScore": 128, "wardScore": 0.9 },
+      "items": []
+    },
+    {
+      "summonerName": "EnemyMid",
+      "championName": "Ahri",
+      "team": "CHAOS",
+      "level": 11,
+      "position": "MIDDLE",
+      "scores": { "kills": 2, "deaths": 4, "assists": 3, "creepScore": 187, "wardScore": 0.7 },
+      "items": [ { "itemID": 3157, "count": 1, "slot": 0 } ]
+    },
+    {
+      "summonerName": "EnemyADC",
+      "championName": "Ashe",
+      "team": "CHAOS",
+      "level": 11,
+      "position": "BOTTOM",
+      "scores": { "kills": 1, "deaths": 5, "assists": 2, "creepScore": 201, "wardScore": 0.3 },
+      "items": [ { "itemID": 3072, "count": 1, "slot": 0 } ]
+    },
+    {
+      "summonerName": "EnemySupport",
+      "championName": "Thresh",
+      "team": "CHAOS",
+      "level": 10,
+      "position": "UTILITY",
+      "scores": { "kills": 0, "deaths": 4, "assists": 8, "creepScore": 28, "wardScore": 2.1 },
+      "items": []
+    }
+  ],
+  "events": {
+    "Events": [
+      { "EventName": "GameStart", "EventTime": 0.0 },
+      { "EventName": "MinionsSpawning", "EventTime": 15.2 },
+      { "EventName": "FirstBrick", "EventTime": 310.48 },
+      {
+        "EventName": "DragonKill",
+        "EventTime": 612.9,
+        "KillerName": "Order",
+        "VictimName": "",
+        "DragonType": "Infernal",
+        "Stolen": "False"
+      },
+      {
+        "EventName": "ChampionKill",
+        "EventTime": 700.14,
+        "KillerName": "SacredButtholio",
+        "VictimName": "EnemyADC",
+        "Assisting": [ "AllyBot", "AllySupport" ]
+      },
+      {
+        "EventName": "TurretKilled",
+        "EventTime": 721.4,
+        "KillerName": "Order",
+        "TurretKilled": "Turret_T2_C_03"
+      }
+    ]
+  }
+}

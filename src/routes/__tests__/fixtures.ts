@@ -1,9 +1,97 @@
-import type { FindingsPack, LiveStatus } from "../../api/types";
+import type {
+  ChampSelectSnapshot,
+  FindingsPack,
+  InGameSnapshot,
+  LiveStatus,
+} from "../../api/types";
 
 export const idleStatus: LiveStatus = {
   champ_select: { active: false, phase: null },
   ingame: { active: false, game_id: null, mode: null, clock_s: 0 },
   last_error: "LCU not detected on port 2999",
+};
+
+export const idleSession: ChampSelectSnapshot = {
+  active: false,
+  phase: null,
+  timer_sec: null,
+  bans_ally: [],
+  bans_enemy: [],
+  ally: [],
+  enemy: [],
+};
+
+/**
+ * Mirrors backend/tests/fixtures/lcu/champselect_session.json through the
+ * service layer: enemy summoner names stripped (name always null), champion
+ * names resolved from Data Dragon (null → UI falls back to "Champion {id}").
+ */
+export const champSelectSession: ChampSelectSnapshot = {
+  active: true,
+  phase: "ChampSelect",
+  timer_sec: 23,
+  bans_ally: [
+    { champion_id: 25, name: "Miss Fortune" },
+    { champion_id: 1, name: "Annie" },
+  ],
+  bans_enemy: [{ champion_id: 412, name: null }],
+  ally: [
+    { cell_id: 0, champion_id: 22, champion: "Lucian", name: "AllyTop", is_local: false, state: "picked" },
+    { cell_id: 1, champion_id: 121, champion: null, name: "AllyJungle", is_local: false, state: "intent" },
+    { cell_id: 2, champion_id: 498, champion: "Xayah", name: "SacredButtholio", is_local: true, state: "picked" },
+    { cell_id: 3, champion_id: 0, champion: null, name: null, is_local: false, state: "none" },
+    { cell_id: 4, champion_id: 34, champion: "Amumu", name: "AllySupport", is_local: false, state: "intent" },
+  ],
+  enemy: [
+    { cell_id: 5, champion_id: 238, champion: "Camille", name: null, state: "picked" },
+    { cell_id: 6, champion_id: 999, champion: null, name: null, state: "picked" },
+    { cell_id: 7, champion_id: 0, champion: null, name: null, state: "none" },
+    { cell_id: 8, champion_id: 0, champion: null, name: null, state: "none" },
+    { cell_id: 9, champion_id: 22, champion: "Lucian", name: null, state: "picked" },
+  ],
+};
+
+export const idleIngame: InGameSnapshot = {
+  active: false,
+  clock_s: 0,
+  mode: null,
+  local_summoner: null,
+  local_champion: null,
+  teams: { order: [], chaos: [] },
+  events: [],
+};
+
+/** Mirrors backend/tests/fixtures/lcu/allgamedata.json through the service. */
+export const ingameSnapshot: InGameSnapshot = {
+  active: true,
+  clock_s: 1254,
+  mode: "CLASSIC",
+  local_summoner: "SacredButtholio",
+  local_champion: "Viktor",
+  teams: {
+    order: [
+      { summoner: "AllyTop", champion: "Ornn", level: 11, kills: 2, deaths: 3, assists: 4, cs: 178, ward_score: 0.8, items: [] },
+      { summoner: "AllyJungle", champion: "Vi", level: 12, kills: 3, deaths: 2, assists: 6, cs: 141, ward_score: 1.1, items: [] },
+      { summoner: "SacredButtholio", champion: "Viktor", level: 12, kills: 4, deaths: 2, assists: 7, cs: 213, ward_score: 1.42, items: [] },
+      { summoner: "AllyBot", champion: "Xayah", level: 12, kills: 5, deaths: 1, assists: 3, cs: 236, ward_score: 0.4, items: [] },
+      { summoner: "AllySupport", champion: "Leona", level: 10, kills: 1, deaths: 4, assists: 12, cs: 32, ward_score: 2.6, items: [] },
+    ],
+    chaos: [
+      { summoner: "HiddenEnemy", champion: "Camille", level: 12, kills: 3, deaths: 2, assists: 2, cs: 195, ward_score: 0.5, items: [] },
+      { summoner: "EnemyJungle", champion: "Lee Sin", level: 11, kills: 2, deaths: 3, assists: 4, cs: 128, ward_score: 0.9, items: [] },
+      { summoner: "EnemyMid", champion: "Ahri", level: 11, kills: 2, deaths: 4, assists: 3, cs: 187, ward_score: 0.7, items: [] },
+      { summoner: "EnemyADC", champion: "Ashe", level: 11, kills: 1, deaths: 5, assists: 2, cs: 201, ward_score: 0.3, items: [] },
+      { summoner: "EnemySupport", champion: "Thresh", level: 10, kills: 0, deaths: 4, assists: 8, cs: 28, ward_score: 2.1, items: [] },
+    ],
+  },
+  events: [
+    { name: "GameStart", t_s: 0, actor: null, victim: null, detail: null },
+    { name: "MinionsSpawning", t_s: 15.2, actor: null, victim: null, detail: null },
+    { name: "FirstBrick", t_s: 310.48, actor: null, victim: null, detail: null },
+    { name: "DragonKill", t_s: 612.9, actor: "Order", victim: null, detail: "Infernal" },
+    { name: "ChampionKill", t_s: 700.14, actor: "SacredButtholio", victim: "EnemyADC", detail: null },
+    { name: "TurretKilled", t_s: 721.4, actor: "Order", victim: null, detail: null },
+  ],
 };
 
 export const champSelectActive: LiveStatus = {

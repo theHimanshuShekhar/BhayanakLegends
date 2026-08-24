@@ -1,24 +1,46 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ChampSelectSnapshot, LiveStatus } from "../../api/types";
 import type { SseMessage } from "../../api/sse";
 import { ChampSelectPage } from "../champ-select";
 import {
-  champSelectActive,
+  champSelectSession,
   forbiddenEnemyName,
+  idleSession,
   idleStatus,
   makePack,
 } from "./fixtures";
 
+// Mutable fixtures read lazily by the hook mocks below.
+const liveState = vi.hoisted(() => ({
+  status: null as LiveStatus | null,
+  session: null as ChampSelectSnapshot | null,
+}));
+
 vi.mock("../../api/client", () => ({
   api: {
-    liveStatus: vi.fn(),
     pack: vi.fn(),
   },
+  connection: () => ({ base: "", token: "t" }),
   eventsUrl: () => "http://127.0.0.1:1/events?token=t",
 }));
 
-// SSE is mocked so tests can push live.state frames the way the sidecar would.
+// Real react-query hooks bound to the fixtures above, so SSE overlays that
+// write into ["live-session"] / ["live-status"] re-render exactly like prod.
+vi.mock("../../api/hooks", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api/hooks")>();
+  const { useQuery } = await import("@tanstack/react-query");
+  return {
+    ...actual,
+    useLiveStatus: () =>
+      useQuery({ queryKey: ["live-status"], queryFn: () => Promise.resolve(liveState.status!) }),
+    useLiveSession: () =>
+      useQuery({ queryKey: ["live-session"], queryFn: () => Promise.resolve(liveState.session!) }),
+  };
+});
+
+// SSE is mocked so tests can push champselect.state frames like the sidecar.
 let pushSse: ((msg: SseMessage) => void) | null = null;
 vi.mock("../../api/sse", () => ({
   useEvents: (onMessage?: (msg: never) => void) => {
@@ -42,7 +64,8 @@ function renderPage() {
 
 beforeEach(() => {
   pushSse = null;
-  vi.mocked(api.liveStatus).mockResolvedValue(idleStatus);
+  liveState.session = idleSession;
+  liveState.status = idleStatus;
   vi.mocked(api.pack).mockResolvedValue(makePack());
 });
 
@@ -106,44 +129,75 @@ describe("ChampSelectPage — idle", () => {
     expect(screen.queryByText(forbiddenEnemyName)).toBeNull();
   });
 
-  it("updates from SSE live.state frames without waiting for the next poll", async () => {
+  it("flips to the live ban strip on an SSE champselect.state frame without waiting for the next poll", async () => {
     renderPage();
+    await screen.findByTestId("cs-idle-banner");
     await waitFor(() => expect(pushSse).toBeTruthy());
-    pushSse!({ type: "live.state", ts: "t", data: champSelectActive });
+    pushSse!({ type: "champselect.state", ts: "t", data: champSelectSession });
     await screen.findByTestId("cs-ban-strip");
   });
 });
 
-describe("ChampSelectPage — active", () => {
+describe("ChampSelectPage — active session", () => {
   beforeEach(() => {
-    vi.mocked(api.liveStatus).mockResolvedValue(champSelectActive);
+    liveState.session = champSelectSession;
   });
 
-  it("renders the live ban strip with role-only rosters and the session phase", async () => {
+  it("renders REAL ban tiles with ally champion names and the ticking timer pill", async () => {
     renderPage();
     await screen.findByTestId("cs-ban-strip");
+
     const ally = screen.getByTestId("cs-ally-row");
-    expect(ally).toHaveTextContent("MIDDLE");
-    expect(ally).toHaveTextContent("locked"); // fixture phase
-    const enemy = screen.getByTestId("cs-enemy-row");
-    expect(enemy).toHaveTextContent("not revealed");
+    expect(ally).toHaveTextContent("Xayah"); // local locked champion
+    expect(ally).toHaveTextContent("Lucian");
+    expect(ally).toHaveTextContent("Amumu");
+    expect(ally).toHaveTextContent("YOU"); // local slot highlighted
+
+    // named ally bans get initials tiles; caption carries full names
+    expect(screen.getByTestId("cs-bans-caption")).toHaveTextContent("Miss Fortune, Annie");
+    expect(screen.queryByText(forbiddenEnemyName)).toBeNull();
+
+    const pill = screen.getByTestId("cs-timer-pill");
+    expect(pill).toHaveTextContent("ChampSelect");
+    expect(pill).toHaveTextContent("00:23"); // timer_sec ticks down between frames
   });
 
-  // COMPLIANCE: enemy slots stay champion-level/role-only — no names, ever.
+  it("renders enemy champion-level intel with the Champion {id} fallback for unmapped ids", async () => {
+    renderPage();
+    const enemy = await screen.findByTestId("cs-enemy-row");
+    expect(enemy).toHaveTextContent("Camille"); // mapped via Data Dragon
+    expect(enemy).toHaveTextContent("Champion 999"); // unmapped id fallback
+    expect(enemy).toHaveTextContent("picked");
+  });
+
+  // COMPLIANCE: enemy cells carry champion-level info only — the sidecar
+  // strips theirTeam summoner names and no slot ever renders one.
   it("never renders enemy summoner names while active", async () => {
     renderPage();
     await screen.findByTestId("cs-enemy-row");
-    for (const role of ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"]) {
-      expect(screen.getByTestId(`enemy-slot-${role}`)).not.toHaveTextContent(forbiddenEnemyName);
-    }
     expect(screen.queryByText(forbiddenEnemyName)).toBeNull();
+    for (let cellId = 5; cellId <= 9; cellId++) {
+      expect(screen.getByTestId(`cs-enemy-cell-${cellId}`)).not.toHaveTextContent(
+        forbiddenEnemyName,
+      );
+    }
+  });
+
+  it("shows the locked local champion in your-side and lane cards", async () => {
+    renderPage();
+    await screen.findByTestId("cs-ban-strip");
+    const side = screen.getByTestId("cs-your-side");
+    expect(side).toHaveTextContent("Xayah · SacredButtholio");
+    expect(side).toHaveTextContent("YOU");
+
+    expect(screen.getByTestId("your-lane-champion")).toHaveTextContent("Xayah");
   });
 
   it("drops back to the idle banner when the session ends via SSE", async () => {
     renderPage();
     await screen.findByTestId("cs-ban-strip");
     await waitFor(() => expect(pushSse).toBeTruthy());
-    pushSse!({ type: "live.state", ts: "t", data: idleStatus });
+    pushSse!({ type: "champselect.state", ts: "t", data: idleSession });
     await screen.findByTestId("cs-idle-banner");
   });
 });

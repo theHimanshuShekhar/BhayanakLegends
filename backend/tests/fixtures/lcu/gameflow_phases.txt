@@ -1,0 +1,8 @@
+None
+Lobby
+Matchmaking
+ChampSelect
+GameStart
+InProgress
+WaitingForStats
+EndOfGame
