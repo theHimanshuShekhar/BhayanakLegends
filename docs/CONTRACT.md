@@ -83,9 +83,27 @@ interface HabitOutcome { key: string; label: string; value: string; verdict: "go
 
 interface RoleBenchmark {
   role: string;
-  personal: { cs10: number|null; level10: number|null; gold10: number|null; };
-  population: { cs10_median: number; level10_median: number; gold10_median: number; sample: number };
+  personal: Partial<Record<"cs10"|"level10"|"gold_diff_10", number>>;
+  population: Partial<Record<"cs10_median"|"level10_median"|"gold_diff_10_median", number>> & {
+    sample: number;
+  };
 }
+
+### Benchmark feature contract
+
+This table is normative. A Benchmark may be emitted only for a row whose
+personal extractor and Findings Pack population feature both equal the table's
+canonical feature, whose units and eligible role are identical, and whose
+missing-data rule is satisfied. The pack's `feature_contract` metadata declares
+the source feature used for each population column; a missing or different
+declaration suppresses that comparison. In particular, the shipped pack's
+`lane_minions_first_10m` values are not total `cs10` and therefore never join.
+
+| canonical name | unit | population feature | personal extractor | eligible roles | missing-data rule | source_ref |
+|---|---|---|---|---|---|---|
+| `cs10` | minions | `cs10` (total minions at 10m) | `cs10` (total minions at 10m) | TOP, JUNGLE, MIDDLE, BOTTOM, UTILITY | omit when either value is null/non-numeric | `docs/CONTRACT.md#benchmark-feature-contract` |
+| `level10` | levels | `level10` (level at 10m) | `level10` (level at 10m) | TOP, JUNGLE, MIDDLE, BOTTOM, UTILITY | omit when either value is null/non-numeric | `docs/CONTRACT.md#benchmark-feature-contract` |
+| `gold_diff_10` | gold | `gold_diff_10` (difference from same-frame ten-player median at 10m) | `gold_diff_10` (difference from same-frame ten-player median at 10m) | TOP, JUNGLE, MIDDLE, BOTTOM, UTILITY | omit when either value is null/non-numeric | `docs/CONTRACT.md#benchmark-feature-contract` |
 
 interface LiveStatus {
   champ_select: { active: boolean; phase: string|null };   // LCU detected session
@@ -178,7 +196,7 @@ interface InGameSnapshot {
   "trap_picks": [ { "champion": "Hecarim", "win_rate": .415 } ],
   "tier_list": [ { "champion": "...", "role": "MIDDLE", "games": 340, "pick_rate": .142, "win_rate": .534, "tier": "S" } ],
   "matchup_examples": [ { "champion": "...", "opponent": "...", "role": "MIDDLE", "wr": .57, "ci": 2.1, "games": 41 } ],
-  "benchmarks": [ { "role": "TOP", "cs10_median": 62, "level10_median": null, "gold10_median": null, "sample": 5000 } ],
+  "benchmarks": [ { "role": "TOP", "cs10_median": 62, "level10_median": null, "gold_diff_10_median": null, "feature_contract": { "cs10_median": "lane_minions_first_10m", "level10_median": "level10", "gold_diff_10_median": "gold_diff_10" }, "sample": 5000 } ],
   "checkpoints": [ { "gold_diff_bucket": "-1000..0 @20m", "win_rate": .282 } ]
 }
 ```

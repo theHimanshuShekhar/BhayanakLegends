@@ -309,14 +309,19 @@ def build_benchmarks(df: pd.DataFrame) -> list[dict]:
     rows = []
     for role in ROLES:
         subset = df[df["role"] == role]
-        cs_col = "lane_minions_first_10m"  # closest cs@10 checkpoint in the store
+        cs_col = "lane_minions_first_10m"  # not total cs10; route suppresses this mismatch
         cs_median = float(subset[cs_col].median()) if cs_col in subset.columns else None
         rows.append(
             {
                 "role": role,
                 "cs10_median": round(cs_median, 1) if cs_median is not None else None,
                 "level10_median": None,
-                "gold10_median": None,
+                "gold_diff_10_median": None,
+                "feature_contract": {
+                    "cs10_median": cs_col,
+                    "level10_median": "level10",
+                    "gold_diff_10_median": "gold_diff_10",
+                },
                 "sample": int(len(subset)),
             }
         )

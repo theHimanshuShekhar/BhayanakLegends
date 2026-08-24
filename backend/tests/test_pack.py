@@ -166,3 +166,14 @@ def test_benchmarks_cover_all_roles_with_sample():
     assert set(roles) == {"TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"}
     for bench in roles.values():
         assert bench["sample"] > 0
+
+
+def test_benchmark_pack_fields_declare_exact_source_features():
+    for bench in PACK["benchmarks"]:
+        assert "gold10_median" not in bench
+        assert bench["gold_diff_10_median"] is None
+        assert bench["feature_contract"] == {
+            "cs10_median": "lane_minions_first_10m",
+            "level10_median": "level10",
+            "gold_diff_10_median": "gold_diff_10",
+        }

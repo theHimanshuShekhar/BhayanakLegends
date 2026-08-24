@@ -59,13 +59,13 @@ const summary = {
 const benchmarks = [
   {
     role: "MIDDLE",
-    personal: { cs10: 77, level10: 8, gold10: 247 },
-    population: { cs10_median: 64, level10_median: null, gold10_median: null, sample: 52048 },
+    personal: { cs10: 77, level10: 8, gold_diff_10: 247 },
+    population: { cs10_median: 64, level10_median: null, gold_diff_10_median: null, sample: 52048 },
   },
   {
     role: "TOP",
-    personal: { cs10: 58.5, level10: 7, gold10: -12.5 },
-    population: { cs10_median: 61, level10_median: null, gold10_median: null, sample: 52048 },
+    personal: { cs10: 58.5, level10: 7, gold_diff_10: -12.5 },
+    population: { cs10_median: 61, level10_median: null, gold_diff_10_median: null, sample: 52048 },
   },
 ];
 
@@ -135,6 +135,14 @@ describe("ProgressPage", () => {
       width: "95.9%",
     });
   });
+  it("renders no benchmark card when the sidecar suppresses invalid comparisons", async () => {
+    vi.mocked(api.benchmarks).mockResolvedValue([]);
+    renderPage(<ProgressPage />);
+
+    expect(screen.queryByTestId("benchmark-MIDDLE")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("benchmark-TOP")).not.toBeInTheDocument();
+  });
+
 
   it("renders the four pack habits with neutral pending bars", async () => {
     renderPage(<ProgressPage />);
