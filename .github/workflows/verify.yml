@@ -117,7 +117,7 @@ jobs:
           uv sync --locked
           BHAYANAK_PORT=23110 BHAYANAK_TOKEN=dev nohup uv run python -m bhayanak_legends.sidecar > "$RUNNER_TEMP/sidecar.log" 2>&1 &
           for i in $(seq 1 60); do
-            if curl --fail --silent http://127.0.0.1:23110/health; then
+            if curl --fail --silent -H "X-BL-Token: dev" http://127.0.0.1:23110/health; then
               exit 0
             fi
             sleep 1
