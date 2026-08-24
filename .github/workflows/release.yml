@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Build Python sidecar binary
+        shell: bash
+        working-directory: backend
+        run: |
+          uv sync
+          uv run pyinstaller --onefile --name bhayanak-legends-sidecar \
+            --add-data "../pack:pack" \
+            --collect-submodules bhayanak_legends \
+            src/bhayanak_legends/sidecar.py
+          mkdir -p ../src-tauri/binaries
+          cp dist/bhayanak-legends-sidecar.exe \
+            ../src-tauri/binaries/bhayanak-legends-sidecar-x86_64-pc-windows-msvc.exe
+
+      - name: Build and publish release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v__VERSION__
+          releaseName: "Bhayanak Legends v__VERSION__"
+          releaseBody: "Installer + auto-update feed. The Findings Pack is bundled; newer packs arrive via LoLTrends release sync (docs/adr/0005)."
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true

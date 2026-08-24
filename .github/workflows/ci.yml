@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Run backend tests
+        working-directory: backend
+        run: uv sync && uv run pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm vitest run
+      - run: pnpm build
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install Playwright browser
+        run: pnpm exec playwright install chromium --with-deps
+      - name: Start sidecar
+        working-directory: backend
+        run: |
+          uv sync
+          BHAYANAK_PORT=23110 BHAYANAK_TOKEN=dev nohup uv run python -m bhayanak_legends.sidecar > sidecar.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:23110/health && break; sleep 1; done
+      - name: Seed Personal History
+        run: cd backend && uv run python tools/ci_seed.py
+      - name: Run e2e
+        run: VITE_BL_PORT=23110 VITE_BL_TOKEN=dev pnpm exec playwright test
