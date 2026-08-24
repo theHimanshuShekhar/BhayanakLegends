@@ -1,0 +1,10 @@
+/* Styles the `.kicker` hook emitted by the frozen Card primitive
+   (ui.tsx) to match the design intent: uppercase, tracked, accent.
+   New-file extension only — styles.css and ui.tsx stay untouched. */
+.kicker {
+  color: var(--color-accent);
+  font-size: 10px;
+  line-height: 1.25rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
