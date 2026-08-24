@@ -1,0 +1,25 @@
+{
+  "contract_version": "loltrends-parity-v1",
+  "features": {
+    "cs10": {
+      "parity-puuid-01": 75, "parity-puuid-02": 82, "parity-puuid-03": 78, "parity-puuid-04": 80, "parity-puuid-05": 12,
+      "parity-puuid-06": 72, "parity-puuid-07": 76, "parity-puuid-08": 74, "parity-puuid-09": 78, "parity-puuid-10": 15
+    },
+    "level10": {
+      "parity-puuid-01": 8, "parity-puuid-02": 7, "parity-puuid-03": 9, "parity-puuid-04": 9, "parity-puuid-05": 6,
+      "parity-puuid-06": 8, "parity-puuid-07": 7, "parity-puuid-08": 8, "parity-puuid-09": 8, "parity-puuid-10": 7
+    },
+    "gold_diff_10": {
+      "parity-puuid-01": 150, "parity-puuid-02": -250, "parity-puuid-03": 450, "parity-puuid-04": -50, "parity-puuid-05": -450,
+      "parity-puuid-06": 250, "parity-puuid-07": -350, "parity-puuid-08": 350, "parity-puuid-09": -150, "parity-puuid-10": 50
+    },
+    "gold_diff_15": {
+      "parity-puuid-01": 300, "parity-puuid-02": -300, "parity-puuid-03": 600, "parity-puuid-04": 100, "parity-puuid-05": -600,
+      "parity-puuid-06": 200, "parity-puuid-07": -500, "parity-puuid-08": 500, "parity-puuid-09": -100, "parity-puuid-10": -300
+    },
+    "gold_diff_20": {
+      "parity-puuid-01": 400, "parity-puuid-02": -400, "parity-puuid-03": 700, "parity-puuid-04": 100, "parity-puuid-05": -700,
+      "parity-puuid-06": 500, "parity-puuid-07": -600, "parity-puuid-08": 600, "parity-puuid-09": -100, "parity-puuid-10": -500
+    }
+  }
+}

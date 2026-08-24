@@ -11,6 +11,7 @@ const VERDICT_PILL: Record<HabitOutcome["verdict"], CSSProperties> = {
 /** Habit rows carry this game's verdicts; the accent box holds the digest headline. */
 export function HabitsCard({ digest }: { digest: PostGameDigest | null }) {
   const idle = digest == null;
+  const unavailable = digest != null && digest.habits.length === 0;
   const win = digest?.win ?? false;
   return (
     <section
@@ -61,6 +62,23 @@ export function HabitsCard({ digest }: { digest: PostGameDigest | null }) {
           }}
         >
           habit verdicts land with the first analyzed game
+        </div>
+      ) : unavailable ? (
+        <div
+          data-testid="habit-unavailable"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "16px 8px",
+            borderRadius: 12,
+            border: "1px dashed var(--color-line)",
+            color: "var(--color-dim)",
+            fontSize: 10.5,
+            textAlign: "center",
+          }}
+        >
+          No habit outcomes available: this game has no contracted extractor and threshold.
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }} data-testid="habit-outcomes">

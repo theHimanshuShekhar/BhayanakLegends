@@ -6,7 +6,7 @@ import statistics
 from typing import Any
 
 CHECKPOINT_MINUTES = (10, 15, 20)
-FRAME_TOLERANCE_MS = 30_000
+CHECKPOINT_FEATURES = frozenset({"cs10", "level10", "gold_diff_10", "gold_diff_15", "gold_diff_20"})
 
 
 def parse_match(detail: dict[str, Any], puuid: str) -> dict[str, Any]:
@@ -32,15 +32,16 @@ def parse_match(detail: dict[str, Any], puuid: str) -> dict[str, Any]:
 
 
 def parse_checkpoints(timeline: dict[str, Any] | None, puuid: str) -> dict[str, float | int | None]:
-    """Per-minute checkpoints at 10/15/20 for ``puuid`` from a match timeline.
+    """Contract-v1 checkpoint features for ``puuid`` from a match timeline.
 
-    gold_diff_X is a v1 proxy: the participant's totalGold at minute X minus
-    the median totalGold of all ten participants in the same frame. True
-    lane-opponent diffs are not derivable without position-aware frames and
-    arrive with the loltrends timeline families (docs/adr/0001).
-    cs10 is minionsKilled + jungleMinionsKilled at minute 10.
-    Missing/short timelines yield None per key.
+    ``cs10`` is total minions at 10m (lane plus jungle minions), ``level10``
+    is champion level at 10m, and ``gold_diff_X`` is own totalGold minus the
+    median totalGold of every participant present at X minutes. Each value
+    reads the latest snapshot at or before its checkpoint; missing snapshots
+    or non-numeric gold yield None. This is the complete app-owned extraction
+    boundary for the loltrends-parity-v1 Personal History subset.
     """
+
     checkpoints: dict[str, float | int | None] = {}
     for minutes in CHECKPOINT_MINUTES:
         checkpoints[f"gold_diff_{minutes}"] = None
@@ -89,15 +90,15 @@ def _participant(participants: list[dict[str, Any]], puuid: str) -> dict[str, An
 
 
 def _frame_at(timeline: dict[str, Any], minutes: int) -> dict[str, Any] | None:
+    """Return the latest timeline snapshot at or before ``minutes``."""
     target_ms = minutes * 60_000
     best: tuple[int, dict[str, Any]] | None = None
     for frame in timeline.get("info", {}).get("frames", []):
         ts = frame.get("timestamp")
-        if not isinstance(ts, (int, float)):
+        if not isinstance(ts, (int, float)) or ts > target_ms:
             continue
-        delta = abs(int(ts) - target_ms)
-        if delta <= FRAME_TOLERANCE_MS and (best is None or delta < best[0]):
-            best = (delta, frame)
+        if best is None or ts > best[0]:
+            best = (int(ts), frame)
     return best[1] if best else None
 
 

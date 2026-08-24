@@ -1,5 +1,7 @@
 # Reuse loltrends as a pinned library for personal-match extraction
 
+Status: Superseded by ADR-0009.
+
 The app downloads its user's match history via the Riot API and must extract features (recall safety, checkpoints, wave-state proxies, etc.) from raw match/timeline JSON. Reimplementing those extractors would risk silent definitional drift from the research, so the app depends on `loltrends` directly — pinned to a git tag, upgraded deliberately. This is a code-level contract that complements the Findings Pack's data-level contract; it does not reopen ADR-0004 in the LoLTrends repo (the app still never reads the Feature Store or raw research parquet).
 
 ## Considered Options

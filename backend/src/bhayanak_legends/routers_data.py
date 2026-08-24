@@ -51,7 +51,6 @@ def _finite_number(value: object) -> bool:
 
 router = APIRouter()
 
-HABIT_KEYS = ("recall_safety", "fast_first_dragon", "spend_before_backing", "plates_by_14")
 ROLLING_WINDOW = 10
 _PATCH_RE = re.compile(r"^(\d+)\.(\d+)$")
 
@@ -259,22 +258,9 @@ def _personal_medians(rows: list[dict[str, Any]]) -> dict[str, dict[str, float]]
     return medians
 
 
-def _habit_outcomes(request: Request) -> list[HabitOutcome]:
-    labels: dict[str, str] = {}
-    try:
-        pack = request.app.state.pack.load()
-        labels = {h["key"]: h.get("label", h["key"]) for h in pack.get("habits", [])}
-    except PackError:
-        pass
-    return [
-        HabitOutcome(
-            key=key,
-            label=labels.get(key, key.replace("_", " ").capitalize()),
-            value="n/a",
-            verdict="n/a",
-        )
-        for key in HABIT_KEYS
-    ]
+def _habit_outcomes(_request: Request) -> list[HabitOutcome]:
+    """Return only evaluated outcomes; no exact habit extractors exist in v1."""
+    return []
 
 
 def _headline(row: dict[str, Any]) -> str:

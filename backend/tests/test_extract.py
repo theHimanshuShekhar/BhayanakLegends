@@ -35,8 +35,8 @@ def test_parse_checkpoints_real_fixture():
     }
     assert checkpoints["gold_diff_10"] is not None
     assert checkpoints["gold_diff_15"] is not None
-    # fixture game ends at ~15m31s: minute-20 frame legitimately missing
-    assert checkpoints["gold_diff_20"] is None
+    # Contract-v1 reuses the latest available snapshot for a later checkpoint.
+    assert checkpoints["gold_diff_20"] is not None
     assert checkpoints["cs10"] > 0
     assert checkpoints["level10"] > 0
 
