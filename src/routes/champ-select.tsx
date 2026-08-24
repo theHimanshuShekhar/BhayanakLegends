@@ -79,7 +79,7 @@ export function ChampSelectPage() {
 
   return (
     <div
-      style={{ fontFamily: "var(--font-mono)", letterSpacing: "-.01em" }}
+      style={{ fontFamily: "var(--font-mono)", letterSpacing: "-.01em", minWidth: 0 }}
       data-testid="champ-select-page"
     >
       <BanStrip
@@ -88,22 +88,40 @@ export function ChampSelectPage() {
         lastError={status?.last_error ?? null}
       />
 
-      <div style={{ display: "grid", gridTemplateColumns: "368px 1fr 316px", gap: 14, paddingTop: 14 }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 11, minHeight: 0 }}>
+      <div
+        className="champ-select-layout"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "minmax(0, 368px) minmax(0, 1fr) minmax(0, 316px)",
+          gap: 14,
+          paddingTop: 14,
+          minWidth: 0,
+        }}
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 11, minHeight: 0, minWidth: 0 }}>
           <YourLaneCard champion={localChampion} tier={localTier} />
           <MasteryCard pack={packQuery.data} />
           <HowToPlayCard />
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0, minWidth: 0 }}>
           <SuggestedPicks pack={packQuery.data} />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, flex: 1, minHeight: 0 }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
+              gap: 12,
+              flex: 1,
+              minHeight: 0,
+              minWidth: 0,
+            }}
+          >
             <CompReadCard />
             <LoadoutCard />
           </div>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0, minWidth: 0 }}>
           <BanAdvisorCard pack={packQuery.data} />
           <YourSideCard session={session} />
           <MatchStartCard active={active} pick={hero?.champion} />
