@@ -11,6 +11,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from .auth import TokenAuthMiddleware
 from .config import SidecarConfig
+from .credentials import CredentialBackend, CredentialError, CredentialStore
 from .live import ChampSelectSnapshot, InGameSnapshot
 from .models import LiveState, LiveStatus, SettingsPatch
 from .pack import PackError, PackStore
@@ -27,11 +28,16 @@ class DevImportRequest(BaseModel):
     dir: str
 
 
-def create_app(config: SidecarConfig | None = None) -> FastAPI:
+def create_app(
+    config: SidecarConfig | None = None,
+    *,
+    credential_store: CredentialBackend | None = None,
+) -> FastAPI:
     config = config or SidecarConfig()
     data_dir = config.resolved_data_dir()
 
     store = Store(data_dir / "app.db")
+    credentials = credential_store or CredentialStore(store)
     pack = PackStore(config.resolved_pack_dir())
     pack_error: str | None = None
     try:
@@ -49,7 +55,7 @@ def create_app(config: SidecarConfig | None = None) -> FastAPI:
         log.warning("sync/live optional deps missing; services disabled")
     def settings_for_sync() -> dict:
         return {
-            "riot_key": store.get_setting("riot_key"),
+            "riot_key": credentials.load(),
             "riot_id": store.get_setting("riot_id"),
             "region_route": store.get_setting("region_route") or "sea",
         }
@@ -71,6 +77,7 @@ def create_app(config: SidecarConfig | None = None) -> FastAPI:
     app = FastAPI(title="Bhayanak Legends sidecar", version=APP_VERSION, lifespan=lifespan)
     app.state.config = config
     app.state.store = store
+    app.state.credential_store = credentials
     app.state.pack = pack
     app.state.hub = hub
     app.state.app_version = APP_VERSION
@@ -120,7 +127,7 @@ def create_app(config: SidecarConfig | None = None) -> FastAPI:
 
     @app.get("/settings")
     def get_settings():
-        return _settings_view(store)
+        return _settings_view(store, credentials)
 
     @app.put("/settings")
     def put_settings(patch: SettingsPatch):
@@ -128,11 +135,17 @@ def create_app(config: SidecarConfig | None = None) -> FastAPI:
             store.set_setting("riot_id", patch.riot_id)
         if patch.region_route is not None:
             store.set_setting("region_route", patch.region_route)
-        if patch.riot_key is not None:
-            store.set_setting("riot_key", patch.riot_key)
+        if "riot_key" in patch.model_fields_set:
+            try:
+                if patch.riot_key is None:
+                    credentials.delete()
+                else:
+                    credentials.save(patch.riot_key)
+            except CredentialError as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from None
         if patch.auto_sync is not None:
             store.set_setting("auto_sync", "1" if patch.auto_sync else "0")
-        return _settings_view(store)
+        return _settings_view(store, credentials)
 
     @app.get("/sync/status")
     def sync_status():
@@ -152,12 +165,15 @@ def create_app(config: SidecarConfig | None = None) -> FastAPI:
 
     @app.post("/sync/start")
     def sync_start():
-        if not _settings_view(store)["has_key"]:
+        if not _settings_view(store, credentials)["has_key"]:
             raise HTTPException(status_code=400, detail="riot key required")
         svc = app.state.sync_service
         if svc is None:
             raise HTTPException(status_code=503, detail="sync service not wired yet")
-        return svc.start()
+        try:
+            return svc.start()
+        except CredentialError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from None
 
     @app.post("/sync/cancel")
     def sync_cancel():
@@ -204,10 +220,12 @@ def create_app(config: SidecarConfig | None = None) -> FastAPI:
     return app
 
 
-def _settings_view(store: Store) -> dict:
+def _settings_view(
+    store: Store, credentials: CredentialBackend | None = None
+) -> dict:
     return {
         "riot_id": store.get_setting("riot_id"),
         "region_route": store.get_setting("region_route") or "sea",
-        "has_key": bool(store.get_setting("riot_key")),
+        "has_key": credentials.has_key() if credentials is not None else store.has_setting("riot_key"),
         "auto_sync": (store.get_setting("auto_sync") or "0") == "1",
     }
