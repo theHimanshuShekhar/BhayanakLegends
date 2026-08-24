@@ -39,7 +39,8 @@ class PackStore:
         return pack
 
     def version(self) -> str:
-        return f"v{self.load()['schema_version']}"
+        pack = self.load()
+        return str(pack.get("pack_version") or f"v{pack['schema_version']}")
 
     def reload(self) -> None:
         self._pack = None
