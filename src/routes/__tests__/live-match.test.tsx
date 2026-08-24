@@ -1,9 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SseMessage } from "../../api/sse";
 import { LiveMatchPage } from "../live-match";
-import { idleStatus, ingameActive, makePack } from "./fixtures";
+import { forbiddenEnemyName, idleStatus, ingameActive, makePack } from "./fixtures";
 
 vi.mock("../../api/client", () => ({
   api: {
@@ -42,74 +42,91 @@ beforeEach(() => {
 });
 
 describe("LiveMatchPage — idle", () => {
-  it("shows the :2999 empty-state and keeps the objectives priors board visible", async () => {
+  it("renders the design chrome: waiting pill, 0:00 clock and dash-only player rows", async () => {
     renderPage();
-    const empty = await screen.findByTestId("empty-state");
-    expect(empty).toHaveTextContent(":2999 comes online at match start");
-    expect(empty).toHaveTextContent("Borderless-windowed mode required for the widget experience.");
+    expect(await screen.findByTestId("waiting-pill")).toHaveTextContent("waiting for :2999");
+    expect(screen.getByTestId("game-clock")).toHaveTextContent("0:00");
+    expect(screen.getByTestId("bridge-status")).toHaveTextContent("waiting for :2999");
 
-    // Board works without a live game.
-    expect(await screen.findByTestId("objective-baron")).toHaveTextContent("81.4%");
-    expect(screen.getByTestId("objective-baron")).toHaveTextContent("+29.5pp");
-    expect(screen.getByTestId("objective-dragon")).toHaveTextContent("95.4%");
-    expect(screen.getByTestId("objective-dragon")).toHaveTextContent("60.3%");
-    expect(screen.getByTestId("objective-herald")).toHaveTextContent("66.6%");
+    const list = screen.getByTestId("player-list");
+    expect(list).toHaveTextContent("PLAYER LIST · LEVEL · K/D/A · CS · WARD SCORE");
+    expect(screen.getByTestId("score-strip")).toHaveTextContent("— kills · — turrets");
+    // Skeleton rows are dash cells only — no roster names, enemy or ally.
+    expect(within(list).queryByText(/ornn|viego|taliyah|syndra/i)).not.toBeInTheDocument();
+    expect(within(list).getAllByText("—").length).toBeGreaterThan(20);
+    expect(screen.queryByText(forbiddenEnemyName)).not.toBeInTheDocument();
   });
 
-  it("renders the comeback odds table and survivorship footnote", async () => {
-    renderPage();
-    await screen.findByTestId("comeback-row--5000");
-    expect(screen.getByTestId("comeback-row--5000")).toHaveTextContent("-5,000g");
-    expect(screen.getByTestId("comeback-row--5000")).toHaveTextContent("7.6%");
-    expect(screen.getByText(/Survivorship bias documented/)).toBeInTheDocument();
-  });
-
-  it("renders the lanes-ahead explainer with pack-sourced endpoints", async () => {
-    renderPage();
-    await screen.findByTestId("lanes-ahead");
-    expect(screen.getByTestId("lanes-ahead")).toHaveTextContent("16.4%");
-    expect(screen.getByTestId("lanes-ahead")).toHaveTextContent("83.8%");
-    expect(screen.getByTestId("lanes-ahead")).toHaveTextContent("spread beats stacked");
-  });
-});
-
-describe("LiveMatchPage — active", () => {
-  beforeEach(() => {
-    vi.mocked(api.liveStatus).mockResolvedValue(ingameActive);
-  });
-
-  it("labels the win probability band as a diagnostic checkpoint estimate", async () => {
+  it("labels the win probability card as a diagnostic checkpoint estimate with the honesty caption", async () => {
     renderPage();
     const band = await screen.findByTestId("wp-band");
     expect(band).toHaveTextContent("Checkpoint estimate");
     expect(band).toHaveTextContent("Diagnostic");
-    expect(band).toHaveTextContent("28.2%"); // nearest bucket to clock 20:54 → "-1000..0 @20m"
+    expect(band).toHaveTextContent(/calibrated model ships with the next pack/);
+    // No live game state → no number is claimed.
+    expect(screen.getByTestId("wp-value")).toHaveTextContent("—");
+  });
+
+  it("binds the objectives cards to real pack numbers", async () => {
+    renderPage();
+    expect(await screen.findByText("95.4%")).toBeInTheDocument();
+    expect(screen.getByTestId("objective-dragon")).toHaveTextContent("checkpoint, not weapon");
+    expect(screen.getByTestId("objective-baron")).toHaveTextContent("comeback tool");
+    expect(screen.getByTestId("objective-baron")).toHaveTextContent("81.4%");
+    expect(screen.getByTestId("objectives-caption")).toHaveTextContent("60.3%");
+    expect(screen.getByTestId("objectives-caption")).toHaveTextContent("+29.5pp");
+  });
+
+  it("renders habit nudges with ×-per-SD formatting and the trap line from the pack", async () => {
+    renderPage();
+    expect(await screen.findByTestId("habit-nudge-recall_safety")).toHaveTextContent(
+      "Recall safely — worth ×2.24 per SD.",
+    );
+    expect(screen.getByTestId("habit-nudge-plates_by_14")).toHaveTextContent("×0.87 per SD");
+    expect(screen.getByTestId("trap-nudge")).toHaveTextContent("Hecarim 41.5%");
+  });
+
+  it("keeps idle captions on the live-only panels", async () => {
+    renderPage();
+    expect(await screen.findByTestId("event-feed")).toHaveTextContent(
+      "event feed lands with the LCU bridge",
+    );
+    expect(screen.getByTestId("item-value")).toHaveTextContent("Item values land with the LCU bridge.");
+    expect(screen.getByTestId("dead-now")).toHaveTextContent("death tracker lands with the LCU bridge");
+  });
+
+  it("shows the enemy spells panel as an idle structure with no timer content", async () => {
+    renderPage();
+    const panel = await screen.findByTestId("enemy-spells");
+    expect(panel).toHaveTextContent("ships after LCU bridge");
+    expect(panel.textContent).not.toMatch(/flash\s*\d/i);
+    expect(panel.textContent).not.toMatch(forbiddenEnemyName);
+  });
+
+  it("carries the lanes-ahead line from the pack finding", async () => {
+    renderPage();
+    const line = await screen.findByTestId("lanes-ahead");
+    expect(line).toHaveTextContent("16.4%");
+    expect(line).toHaveTextContent("83.8%");
+    expect(line).toHaveTextContent("spread beats stacked");
+  });
+});
+
+describe("LiveMatchPage — active game", () => {
+  beforeEach(() => {
+    vi.mocked(api.liveStatus).mockResolvedValue(ingameActive);
+  });
+
+  it("shows the nearest checkpoint bucket as the win probability estimate", async () => {
+    renderPage();
+    // clock 20:54 → nearest bucket "-1000..0 @20m"
+    expect(await screen.findByText("28.2%")).toBeInTheDocument();
+    const band = screen.getByTestId("wp-band");
     expect(band).toHaveTextContent("-1000..0 @20m");
-    expect(band).toHaveTextContent(/pack model artifacts/);
+    expect(screen.getByTestId("wp-value")).toHaveTextContent("28.2%");
+    expect(screen.getByTestId("bridge-status")).toHaveTextContent(":2999 · 1s poll");
   });
 
-  it("renders an event feed panel with its landing-soon empty text", async () => {
-    renderPage();
-    const feed = await screen.findByTestId("event-feed");
-    expect(feed).toHaveTextContent("event feed lands with LCU bridge");
-  });
-
-  it("renders all four habit nudges with × formatting and advice tags", async () => {
-    renderPage();
-    await screen.findByTestId("habit-nudges");
-    const expected = [
-      ["recall_safety", "Recall safely", "×2.24 per SD"],
-      ["fast_first_dragon", "Fast first dragon", "×1.31 per SD"],
-      ["spend_before_backing", "Spend before backing", "×1.12 per SD"],
-      ["plates_by_14", "Plates by 14", "×0.87 per SD"],
-    ] as const;
-    for (const [key, label, effect] of expected) {
-      const item = screen.getByTestId(`habit-nudge-${key}`);
-      expect(item).toHaveTextContent(label);
-      expect(item).toHaveTextContent(effect);
-      expect(item).toHaveTextContent("advice");
-    }
-  });
   it("ticks the game clock forward between SSE live.state frames", async () => {
     // Keep poll responses consistent with the pushed frame so a refetch
     // cannot rewind the clock mid-test.

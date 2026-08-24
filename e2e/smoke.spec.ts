@@ -4,9 +4,14 @@ test.describe("Bhayanak Legends v1 smoke", () => {
   test("live match shows objectives priors from the Findings Pack", async ({ page }) => {
     await page.goto("/live");
     await expect(page.getByTestId("sidecar-dot")).toBeVisible();
-    await expect(page.getByText("81.4%")).toBeVisible();
-    await expect(page.getByText("27.6%")).toBeVisible();
-    await expect(page.getByText(":2999 comes online at match start")).toBeVisible();
+    await expect(page.getByText("81.4%").first()).toBeVisible();
+    await expect(page.getByText("waiting for :2999").first()).toBeVisible();
+  });
+
+  test("post-game binds comeback odds to the played game", async ({ page }) => {
+    await page.goto("/postgame");
+    await expect(page.getByTestId("comeback-odds")).toBeVisible();
+    await expect(page.getByText("Recall safely").first()).toBeVisible();
   });
 
   test("history shows the imported Personal History", async ({ page }) => {
@@ -18,24 +23,24 @@ test.describe("Bhayanak Legends v1 smoke", () => {
   test("post-game digest renders the latest real game", async ({ page }) => {
     await page.goto("/postgame");
     await expect(page.getByText("DIAGNOSTIC").first()).toBeVisible();
-    await expect(page.getByText("Recall safely")).toBeVisible();
   });
 
   test("champ select idle keeps policy note and population intel visible", async ({ page }) => {
     await page.goto("/champ-select");
-    await expect(page.getByText("Ranked enemy names stay hidden by policy.")).toBeVisible();
+    await expect(page.getByText("champion-level intel only").first()).toBeVisible();
     await expect(page.getByText("Recommend ban").first()).toBeVisible();
   });
 
   test("champions tier list renders pack data", async ({ page }) => {
     await page.goto("/champions");
-    await expect(page.getByText("Lillia").first()).toBeVisible();
+    await expect(page.getByText("Yasuo").first()).toBeVisible();
+    await expect(page.getByText("MATCHUPS", { exact: false }).first()).toBeVisible();
   });
 
-  test("progress renders trajectory for imported matches", async ({ page }) => {
+  test("progress renders design panels with real benchmarks", async ({ page }) => {
     await page.goto("/progress");
-    await expect(page.locator("svg").first()).toBeVisible();
-    await expect(page.getByText("Rolling win rate per patch")).toBeVisible();
+    await expect(page.getByTestId("benchmark-cards")).toBeVisible();
+    await expect(page.getByTestId("lever-adoption")).toBeVisible();
   });
 
   test("navigation between all routes works", async ({ page }) => {
