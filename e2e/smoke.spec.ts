@@ -11,7 +11,9 @@ test.describe("Bhayanak Legends v1 smoke", () => {
   test("post-game binds comeback odds to the played game", async ({ page }) => {
     await page.goto("/postgame");
     await expect(page.getByTestId("comeback-odds")).toBeVisible();
-    await expect(page.getByText("Recall safely").first()).toBeVisible();
+    // No contracted habit extractors exist yet, so the digest carries no
+    // fabricated rows and the card states evaluation is unavailable.
+    await expect(page.getByTestId("habit-unavailable")).toBeVisible();
   });
 
   test("history shows the imported Personal History", async ({ page }) => {
