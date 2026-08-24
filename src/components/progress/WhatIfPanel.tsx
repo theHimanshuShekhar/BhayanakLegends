@@ -1,5 +1,5 @@
 const SLIDERS = [
-  { key: "gold10", label: "Gold@10" },
+  { key: "gold_diff_10", label: "Gold diff @10" },
   { key: "plates14", label: "Plates by 14" },
   { key: "safe-recalls", label: "Safe recalls" },
 ];
