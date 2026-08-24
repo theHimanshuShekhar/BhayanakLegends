@@ -9,19 +9,14 @@ interface PatchWr {
 }
 
 function perPatchWr(points: TrajectoryPoint[]): PatchWr[] {
-  const byPatch = new Map<string, { games: number; weighted: number }>();
-  for (const p of points) {
-    const cur = byPatch.get(p.patch) ?? { games: 0, weighted: 0 };
-    cur.games += p.games;
-    cur.weighted += p.rolling_wr * p.games;
-    byPatch.set(p.patch, cur);
+  const latestByPatch = new Map<string, TrajectoryPoint>();
+  for (const point of points) {
+    const latest = latestByPatch.get(point.patch);
+    if (!latest || point.index > latest.index) latestByPatch.set(point.patch, point);
   }
-  return [...byPatch.entries()]
-    .sort(([a], [b]) => patchOrder(a) - patchOrder(b))
-    .map(([patch, agg]) => ({
-      patch,
-      wr: agg.games > 0 ? agg.weighted / agg.games : 0,
-    }));
+  return [...latestByPatch.values()]
+    .sort((a, b) => patchOrder(a.patch) - patchOrder(b.patch))
+    .map((point) => ({ patch: point.patch, wr: point.rolling_wr }));
 }
 
 function polylinePoints(rows: PatchWr[]): string {

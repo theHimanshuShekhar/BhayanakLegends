@@ -51,9 +51,16 @@ class TrajectoryPoint(BaseModel):
     patch: str
     role: str
     champion: str | None = None
+    played_at: str
+    index: int
+    rolling_wr: float
+
+
+class PatchAggregate(BaseModel):
+    patch: str
     games: int
     wins: int
-    rolling_wr: float
+    win_rate: float
 
 
 class HabitOutcome(BaseModel):

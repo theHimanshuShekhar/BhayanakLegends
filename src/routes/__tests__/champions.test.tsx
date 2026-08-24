@@ -69,8 +69,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(api.pack).mockResolvedValue(makePack());
   vi.mocked(api.trajectories).mockResolvedValue([
-    { patch: "14.17", role: "MIDDLE", champion: null, games: 10, wins: 6, rolling_wr: 0.6 },
-    { patch: "16.16", role: "MIDDLE", champion: null, games: 12, wins: 5, rolling_wr: 0.42 },
+    { patch: "14.17", role: "MIDDLE", champion: null, played_at: "2026-01-01T00:00:00Z", index: 0, rolling_wr: 0.6 },
+    { patch: "16.16", role: "MIDDLE", champion: null, played_at: "2026-02-01T00:00:00Z", index: 1, rolling_wr: 0.42 },
   ]);
 });
 

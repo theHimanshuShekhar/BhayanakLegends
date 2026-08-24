@@ -9,7 +9,7 @@ from typing import Any
 
 from fastapi import APIRouter, Request
 
-from .models import HabitOutcome, PostGameDigest, RoleBenchmark, RoleRow, TrajectoryPoint
+from .models import HabitOutcome, PatchAggregate, PostGameDigest, RoleBenchmark, RoleRow, TrajectoryPoint
 from .pack import PackError
 
 router = APIRouter()
@@ -33,8 +33,52 @@ def _patch_sort_key(patch: str | None) -> tuple[int, int, int, str]:
     return (1, 0, 0, patch)
 
 
-def _patch_group_sort_key(key: tuple[str, str, str | None]) -> tuple:
-    return (_patch_sort_key(key[0]), key[1], key[2] or "")
+def _eligible_rows(
+    request: Request,
+    *,
+    patch: str | None,
+    role: str | None,
+    champion: str | None,
+) -> list[dict[str, Any]]:
+    return [
+        row
+        for row in request.app.state.store.all_matches()
+        if row["patch"]
+        and row["role"]
+        and (patch is None or row["patch"] == patch)
+        and (role is None or row["role"] == role.upper())
+        and (champion is None or row["champion"] == champion)
+    ]
+
+
+def _match_sort_key(row: dict[str, Any]) -> tuple[str, str]:
+    return (row["played_at"] or "", row["match_id"])
+
+
+@router.get("/progress/aggregates")
+def patch_aggregates(
+    request: Request,
+    patch: str | None = None,
+    role: str | None = None,
+    champion: str | None = None,
+) -> list[dict]:
+    rows = _eligible_rows(request, patch=patch, role=role, champion=champion)
+    grouped: dict[str, tuple[int, int]] = {}
+    for row in rows:
+        games, wins = grouped.get(row["patch"], (0, 0))
+        grouped[row["patch"]] = (games + 1, wins + int(row["win"]))
+
+    return [
+        PatchAggregate(
+            patch=patch_name,
+            games=games,
+            wins=wins,
+            win_rate=wins / games if games else 0.0,
+        ).model_dump()
+        for patch_name, (games, wins) in sorted(
+            grouped.items(), key=lambda item: _patch_sort_key(item[0])
+        )
+    ]
 
 
 @router.get("/history/summary")
@@ -67,35 +111,25 @@ def trajectories(
     role: str | None = None,
     champion: str | None = None,
 ) -> list[dict]:
-    rows = [
-        row
-        for row in request.app.state.store.all_matches()
-        if row["patch"] and row["role"]
-        and (patch is None or row["patch"] == patch)
-        and (role is None or row["role"] == role.upper())
-        and (champion is None or row["champion"] == champion)
-    ]
-    groups: dict[tuple[str, str, str | None], list[dict[str, Any]]] = {}
-    for row in rows:
-        key = (row["patch"], row["role"], row["champion"])
-        groups.setdefault(key, []).append(row)
+    ordered = sorted(
+        _eligible_rows(request, patch=patch, role=role, champion=champion),
+        key=_match_sort_key,
+    )
 
     points: list[dict] = []
-    for key in sorted(groups, key=_patch_group_sort_key):
-        ordered = sorted(groups[key], key=lambda r: r["played_at"] or "")
-        for index in range(len(ordered)):
-            window = ordered[max(0, index - ROLLING_WINDOW + 1) : index + 1]
-            wins = sum(1 for r in window if r["win"])
-            points.append(
-                TrajectoryPoint(
-                    patch=key[0],
-                    role=key[1],
-                    champion=key[2],
-                    games=len(window),
-                    wins=wins,
-                    rolling_wr=(wins / len(window)) if window else 0.0,
-                ).model_dump()
-            )
+    for index, row in enumerate(ordered):
+        window = ordered[max(0, index - ROLLING_WINDOW + 1) : index + 1]
+        wins = sum(1 for match in window if match["win"])
+        points.append(
+            TrajectoryPoint(
+                patch=row["patch"],
+                role=row["role"],
+                champion=row["champion"],
+                played_at=row["played_at"] or "",
+                index=index,
+                rolling_wr=(wins / len(window)) if window else 0.0,
+            ).model_dump()
+        )
     return points
 
 

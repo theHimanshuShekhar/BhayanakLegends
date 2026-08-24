@@ -1,9 +1,7 @@
-import { useMemo } from "react";
-import { useBenchmarks, useHistorySummary, usePack, useTrajectories } from "../api/hooks";
+import { useBenchmarks, useHistorySummary, usePack, usePatchAggregates } from "../api/hooks";
 import { CaveatFooter } from "../components/journal/CaveatFooter";
-import { patchOrder } from "../components/journal/format";
 import { ProgressSummaryCard } from "../components/progress/ProgressSummaryCard";
-import { RollingWrChart, type WrPoint } from "../components/progress/RollingWrChart";
+import { RollingWrChart } from "../components/progress/RollingWrChart";
 import { BenchmarkCards } from "../components/progress/BenchmarkCards";
 import { LeakPanel } from "../components/progress/LeakPanel";
 import { WhatIfPanel } from "../components/progress/WhatIfPanel";
@@ -14,27 +12,11 @@ const LANE_CONVERSION_RE = /lane.*conversion|conversion.*lane/i;
 
 export function ProgressPage() {
   const pack = usePack();
-  const trajectories = useTrajectories();
+  const aggregates = usePatchAggregates();
   const benchmarks = useBenchmarks();
   const summary = useHistorySummary();
 
-  const perPatch: WrPoint[] = useMemo(() => {
-    const byPatch = new Map<string, { games: number; wins: number; weighted: number }>();
-    for (const p of trajectories.data ?? []) {
-      const cur = byPatch.get(p.patch) ?? { games: 0, wins: 0, weighted: 0 };
-      cur.games += p.games;
-      cur.wins += p.wins;
-      cur.weighted += p.rolling_wr * p.games;
-      byPatch.set(p.patch, cur);
-    }
-    return [...byPatch.entries()]
-      .sort(([a], [b]) => patchOrder(a) - patchOrder(b))
-      .map(([patch, agg]) => ({
-        patch,
-        games: agg.games,
-        rolling_wr: agg.games > 0 ? agg.weighted / agg.games : 0,
-      }));
-  }, [trajectories.data]);
+  const perPatch = aggregates.data ?? [];
 
   const laneFinding =
     pack.data?.findings.find((f) => LANE_CONVERSION_RE.test(f.key)) ?? null;
@@ -76,9 +58,9 @@ export function ProgressPage() {
           <WhatIfPanel />
         </div>
 
-        {trajectories.isError && (
+        {aggregates.isError && (
           <div style={{ fontSize: 10.5, color: "var(--color-danger)" }}>
-            Trajectories unavailable — sidecar offline.
+            Patch aggregates unavailable — sidecar offline.
           </div>
         )}
       </div>

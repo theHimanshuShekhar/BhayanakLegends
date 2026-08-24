@@ -1,17 +1,14 @@
 import type { CSSProperties } from "react";
+import type { PatchAggregate } from "../../api/types";
 
-export interface WrPoint {
-  patch: string;
-  rolling_wr: number;
-  games: number;
-}
+export type WrPoint = PatchAggregate;
 
 function chartPath(points: WrPoint[]): { line: string; area: string; poly: string } {
   if (points.length === 0) return { line: "", area: "", poly: "" };
   const n = points.length;
   const x = (i: number) => (n === 1 ? 310 : Math.round((i / (n - 1)) * 620));
   const y = (wr: number) => Math.round(96 - Math.max(0, Math.min(1, wr)) * 88);
-  const coords = points.map((p, i) => `${x(i)},${y(p.rolling_wr)}`);
+  const coords = points.map((p, i) => `${x(i)},${y(p.win_rate)}`);
   const line = coords.map((c, i) => `${i === 0 ? "M" : "L"}${c}`).join(" ");
   const area = `${line} L620,100 L0,100 Z`;
   return { line, area, poly: coords.join(" ") };
@@ -19,8 +16,8 @@ function chartPath(points: WrPoint[]): { line: string; area: string; poly: strin
 
 function direction(points: WrPoint[]): { label: string; style: CSSProperties } | null {
   if (points.length < 2) return null;
-  const first = points[0].rolling_wr;
-  const last = points[points.length - 1].rolling_wr;
+  const first = points[0].win_rate;
+  const last = points[points.length - 1].win_rate;
   if (last > first + 0.005)
     return { label: "Climbing", style: { background: "var(--color-teal-low)", color: "var(--color-teal)" } };
   if (last < first - 0.005)
@@ -47,7 +44,7 @@ export function RollingWrChart({ points }: { points: WrPoint[] }) {
             color: "var(--color-dim)",
           }}
         >
-          ROLLING WIN RATE · BY PATCH
+          PATCH WIN RATE · PERSONAL HISTORY
         </span>
         {dir && <span className="pill" style={dir.style}>{dir.label}</span>}
       </div>
@@ -56,8 +53,8 @@ export function RollingWrChart({ points }: { points: WrPoint[] }) {
         <div data-testid="empty-state" style={{ padding: "26px 4px", textAlign: "center" }}>
           <div style={{ fontSize: 12, fontWeight: 500 }}>No tracked games yet</div>
           <p style={{ margin: "4px auto 0", maxWidth: 420, fontSize: 10.5, color: "var(--color-dim)" }}>
-            Once Backfill downloads matches from the History tab, your rolling win rate per patch
-            shows up here.
+            Once Backfill downloads matches from the History tab, your true patch win rates show
+            up here.
           </p>
         </div>
       ) : (
@@ -105,8 +102,8 @@ export function RollingWrChart({ points }: { points: WrPoint[] }) {
               color: "var(--color-dimmer)",
             }}
           >
-            Games-weighted rolling win rate across {totalGames.toLocaleString()} synced games —
-            Personal History only, never mixed with the pack.
+            True games in the patch/role-known Personal History subset: {totalGames.toLocaleString()}
+            — never summed from overlapping Trajectory windows.
           </p>
         </>
       )}

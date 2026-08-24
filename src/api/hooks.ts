@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, connection } from "./client";
-import type { ChampSelectSnapshot, InGameSnapshot, SettingsPatch } from "./types";
+import type { ChampSelectSnapshot, InGameSnapshot, PatchAggregate, SettingsPatch } from "./types";
 
 export function useHealth() {
   return useQuery({ queryKey: ["health"], queryFn: api.health });
@@ -47,6 +47,14 @@ export function useTrajectories(filters: TrajectoryFilters = {}) {
   return useQuery({
     queryKey: ["trajectories", params],
     queryFn: () => api.trajectories(params),
+  });
+}
+
+export function usePatchAggregates(filters: TrajectoryFilters = {}) {
+  const params = cleanParams(filters);
+  return useQuery<PatchAggregate[]>({
+    queryKey: ["patch-aggregates", params],
+    queryFn: () => api.patchAggregates(params),
   });
 }
 

@@ -111,9 +111,16 @@ export interface TrajectoryPoint {
   patch: string;
   role: string;
   champion: string | null;
+  played_at: string;
+  index: number;
+  rolling_wr: number;
+}
+
+export interface PatchAggregate {
+  patch: string;
   games: number;
   wins: number;
-  rolling_wr: number;
+  win_rate: number;
 }
 
 export interface PostGameDigest {
