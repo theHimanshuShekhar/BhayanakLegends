@@ -6,6 +6,7 @@ import { api } from "../../api/client";
 import { makePack } from "./fixtures";
 
 vi.mock("../../api/client", () => ({
+  eventsUrl: vi.fn(async () => "http://127.0.0.1:23110/events?token=dev"),
   api: {
     pack: vi.fn(),
     postgameLatest: vi.fn(),
