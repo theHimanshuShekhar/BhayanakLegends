@@ -145,6 +145,85 @@ def test_sync_status_idle_stub(client):
     assert res.status_code == 200
     assert res.json()["state"] == "idle"
 
+def _startup_app(tmp_path: Path):
+    config = SidecarConfig(
+        port=23110,
+        token="test-token-123",
+        data_dir=tmp_path / "data",
+        pack_dir=None,
+    )
+    return create_app(config, credential_store=InMemoryCredentialStore())
+
+
+def test_auto_sync_startup_schedules_backfill_without_waiting(tmp_path: Path, monkeypatch):
+    app = _startup_app(tmp_path)
+    app.state.store.set_setting("riot_id", "Player#1234")
+    app.state.store.set_setting("region_route", "europe")
+    app.state.store.set_setting("auto_sync", "1")
+    app.state.credential_store.save("RGAPI-test")
+    started: list[bool] = []
+    monkeypatch.setattr(app.state.sync_service, "start", lambda: started.append(True))
+
+    with TestClient(app):
+        assert started == [True]
+
+
+def test_auto_sync_startup_skips_disabled_or_incomplete_settings(
+    tmp_path: Path, monkeypatch
+):
+    app = _startup_app(tmp_path)
+    app.state.store.set_setting("riot_id", "not-an-id")
+    app.state.store.set_setting("auto_sync", "1")
+    app.state.credential_store.save("RGAPI-test")
+    started: list[bool] = []
+    monkeypatch.setattr(app.state.sync_service, "start", lambda: started.append(True))
+
+    with TestClient(app):
+        pass
+
+    assert started == []
+
+    app = _startup_app(tmp_path / "disabled")
+    app.state.store.set_setting("riot_id", "Player#1234")
+    app.state.store.set_setting("auto_sync", "0")
+    app.state.credential_store.save("RGAPI-test")
+    started = []
+    monkeypatch.setattr(app.state.sync_service, "start", lambda: started.append(True))
+    with TestClient(app):
+        pass
+    assert started == []
+
+
+
+def test_auto_sync_startup_skips_missing_credential(tmp_path: Path, monkeypatch):
+    app = _startup_app(tmp_path)
+    app.state.store.set_setting("riot_id", "Player#1234")
+    app.state.store.set_setting("auto_sync", "1")
+    started: list[bool] = []
+    monkeypatch.setattr(app.state.sync_service, "start", lambda: started.append(True))
+
+    with TestClient(app):
+        pass
+
+    assert started == []
+
+def test_repeated_startup_hooks_do_not_schedule_duplicate_backfills(
+    tmp_path: Path, monkeypatch
+):
+    app = _startup_app(tmp_path)
+    app.state.store.set_setting("riot_id", "Player#1234")
+    app.state.store.set_setting("auto_sync", "1")
+    app.state.credential_store.save("RGAPI-test")
+    started: list[bool] = []
+    monkeypatch.setattr(app.state.sync_service, "start", lambda: started.append(True))
+
+    with TestClient(app):
+        pass
+    with TestClient(app):
+        pass
+
+    assert started == [True]
+
 
 async def test_event_stream_delivers_envelopes():
     hub = Hub()
