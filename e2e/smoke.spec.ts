@@ -37,10 +37,12 @@ test.describe("Bhayanak Legends v1 smoke", () => {
     await expect(page.getByText("MATCHUPS", { exact: false }).first()).toBeVisible();
   });
 
-  test("progress renders design panels with real benchmarks", async ({ page }) => {
+  test("progress renders design panels and suppresses dishonest benchmarks", async ({ page }) => {
     await page.goto("/progress");
-    await expect(page.getByTestId("benchmark-cards")).toBeVisible();
+    // Shipped-pack CS@10 medians are lane-minions-only; the feature contract
+    // forbids comparing them with personal total-CS@10, so no card may render.
     await expect(page.getByTestId("lever-adoption")).toBeVisible();
+    await expect(page.getByTestId("benchmark-cards")).toHaveCount(0);
   });
 
   test("navigation between all routes works", async ({ page }) => {
