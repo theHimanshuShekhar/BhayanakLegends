@@ -3,7 +3,7 @@ use std::process::{Child, Command};
 use std::sync::Mutex;
 
 use serde::Serialize;
-use tauri::{Manager, RunEvent};
+use tauri::Manager;
 use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
 use uuid::Uuid;
@@ -12,7 +12,7 @@ struct SidecarState(Mutex<Option<SidecarHandle>>);
 
 enum Proc {
     Std(Child),
-    Plugin(CommandChild),
+    Plugin(Option<CommandChild>),
 }
 
 struct SidecarHandle {
@@ -29,7 +29,9 @@ impl SidecarHandle {
                 let _ = child.wait();
             }
             Proc::Plugin(child) => {
-                let _ = child.kill();
+                if let Some(c) = child.take() {
+                    let _ = c.kill();
+                }
             }
         }
     }
@@ -79,7 +81,7 @@ fn spawn_sidecar(app: &tauri::AppHandle) -> Result<SidecarHandle, Box<dyn std::e
             .env("BHAYANAK_PORT", port.to_string())
             .env("BHAYANAK_TOKEN", &token);
         let (_, child) = sidecar.spawn()?;
-        Proc::Plugin(child)
+        Proc::Plugin(Some(child))
     };
 
     Ok(SidecarHandle { proc, port, token })
