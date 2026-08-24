@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "../api/client";
+import { actionableErrorMessage, api } from "../api/client";
 import type { InGameSnapshot, PlayerLive } from "../api/types";
 import { useEvents } from "../api/sse";
 import { useLiveIngame } from "../api/hooks";
@@ -134,6 +134,11 @@ export function LiveMatchPage() {
           {clockLabel(clockS)}
         </div>
       </div>
+      {packQuery.isError && (
+        <div style={{ fontSize: 10.5, color: "var(--color-danger)" }}>
+          {actionableErrorMessage(packQuery.error, "pack")}
+        </div>
+      )}
 
       <PlayerList snapshot={ingame} />
 

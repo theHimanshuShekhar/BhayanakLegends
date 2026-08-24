@@ -1,4 +1,5 @@
 import { usePack, usePostgameLatest } from "../api/hooks";
+import { actionableErrorMessage } from "../api/client";
 import {
   CheckpointStrip,
   ComebackOddsCard,
@@ -27,10 +28,14 @@ export function PostGamePage() {
       <div className="kicker" style={{ marginBottom: 10 }}>
         post-game review · the 30 seconds after a loss
       </div>
-
       {query.isError && (
         <div style={{ marginBottom: 10, fontSize: 11, color: "var(--color-amber)" }}>
-          The sidecar isn't reachable — open the app again or check the connection dot.
+          {actionableErrorMessage(query.error)}
+        </div>
+      )}
+      {packQuery.isError && (
+        <div style={{ marginBottom: 10, fontSize: 11, color: "var(--color-amber)" }}>
+          {actionableErrorMessage(packQuery.error, "pack")}
         </div>
       )}
 

@@ -16,9 +16,16 @@ export function useEvents(onMessage?: (msg: SseMessage) => void) {
     let source: EventSource | null = null;
     let closed = false;
 
-    const connect = () => {
+    const connect = async () => {
       if (closed) return;
-      source = new EventSource(eventsUrl());
+      try {
+        source = new EventSource(await eventsUrl());
+      } catch {
+        if (closed) return;
+        setConnected(false);
+        setTimeout(() => void connect(), 2000);
+        return;
+      }
       source.onopen = () => setConnected(true);
       source.onmessage = (ev) => {
         try {
@@ -31,11 +38,11 @@ export function useEvents(onMessage?: (msg: SseMessage) => void) {
       source.onerror = () => {
         setConnected(false);
         source?.close();
-        setTimeout(connect, 2000);
+        setTimeout(() => void connect(), 2000);
       };
     };
 
-    connect();
+    void connect();
     return () => {
       closed = true;
       source?.close();
