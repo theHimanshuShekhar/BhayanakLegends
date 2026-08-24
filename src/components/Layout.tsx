@@ -1,6 +1,7 @@
 import { ReactNode } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useEvents } from "../api/sse";
+import { UpdaterStatus } from "./UpdaterStatus";
 
 const NAV = [
   { to: "/live", label: "Live match" },
@@ -110,6 +111,7 @@ export function Layout({ children }: { children: ReactNode }) {
         })}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 7 }}>
           <ConnectionStatus connected={connected} />
+          <UpdaterStatus />
           <div
             className="pill"
             style={{
