@@ -88,6 +88,21 @@ describe("ChampSelectPage — idle", () => {
     expect(screen.getByTestId("cs-lock-button")).toBeDisabled();
   });
 
+  it("shows the read-only loadout state without champion recommendations", async () => {
+    renderPage();
+
+    const loadout = await screen.findByTestId("card-loadout");
+    expect(loadout).toHaveTextContent("LOADOUT · READ-ONLY");
+    expect(screen.getByTestId("cs-loadout-unavailable")).toHaveTextContent(
+      "no champion-specific loadout source",
+    );
+    expect(loadout).toHaveTextContent("Unavailable");
+    expect(loadout).not.toHaveTextContent("Electrocute");
+    expect(loadout).not.toHaveTextContent("Flash / TP");
+    expect(screen.getByTestId("cs-apply-loadout")).toBeDisabled();
+    expect(screen.getByTestId("cs-apply-loadout")).not.toHaveAttribute("title");
+  });
+
   it("keeps the counterpick honesty caption verbatim", async () => {
     renderPage();
     const caption = await screen.findByTestId("honesty-caption");

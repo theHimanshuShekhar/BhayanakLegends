@@ -1,7 +1,7 @@
 const SLIDERS = [
-  { key: "gold10", label: "Gold@10", display: "−280g", value: 38, accent: false },
-  { key: "plates14", label: "Plates by 14", display: "1 of 6", value: 17, accent: false },
-  { key: "safe-recalls", label: "Safe recalls", display: "62%", value: 62, accent: true },
+  { key: "gold10", label: "Gold@10" },
+  { key: "plates14", label: "Plates by 14" },
+  { key: "safe-recalls", label: "Safe recalls" },
 ];
 
 export function WhatIfPanel() {
@@ -28,7 +28,7 @@ export function WhatIfPanel() {
             color: "var(--color-dim)",
           }}
         >
-          WHAT-IF SIMULATOR
+          WHAT-IF SIMULATOR · UNAVAILABLE
         </span>
       </div>
       {SLIDERS.map((s) => (
@@ -42,9 +42,11 @@ export function WhatIfPanel() {
             }}
           >
             <span style={{ color: "var(--color-dim)" }}>{s.label}</span>
-            <span className="mono-n">{s.display}</span>
+            <span className="mono-n">Unavailable</span>
           </div>
           <div
+            aria-label={`${s.label} unavailable until the Honest Model ships`}
+            data-testid={`what-if-track-${s.key}`}
             style={{
               position: "relative",
               height: 6,
@@ -52,33 +54,7 @@ export function WhatIfPanel() {
               background: "var(--color-deep)",
               overflow: "hidden",
             }}
-          >
-            <div
-              style={{
-                width: `${s.value}%`,
-                height: "100%",
-                background: s.accent ? "var(--color-accent)" : "var(--color-surface-3)",
-              }}
-            />
-            <input
-              type="range"
-              min={0}
-              max={100}
-              defaultValue={s.value}
-              disabled
-              aria-label={`${s.label} (inactive until the model-bearing pack ships)`}
-              data-testid={`what-if-input-${s.key}`}
-              style={{
-                position: "absolute",
-                inset: 0,
-                width: "100%",
-                height: "100%",
-                margin: 0,
-                opacity: 0,
-                cursor: "not-allowed",
-              }}
-            />
-          </div>
+          />
         </div>
       ))}
       <div
@@ -97,7 +73,7 @@ export function WhatIfPanel() {
             data-testid="what-if-prediction"
             style={{ font: "700 16px var(--font-mono)", color: "#e7e5fe" }}
           >
-            —
+            Unavailable
           </span>
         </div>
       </div>
@@ -105,8 +81,7 @@ export function WhatIfPanel() {
         style={{ margin: 0, fontSize: 8.5, lineHeight: 1.4, color: "var(--color-dimmer)" }}
         data-testid="what-if-caption"
       >
-        What-if activates with the model-bearing pack — sliders park here until the Honest Model
-        ships (ADR-0003).
+        Honest Model unavailable; personal estimates withheld until it ships (ADR-0003).
       </p>
     </div>
   );
