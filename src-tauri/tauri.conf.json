@@ -43,5 +43,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/theHimanshuShekhar/BhayanakLegends/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk4N0RCNzkwOUZGRDYyN0EKUldSNll2MmZrTGQ5bUlRNlVWODFrSTl2Mmd1NjZLclhWNFlTNG9aUURDVy9GSFQ3dVhmK3F1SDYK"
+    }
   }
 }
