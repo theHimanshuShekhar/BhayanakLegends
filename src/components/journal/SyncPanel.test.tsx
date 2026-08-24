@@ -42,7 +42,7 @@ function renderPanel() {
   );
 }
 
-const settings = { riot_id: "SacredButtholio#OOF", region_route: "sea", has_key: false, auto_sync: true };
+const settings = { riot_id: "SacredButtholio#OOF", region_route: "sea", has_key: false, auto_sync: true } as const;
 const idle = {
   state: "idle" as const,
   mode: "era_first" as const,

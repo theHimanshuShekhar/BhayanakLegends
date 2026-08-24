@@ -43,13 +43,13 @@ const summary = {
   matches: 128,
   patches: ["14.17", "15.5", "16.16"],
   by_role: [
-    { role: "TOP", games: 60, wins: 34 },
-    { role: "JUNGLE", games: 68, wins: 35 },
+    { role: "TOP" as const, games: 60, wins: 34 },
+    { role: "JUNGLE" as const, games: 68, wins: 35 },
   ],
   win_rate: 0.54,
 };
 
-const settings = { riot_id: null, region_route: "europe", has_key: true, auto_sync: false };
+const settings = { riot_id: null, region_route: "europe" as const, has_key: true, auto_sync: false };
 
 const running = {
   state: "running" as const,

@@ -4,7 +4,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-EXEMPT_PATHS = {"/health"}
+EXEMPT_PATHS: set[str] = set()
 
 
 class TokenAuthMiddleware(BaseHTTPMiddleware):

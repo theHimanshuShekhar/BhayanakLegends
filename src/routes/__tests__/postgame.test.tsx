@@ -27,7 +27,7 @@ const digest = {
   match_id: "EUW1_123",
   played_at: "2026-08-23T21:04:00Z",
   champion: "Thresh",
-  role: "UTILITY",
+  role: "UTILITY" as const,
   win: false,
   duration_s: 1992,
   checkpoints: { gold_diff_10: 450, gold_diff_15: -1200, gold_diff_20: null },

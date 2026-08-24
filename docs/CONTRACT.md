@@ -4,7 +4,9 @@ Single source of truth for frontend↔backend↔pack interfaces. Change here, no
 
 ## Process model
 
-Tauri shell spawns the Python sidecar (`bhayanak_legends.sidecar`) with env `BHAYANAK_PORT`, `BHAYANAK_TOKEN`. All HTTP requires header `X-BL-Token: <token>`. The only exception: `/events` also accepts `?token=` because EventSource cannot set headers.
+All HTTP endpoints require `X-BL-Token: <token>`; missing or invalid
+credentials return `401`. The only exception to header placement is
+`/events`, which also accepts `?token=` because EventSource cannot set headers.
 
 Frontend obtains `{port, token}` via Tauri command `sidecar_info`. In web-only dev (`pnpm dev` without Tauri), defaults: port from `VITE_BL_PORT` (default 23110), token from `VITE_BL_TOKEN` (default "dev").
 
@@ -33,16 +35,17 @@ Base URL: `http://127.0.0.1:{port}`
 ### Types (mirrored in `src/api/types.ts`; python side in `bhayanak_legends.models`)
 
 ```ts
-type FindingTier = "actionable" | "diagnostic" | "a-lite";
-
-interface Health { status: "ok"; app_version: string; pack_version: string; }
+type Role = "TOP"|"JUNGLE"|"MIDDLE"|"BOTTOM"|"UTILITY"|"UNKNOWN";
+type GameflowPhase = "None"|"Lobby"|"Matchmaking"|"RankedGame"|"ChampSelect"|"GameStart"|"InProgress"|"WaitingForStats"|"EndOfGame";
+type GameMode = "CLASSIC"|"ODIN"|"ARAM"|"TUTORIAL"|"URF"|"ONEFORALL"|"DOOM_BOTS"|"ASCENSION"|"FIRSTBLOOD"|"KING_PORO"|"SIEGE"|"PROJECT"|"SNOWDOWN"|"NEXUSBLITZ"|"ULTBOOK"|"CHERRY";
+interface Health { status: "ok"|"degraded"; app_version: string; pack_version: string|null; }
 interface Settings {
   riot_id: string | null;        // "GameName#TAG"
-  region_route: string;          // "sea" | "americas" | "europe" | "asia"
+  region_route: "sea" | "americas" | "europe" | "asia";
   has_key: boolean;              // never returns the key itself
   auto_sync: boolean;
 }
-interface SettingsPatch { riot_id?: string|null; region_route?: string; riot_key?: string|null; auto_sync?: boolean; }
+interface SettingsPatch { riot_id?: string|null; region_route?: "sea"|"americas"|"europe"|"asia"; riot_key?: string|null; auto_sync?: boolean; }
 
 interface SyncStatus {
   state: "idle"|"running"|"cancelled"|"error";
@@ -58,13 +61,11 @@ interface HistorySummary {
   by_role: RoleRow[];
   win_rate: number;               // 0..1
 }
-interface RoleRow { role: string; games: number; wins: number; }
+interface RoleRow { role: Role; games: number; wins: number; }
 
 interface TrajectoryPoint {
-  patch: string; role: string; champion: string | null;
-  played_at: string;                       // match timestamp, ISO
-  index: number;                           // chronological index in this response
-  rolling_wr: number;                      // 0..1 over the rolling window
+  patch: string; role: Role; champion: string | null;
+  played_at: string; index: number; rolling_wr: number;
 }
 interface PatchAggregate {
   patch: string;
@@ -73,8 +74,8 @@ interface PatchAggregate {
 
 interface PostGameDigest {
   match_id: string;
-  played_at: string;              // ISO
-  champion: string; role: string; win: boolean; duration_s: number;
+  played_at: string;
+  champion: string; role: Role; win: boolean; duration_s: number;
   checkpoints: { gold_diff_10: number|null; gold_diff_15: number|null; gold_diff_20: number|null };
   habits: HabitOutcome[];         // only outcomes with an exact extractor + threshold; empty when unavailable
   headline: string;               // one-line takeaway, tier-respecting phrasing
@@ -85,7 +86,7 @@ interface PostGameDigest {
 interface HabitOutcome { key: string; label: string; value: string; verdict: "good"|"bad"|"neutral"|"n/a"; }
 
 interface RoleBenchmark {
-  role: string;
+  role: Role;
   personal: Partial<Record<"cs10"|"level10"|"gold_diff_10", number>>;
   population: Partial<Record<"cs10_median"|"level10_median"|"gold_diff_10_median", number>> & {
     sample: number;
@@ -109,8 +110,8 @@ declaration suppresses that comparison. In particular, the shipped pack's
 | `gold_diff_10` | gold | `gold_diff_10` (difference from same-frame ten-player median at 10m) | `gold_diff_10` (difference from same-frame ten-player median at 10m) | TOP, JUNGLE, MIDDLE, BOTTOM, UTILITY | omit when either value is null/non-numeric | `docs/CONTRACT.md#benchmark-feature-contract` |
 
 interface LiveStatus {
-  champ_select: { active: boolean; phase: string|null };   // LCU detected session
-  ingame: { active: boolean; game_id: number|null; mode: string|null; clock_s: number };
+  champ_select: { active: boolean; phase: GameflowPhase|null };
+  ingame: { active: boolean; game_id: number|null; mode: GameMode|null; clock_s: number };
   last_error: string | null;
 }
 
@@ -135,7 +136,7 @@ interface ChampSelectEnemyCell {
 }
 interface ChampSelectSnapshot {
   active: boolean;
-  phase: string|null;            // LCU gameflow phase, e.g. "ChampSelect"
+  phase: GameflowPhase|null;      // LCU gameflow phase
   timer_sec: number|null;        // adjustedTimeLeftInSec; client ticks down between frames
   bans_ally: ChampSelectBan[];
   bans_enemy: ChampSelectBan[];
@@ -156,7 +157,7 @@ interface PlayerLive {
   items: ItemLive[];
 }
 interface LiveEvent {
-  name: string;                  // GameStart|MinionsSpawning|FirstBrick|DragonKill|HeraldKill|BaronKill|ChampionKill|TurretKilled|InhibKilled|GameEnd
+  name: "GameStart"|"MinionsSpawning"|"FirstBrick"|"DragonKill"|"HeraldKill"|"BaronKill"|"ChampionKill"|"TurretKilled"|"InhibKilled"|"GameEnd";
   t_s: number;                   // EventTime
   actor: string|null; victim: string|null;
   detail: string|null;           // DragonType on DragonKill
@@ -164,7 +165,7 @@ interface LiveEvent {
 interface InGameSnapshot {
   active: boolean;
   clock_s: number;               // gameData.gameTime; client ticks between frames
-  mode: string|null;
+  mode: GameMode|null;
   local_summoner: string|null;
   local_champion: string|null;
   teams: { order: PlayerLive[]; chaos: PlayerLive[] };

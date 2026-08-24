@@ -13,7 +13,18 @@ from .auth import TokenAuthMiddleware
 from .config import SidecarConfig
 from .credentials import CredentialBackend, CredentialError, CredentialStore
 from .live import ChampSelectSnapshot, InGameSnapshot
-from .models import LiveState, LiveStatus, SettingsPatch
+from .models import (
+    ChampSelectStatus,
+    FindingsPack,
+    Health,
+    HistorySummary,
+    InGameStatus,
+    LiveStatus,
+    Settings,
+    LiveState,
+    SettingsPatch,
+    SyncStatus,
+)
 from .pack import PackError, PackStore
 from .routers_data import router as data_router
 from .routers_events import build_events_router
@@ -82,6 +93,7 @@ def create_app(
     app.state.hub = hub
     app.state.app_version = APP_VERSION
     app.state.pack_error = pack_error
+    app.state.pack_version = None if pack_error else pack.version()
     app.state.sync_service = None if SyncService is None else SyncService(store, hub, settings_for_sync)
     if LiveService is None:
         app.state.live_service = None
@@ -110,27 +122,33 @@ def create_app(
         allow_headers=["*"],
     )
 
-    @app.get("/health")
-    def health():
-        return {
-            "status": "ok",
-            "app_version": APP_VERSION,
-            "pack_version": None if pack_error else f"v{pack.load()['schema_version']}",
-        }
+    @app.get("/health", response_model=Health)
+    def health() -> Health:
+        if pack_error is None:
+            try:
+                pack_version = pack.version()
+            except PackError:
+                pack_version = None
+        else:
+            pack_version = None
+        return Health(
+            status="ok" if pack_version is not None else "degraded",
+            app_version=APP_VERSION,
+            pack_version=pack_version,
+        )
 
-    @app.get("/pack")
-    def get_pack():
+    @app.get("/pack", response_model=FindingsPack)
+    def get_pack() -> FindingsPack:
         try:
-            return pack.load()
+            return FindingsPack.model_validate(pack.load())
         except PackError as e:
             raise HTTPException(status_code=503, detail=str(e))
 
-    @app.get("/settings")
-    def get_settings():
-        return _settings_view(store, credentials)
-
-    @app.put("/settings")
-    def put_settings(patch: SettingsPatch):
+    @app.get("/settings", response_model=Settings)
+    def get_settings() -> Settings:
+        return Settings.model_validate(_settings_view(store, credentials))
+    @app.put("/settings", response_model=Settings)
+    def put_settings(patch: SettingsPatch) -> Settings:
         if "riot_id" in patch.model_fields_set:
             current_riot_id = store.get_setting("riot_id")
             next_riot_id = patch.riot_id.strip() if patch.riot_id is not None else None
@@ -155,26 +173,16 @@ def create_app(
                 raise HTTPException(status_code=503, detail=str(exc)) from None
         if "auto_sync" in patch.model_fields_set and patch.auto_sync is not None:
             store.set_setting("auto_sync", "1" if patch.auto_sync else "0")
-        return _settings_view(store, credentials)
+        return Settings.model_validate(_settings_view(store, credentials))
 
-    @app.get("/sync/status")
-    def sync_status():
+    @app.get("/sync/status", response_model=SyncStatus)
+    def sync_status() -> SyncStatus:
         svc = app.state.sync_service
         if svc is not None:
-            return svc.status()
-        return {
-            "state": "idle",
-            "mode": "era_first",
-            "total_queued": 0,
-            "downloaded": 0,
-            "skipped": 0,
-            "failed": 0,
-            "current_match_id": None,
-            "started_at": None,
-        }
-
-    @app.post("/sync/start")
-    def sync_start():
+            return SyncStatus.model_validate(svc.status())
+        return SyncStatus()
+    @app.post("/sync/start", response_model=SyncStatus)
+    def sync_start() -> SyncStatus:
         settings = _settings_view(store, credentials)
         if not _is_valid_riot_id(settings["riot_id"]):
             raise HTTPException(
@@ -191,15 +199,15 @@ def create_app(
         except CredentialError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from None
 
-    @app.post("/sync/cancel")
-    def sync_cancel():
+    @app.post("/sync/cancel", response_model=SyncStatus)
+    def sync_cancel() -> SyncStatus:
         svc = app.state.sync_service
         if svc is None:
             raise HTTPException(status_code=503, detail="sync service not wired yet")
-        return svc.cancel()
+        return SyncStatus.model_validate(svc.cancel())
 
-    @app.post("/dev/import")
-    async def dev_import(body: DevImportRequest):
+    @app.post("/dev/import", response_model=SyncStatus)
+    async def dev_import(body: DevImportRequest) -> SyncStatus:
         allowed = config.token == "dev" or os.environ.get("BHAYANAK_ALLOW_IMPORT") == "1"
         if not allowed:
             raise HTTPException(status_code=403, detail="dev import disabled")
@@ -207,32 +215,35 @@ def create_app(
         if svc is None:
             raise HTTPException(status_code=503, detail="sync service not wired yet")
         loop = asyncio.get_running_loop()
-        return await asyncio.to_thread(svc.import_from_dir, Path(body.dir), loop)
+        result = await asyncio.to_thread(svc.import_from_dir, Path(body.dir), loop)
+        return SyncStatus.model_validate(result)
 
-    @app.get("/live/status")
-    def live_status():
+    @app.get("/live/status", response_model=LiveStatus)
+    def live_status() -> LiveStatus:
         svc = app.state.live_service
         if svc is not None:
-            return svc.status()
-        return LiveStatus(champ_select=LiveState(), ingame=LiveState()).model_dump()
+            return LiveStatus.model_validate(svc.status())
+        return LiveStatus(
+            champ_select=ChampSelectStatus(),
+            ingame=InGameStatus(),
+        )
 
-    @app.get("/live/session")
-    def live_session():
+    @app.get("/live/session", response_model=ChampSelectSnapshot)
+    def live_session() -> ChampSelectSnapshot:
         svc = app.state.live_service
         if svc is not None:
-            return svc.session()
-        return ChampSelectSnapshot().model_dump()
+            return ChampSelectSnapshot.model_validate(svc.session())
+        return ChampSelectSnapshot()
 
-    @app.get("/live/ingame")
-    def live_ingame():
+    @app.get("/live/ingame", response_model=InGameSnapshot)
+    def live_ingame() -> InGameSnapshot:
         svc = app.state.live_service
         if svc is not None:
-            return svc.ingame()
-        return InGameSnapshot().model_dump()
+            return InGameSnapshot.model_validate(svc.ingame())
+        return InGameSnapshot()
 
     app.include_router(build_events_router())
     app.include_router(data_router)
-
     return app
 
 

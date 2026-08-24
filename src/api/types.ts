@@ -1,9 +1,52 @@
 export type FindingTier = "actionable" | "diagnostic" | "a-lite";
+export type RegionRoute = "sea" | "americas" | "europe" | "asia";
+export type Role = "TOP" | "JUNGLE" | "MIDDLE" | "BOTTOM" | "UTILITY" | "UNKNOWN";
+export type HealthStatus = "ok" | "degraded";
+export type SyncState = "idle" | "running" | "cancelled" | "error";
+export type SyncMode = "era_first" | "import";
+export type GameflowPhase =
+  | "None"
+  | "Lobby"
+  | "Matchmaking"
+  | "RankedGame"
+  | "ChampSelect"
+  | "GameStart"
+  | "InProgress"
+  | "WaitingForStats"
+  | "EndOfGame";
+export type GameMode =
+  | "CLASSIC"
+  | "ODIN"
+  | "ARAM"
+  | "TUTORIAL"
+  | "URF"
+  | "ONEFORALL"
+  | "DOOM_BOTS"
+  | "ASCENSION"
+  | "FIRSTBLOOD"
+  | "KING_PORO"
+  | "SIEGE"
+  | "PROJECT"
+  | "SNOWDOWN"
+  | "NEXUSBLITZ"
+  | "ULTBOOK"
+  | "CHERRY";
+export type LiveEventName =
+  | "GameStart"
+  | "MinionsSpawning"
+  | "FirstBrick"
+  | "DragonKill"
+  | "HeraldKill"
+  | "BaronKill"
+  | "ChampionKill"
+  | "TurretKilled"
+  | "InhibKilled"
+  | "GameEnd";
 
 export interface Health {
-  status: "ok";
+  status: HealthStatus;
   app_version: string;
-  pack_version: string;
+  pack_version: string | null;
 }
 
 export interface TableProvenance {
@@ -71,7 +114,7 @@ export interface BanAdvice {
 
 export interface TierEntry {
   champion: string;
-  role: string;
+  role: Role;
   games: number;
   pick_rate: number;
   win_rate: number;
@@ -81,14 +124,14 @@ export interface TierEntry {
 export interface MatchupExample {
   champion: string;
   opponent: string;
-  role: string;
+  role: Role;
   wr: number;
   ci: number;
   games: number;
 }
 
 export interface BenchmarkRow {
-  role: string;
+  role: Role;
   cs10_median: number | null;
   level10_median: number | null;
   gold_diff_10_median: number | null;
@@ -102,20 +145,20 @@ export interface BenchmarkRow {
 
 export interface Settings {
   riot_id: string | null;
-  region_route: string;
+  region_route: RegionRoute;
   has_key: boolean;
   auto_sync: boolean;
 }
 export interface SettingsPatch {
   riot_id?: string | null;
-  region_route?: string;
+  region_route?: RegionRoute;
   riot_key?: string | null;
   auto_sync?: boolean;
 }
 
 export interface SyncStatus {
-  state: "idle" | "running" | "cancelled" | "error";
-  mode: "era_first" | "import";
+  state: SyncState;
+  mode: SyncMode;
   total_queued: number;
   downloaded: number;
   skipped: number;
@@ -131,14 +174,14 @@ export interface HistorySummary {
   win_rate: number;
 }
 export interface RoleRow {
-  role: string;
+  role: Role;
   games: number;
   wins: number;
 }
 
 export interface TrajectoryPoint {
   patch: string;
-  role: string;
+  role: Role;
   champion: string | null;
   played_at: string;
   index: number;
@@ -156,7 +199,7 @@ export interface PostGameDigest {
   match_id: string;
   played_at: string;
   champion: string;
-  role: string;
+  role: Role;
   win: boolean;
   duration_s: number;
   checkpoints: {
@@ -177,7 +220,7 @@ export interface HabitOutcome {
 export type BenchmarkMetric = "cs10" | "level10" | "gold_diff_10";
 
 export interface RoleBenchmark {
-  role: string;
+  role: Role;
   personal: Partial<Record<BenchmarkMetric, number>>;
   population: Partial<Record<`${BenchmarkMetric}_median`, number>> & {
     sample: number;
@@ -185,8 +228,13 @@ export interface RoleBenchmark {
 }
 
 export interface LiveStatus {
-  champ_select: { active: boolean; phase: string | null };
-  ingame: { active: boolean; game_id: number | null; mode: string | null; clock_s: number };
+  champ_select: { active: boolean; phase: GameflowPhase | null };
+  ingame: {
+    active: boolean;
+    game_id: number | null;
+    mode: GameMode | null;
+    clock_s: number;
+  };
   last_error: string | null;
 }
 
@@ -219,7 +267,7 @@ export interface ChampSelectEnemyCell {
 
 export interface ChampSelectSnapshot {
   active: boolean;
-  phase: string | null;
+  phase: GameflowPhase | null;
   timer_sec: number | null;
   bans_ally: ChampSelectBan[];
   bans_enemy: ChampSelectBan[];
@@ -247,7 +295,7 @@ export interface PlayerLive {
 }
 
 export interface LiveEvent {
-  name: string;
+  name: LiveEventName;
   t_s: number;
   actor: string | null;
   victim: string | null;
@@ -257,7 +305,7 @@ export interface LiveEvent {
 export interface InGameSnapshot {
   active: boolean;
   clock_s: number;
-  mode: string | null;
+  mode: GameMode | null;
   local_summoner: string | null;
   local_champion: string | null;
   teams: { order: PlayerLive[]; chaos: PlayerLive[] };

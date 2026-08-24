@@ -3,6 +3,8 @@ import json
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
+
 from fastapi.testclient import TestClient
 
 from bhayanak_legends.app import APP_VERSION, create_app
@@ -30,12 +32,14 @@ def client(tmp_path: Path):
 AUTH = {"X-BL-Token": "test-token-123"}
 
 
-def test_health_exempt_from_auth(client):
-    res = client.get("/health")
+def test_health_requires_auth(client):
+    assert client.get("/health").status_code == 401
+    res = client.get("/health", headers=AUTH)
     assert res.status_code == 200
     body = res.json()
-    assert body["status"] == "ok"
+    assert body["status"] in {"ok", "degraded"}
     assert body["app_version"] == APP_VERSION
+    assert "pack_version" in body
 
 
 def test_requires_token(client):
@@ -148,7 +152,9 @@ async def test_event_stream_delivers_envelopes():
     gen = event_stream(hub, queue, "test")
 
     hello = await gen.__anext__()
-    assert json.loads(hello.removeprefix("data: "))["type"] == "hello"
+    hello_body = json.loads(hello.removeprefix("data: "))
+    assert hello_body["type"] == "hello"
+    assert hello_body["data"] == {"app_version": "test", "pack_version": None}
 
     await hub.publish("sync.progress", {"downloaded": 1})
     frame = await asyncio.wait_for(gen.__anext__(), timeout=2)
