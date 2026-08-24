@@ -56,6 +56,20 @@ def test_history_summary_aggregates(tmp_path: Path):
     assert roles["MIDDLE"]["games"] == 2 and roles["MIDDLE"]["wins"] == 1
     assert roles["BOTTOM"]["games"] == 1 and roles["BOTTOM"]["wins"] == 1
 
+def test_history_summary_sorts_patch_ranges_numerically(tmp_path: Path):
+    client = build_client(tmp_path)
+    store = client.app.state.store
+    seed(store, "SG2_16_10", patch="16.10")
+    seed(store, "SG2_16_9", patch="16.9")
+    seed(store, "SG2_malformed", patch="unknown")
+    seed(store, "SG2_missing", patch=None)
+    with client:
+        body = client.get("/history/summary", headers=AUTH).json()
+        points = client.get("/progress/trajectories", headers=AUTH).json()
+
+    assert body["patches"] == ["16.9", "16.10", "unknown"]
+    assert [point["patch"] for point in points] == ["16.9", "16.10", "unknown"]
+
 
 def test_trajectories_rolling_window_math(tmp_path: Path):
     client = build_client(tmp_path)
