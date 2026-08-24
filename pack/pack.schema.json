@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bhayanak-legends.local/pack.schema.json",
+  "title": "Findings Pack v1",
+  "description": "Versioned export of population findings from the LoLTrends research. Field names are frozen: they mirror FindingsPack in src/api/types.ts and docs/CONTRACT.md. Every number must trace to a research doc (source_ref) or be computed from the Feature Store by backend/tools/build_pack.py.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "dataset",
+    "findings",
+    "habits",
+    "objectives",
+    "comeback_odds",
+    "ban_advisor",
+    "trap_picks",
+    "tier_list",
+    "matchup_examples",
+    "benchmarks",
+    "checkpoints"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "generated_at": { "type": "string", "format": "date-time", "description": "UTC ISO-8601 build timestamp" },
+    "dataset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["matches", "player_games", "patches"],
+      "properties": {
+        "matches": { "type": "integer", "minimum": 1 },
+        "player_games": { "type": "integer", "minimum": 1 },
+        "patches": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^\\d+\\.\\d+$" },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "[min patch, max patch], numerically ordered"
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "tier", "title", "statement", "value", "unit", "source_ref"],
+        "properties": {
+          "key": { "type": "string", "minLength": 1 },
+          "tier": { "enum": ["actionable", "diagnostic", "a-lite"] },
+          "title": { "type": "string", "minLength": 1 },
+          "statement": { "type": "string", "minLength": 1, "description": "Diagnostic statements describe; only actionable/a-lite may instruct (ADR-0003)" },
+          "value": { "type": "number" },
+          "unit": { "type": "string", "minLength": 1 },
+          "source_ref": { "type": "string", "pattern": "^companion-app-content\\.md#\\d+$" }
+        }
+      }
+    },
+    "habits": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "description": "The four surviving coachable habits, fixed keys",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "label", "effect_per_sd"],
+        "properties": {
+          "key": { "enum": ["recall_safety", "fast_first_dragon", "spend_before_backing", "plates_by_14"] },
+          "label": { "type": "string", "minLength": 1 },
+          "effect_per_sd": { "type": "number" }
+        }
+      }
+    },
+    "objectives": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "baron_pre25_win_rate",
+        "baron_comeback_lift_pp",
+        "dragon_denial_win_rate",
+        "first_dragon_pre20_win_rate",
+        "herald_pre20_win_rate"
+      ],
+      "properties": {
+        "baron_pre25_win_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "baron_comeback_lift_pp": { "type": "number" },
+        "dragon_denial_win_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "first_dragon_pre20_win_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "herald_pre20_win_rate": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "comeback_odds": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["gold_deficit_at_15", "win_rate"],
+        "properties": {
+          "gold_deficit_at_15": { "type": "integer", "maximum": 0 },
+          "win_rate": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    },
+    "ban_advisor": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["champion", "win_rate", "ban_rate", "recommendation"],
+        "properties": {
+          "champion": { "type": "string", "minLength": 1 },
+          "win_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+          "ban_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+          "recommendation": { "enum": ["real-threat", "skip"] }
+        }
+      }
+    },
+    "trap_picks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["champion", "win_rate"],
+        "properties": {
+          "champion": { "type": "string", "minLength": 1 },
+          "win_rate": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    },
+    "tier_list": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["champion", "role", "games", "pick_rate", "win_rate", "tier"],
+        "properties": {
+          "champion": { "type": "string", "minLength": 1 },
+          "role": { "enum": ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"] },
+          "games": { "type": "integer", "minimum": 100 },
+          "pick_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+          "win_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+          "tier": { "enum": ["S", "A", "B", "C"] }
+        }
+      }
+    },
+    "matchup_examples": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["champion", "opponent", "role", "wr", "ci", "games"],
+        "properties": {
+          "champion": { "type": "string", "minLength": 1 },
+          "opponent": { "type": "string", "minLength": 1 },
+          "role": { "enum": ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"] },
+          "wr": { "type": "number", "minimum": 0, "maximum": 1 },
+          "ci": { "type": "number", "minimum": 0, "description": "95% CI half-width in percentage points (raw rates, no shrinkage)" },
+          "games": { "type": "integer", "minimum": 30 }
+        }
+      }
+    },
+    "benchmarks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role", "cs10_median", "level10_median", "gold10_median", "sample"],
+        "properties": {
+          "role": { "enum": ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"] },
+          "cs10_median": { "type": ["number", "null"] },
+          "level10_median": { "type": ["number", "null"] },
+          "gold10_median": { "type": ["number", "null"] },
+          "sample": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "checkpoints": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["gold_diff_bucket", "win_rate"],
+        "properties": {
+          "gold_diff_bucket": { "type": "string", "minLength": 1 },
+          "win_rate": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    }
+  }
+}

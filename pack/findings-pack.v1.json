@@ -1,0 +1,636 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-23T23:27:33Z",
+  "dataset": {
+    "matches": 26036,
+    "player_games": 260360,
+    "patches": [
+      "14.17",
+      "16.16"
+    ]
+  },
+  "findings": [
+    {
+      "key": "mastery_premium",
+      "tier": "actionable",
+      "title": "Pocket picks pay",
+      "statement": "Games on your top-3 champions win 50.6% vs 46.9% on the rest of your pool (+3.7pp); show pocket picks with their win rates.",
+      "value": 3.7,
+      "unit": "pp",
+      "source_ref": "companion-app-content.md#1"
+    },
+    {
+      "key": "ban_waste_correlation",
+      "tier": "actionable",
+      "title": "Most bans are wasted",
+      "statement": "Population ban-rate vs win-rate correlation is only +0.125: spend bans on actually-strong champions that sail through unbanned instead of fear-bans.",
+      "value": 0.125,
+      "unit": "correlation",
+      "source_ref": "companion-app-content.md#2"
+    },
+    {
+      "key": "counterpick_honesty",
+      "tier": "diagnostic",
+      "title": "Counterpicking is the smallest lever",
+      "statement": "Empirical-Bayes shrunk lane matchup ratings span roughly ±2.5pp from worst pairing to best; ratings ship with credible intervals because the lever is small.",
+      "value": 2.5,
+      "unit": "pp",
+      "source_ref": "companion-app-content.md#3"
+    },
+    {
+      "key": "level_over_farm_signal",
+      "tier": "diagnostic",
+      "title": "Level lead outranks CS lead",
+      "statement": "Level lead over the lane opponent outranks CS advantage as a win signal in every role; the jungle role is most sensitive (0.43 vs 0.33).",
+      "value": 0.43,
+      "unit": "correlation",
+      "source_ref": "companion-app-content.md#12"
+    },
+    {
+      "key": "lanes_ahead_meter",
+      "tier": "diagnostic",
+      "title": "Team snowball meter",
+      "statement": "Zero lanes ahead at 10 minutes converts to a 16.4% win rate and five lanes ahead to 83.8%; spread leads beat stacked ones (60.4% vs 69.7% when a majority lead).",
+      "value": 83.8,
+      "unit": "%",
+      "source_ref": "companion-app-content.md#7"
+    },
+    {
+      "key": "smite_contest_trap",
+      "tier": "diagnostic",
+      "title": "Smite contests are a thermometer, not a thermostat",
+      "statement": "Even-games fights over the Smite hitpoint race show an adjusted odds ratio of 0.57; most of those fights are lost 50/50 coin flips and the gap widens when already ahead.",
+      "value": 0.57,
+      "unit": "adjusted_or",
+      "source_ref": "companion-app-content.md#14"
+    },
+    {
+      "key": "lane_win_conversion_gap",
+      "tier": "actionable",
+      "title": "Lane leads are raw material",
+      "statement": "Real cases turned +121g@10 lane leads into 42.7% win rates, so a lane lead pays off only once converted into team gold and objectives.",
+      "value": 42.7,
+      "unit": "%",
+      "source_ref": "companion-app-content.md#24"
+    },
+    {
+      "key": "duo_stacking_null",
+      "tier": "diagnostic",
+      "title": "Duo stacking shows no benefit",
+      "statement": "Stacked games went 48.4% versus 49.5% with a solo friend, and the gap shrinks across eras — no evidence that queuing together helps.",
+      "value": 48.4,
+      "unit": "%",
+      "source_ref": "companion-app-content.md#30"
+    }
+  ],
+  "habits": [
+    {
+      "key": "recall_safety",
+      "label": "Recall safely",
+      "effect_per_sd": 2.24
+    },
+    {
+      "key": "fast_first_dragon",
+      "label": "Fast first dragon",
+      "effect_per_sd": 0.83
+    },
+    {
+      "key": "spend_before_backing",
+      "label": "Spend gold before backing",
+      "effect_per_sd": 0.88
+    },
+    {
+      "key": "plates_by_14",
+      "label": "Turret plates by 14m",
+      "effect_per_sd": 1.08
+    }
+  ],
+  "objectives": {
+    "baron_pre25_win_rate": 0.814,
+    "baron_comeback_lift_pp": 29.5,
+    "dragon_denial_win_rate": 0.954,
+    "first_dragon_pre20_win_rate": 0.603,
+    "herald_pre20_win_rate": 0.666
+  },
+  "comeback_odds": [
+    {
+      "gold_deficit_at_15": -2000,
+      "win_rate": 0.276
+    },
+    {
+      "gold_deficit_at_15": -5000,
+      "win_rate": 0.076
+    },
+    {
+      "gold_deficit_at_15": -7000,
+      "win_rate": 0.03
+    }
+  ],
+  "ban_advisor": [
+    {
+      "champion": "Taric",
+      "win_rate": 0.5564,
+      "ban_rate": 0.003,
+      "recommendation": "real-threat"
+    },
+    {
+      "champion": "Urgot",
+      "win_rate": 0.552,
+      "ban_rate": 0.0137,
+      "recommendation": "real-threat"
+    },
+    {
+      "champion": "Singed",
+      "win_rate": 0.5486,
+      "ban_rate": 0.0106,
+      "recommendation": "real-threat"
+    },
+    {
+      "champion": "Lillia",
+      "win_rate": 0.5468,
+      "ban_rate": 0.017,
+      "recommendation": "real-threat"
+    },
+    {
+      "champion": "KogMaw",
+      "win_rate": 0.5405,
+      "ban_rate": 0.0051,
+      "recommendation": "real-threat"
+    },
+    {
+      "champion": "Nami",
+      "win_rate": 0.5383,
+      "ban_rate": 0.0098,
+      "recommendation": "real-threat"
+    },
+    {
+      "champion": "Mel",
+      "win_rate": 0.4645,
+      "ban_rate": 0.3929,
+      "recommendation": "skip"
+    },
+    {
+      "champion": "Darius",
+      "win_rate": 0.4682,
+      "ban_rate": 0.1552,
+      "recommendation": "skip"
+    }
+  ],
+  "trap_picks": [
+    {
+      "champion": "Hecarim",
+      "win_rate": 0.4152
+    },
+    {
+      "champion": "Qiyana",
+      "win_rate": 0.4233
+    },
+    {
+      "champion": "Kalista",
+      "win_rate": 0.4268
+    },
+    {
+      "champion": "Azir",
+      "win_rate": 0.4312
+    },
+    {
+      "champion": "RekSai",
+      "win_rate": 0.4333
+    }
+  ],
+  "tier_list": [
+    {
+      "champion": "Caitlyn",
+      "role": "BOTTOM",
+      "games": 5252,
+      "pick_rate": 0.1009,
+      "win_rate": 0.5015,
+      "tier": "B"
+    },
+    {
+      "champion": "Jhin",
+      "role": "BOTTOM",
+      "games": 4487,
+      "pick_rate": 0.0862,
+      "win_rate": 0.5148,
+      "tier": "A"
+    },
+    {
+      "champion": "Lux",
+      "role": "UTILITY",
+      "games": 3568,
+      "pick_rate": 0.0686,
+      "win_rate": 0.5,
+      "tier": "B"
+    },
+    {
+      "champion": "MissFortune",
+      "role": "BOTTOM",
+      "games": 3456,
+      "pick_rate": 0.0664,
+      "win_rate": 0.5136,
+      "tier": "A"
+    },
+    {
+      "champion": "Viego",
+      "role": "JUNGLE",
+      "games": 3456,
+      "pick_rate": 0.0664,
+      "win_rate": 0.509,
+      "tier": "A"
+    },
+    {
+      "champion": "Ashe",
+      "role": "BOTTOM",
+      "games": 3360,
+      "pick_rate": 0.0646,
+      "win_rate": 0.5104,
+      "tier": "A"
+    },
+    {
+      "champion": "Ezreal",
+      "role": "BOTTOM",
+      "games": 3312,
+      "pick_rate": 0.0636,
+      "win_rate": 0.4813,
+      "tier": "C"
+    },
+    {
+      "champion": "Kaisa",
+      "role": "BOTTOM",
+      "games": 3267,
+      "pick_rate": 0.0628,
+      "win_rate": 0.4928,
+      "tier": "B"
+    },
+    {
+      "champion": "Yasuo",
+      "role": "MIDDLE",
+      "games": 3244,
+      "pick_rate": 0.0623,
+      "win_rate": 0.5092,
+      "tier": "A"
+    },
+    {
+      "champion": "Jinx",
+      "role": "BOTTOM",
+      "games": 3189,
+      "pick_rate": 0.0613,
+      "win_rate": 0.4926,
+      "tier": "B"
+    },
+    {
+      "champion": "Ahri",
+      "role": "MIDDLE",
+      "games": 2948,
+      "pick_rate": 0.0566,
+      "win_rate": 0.5071,
+      "tier": "A"
+    },
+    {
+      "champion": "Kayn",
+      "role": "JUNGLE",
+      "games": 2670,
+      "pick_rate": 0.0513,
+      "win_rate": 0.5191,
+      "tier": "A"
+    },
+    {
+      "champion": "MasterYi",
+      "role": "JUNGLE",
+      "games": 2635,
+      "pick_rate": 0.0506,
+      "win_rate": 0.5093,
+      "tier": "A"
+    },
+    {
+      "champion": "Seraphine",
+      "role": "UTILITY",
+      "games": 2609,
+      "pick_rate": 0.0501,
+      "win_rate": 0.5128,
+      "tier": "A"
+    },
+    {
+      "champion": "Thresh",
+      "role": "UTILITY",
+      "games": 2593,
+      "pick_rate": 0.0498,
+      "win_rate": 0.4975,
+      "tier": "B"
+    },
+    {
+      "champion": "Morgana",
+      "role": "UTILITY",
+      "games": 2430,
+      "pick_rate": 0.0467,
+      "win_rate": 0.516,
+      "tier": "A"
+    },
+    {
+      "champion": "Yone",
+      "role": "MIDDLE",
+      "games": 2378,
+      "pick_rate": 0.0457,
+      "win_rate": 0.4987,
+      "tier": "B"
+    },
+    {
+      "champion": "Garen",
+      "role": "TOP",
+      "games": 2246,
+      "pick_rate": 0.0432,
+      "win_rate": 0.5223,
+      "tier": "A"
+    },
+    {
+      "champion": "Mordekaiser",
+      "role": "TOP",
+      "games": 2241,
+      "pick_rate": 0.0431,
+      "win_rate": 0.5216,
+      "tier": "A"
+    },
+    {
+      "champion": "Malzahar",
+      "role": "MIDDLE",
+      "games": 2129,
+      "pick_rate": 0.0409,
+      "win_rate": 0.5392,
+      "tier": "S"
+    },
+    {
+      "champion": "Sylas",
+      "role": "MIDDLE",
+      "games": 2127,
+      "pick_rate": 0.0409,
+      "win_rate": 0.488,
+      "tier": "B"
+    },
+    {
+      "champion": "Warwick",
+      "role": "JUNGLE",
+      "games": 2101,
+      "pick_rate": 0.0404,
+      "win_rate": 0.5112,
+      "tier": "A"
+    },
+    {
+      "champion": "Sett",
+      "role": "TOP",
+      "games": 2085,
+      "pick_rate": 0.0401,
+      "win_rate": 0.5367,
+      "tier": "S"
+    },
+    {
+      "champion": "Zed",
+      "role": "MIDDLE",
+      "games": 2072,
+      "pick_rate": 0.0398,
+      "win_rate": 0.4807,
+      "tier": "C"
+    },
+    {
+      "champion": "Akali",
+      "role": "MIDDLE",
+      "games": 2049,
+      "pick_rate": 0.0394,
+      "win_rate": 0.489,
+      "tier": "B"
+    },
+    {
+      "champion": "Smolder",
+      "role": "BOTTOM",
+      "games": 2036,
+      "pick_rate": 0.0391,
+      "win_rate": 0.5039,
+      "tier": "B"
+    },
+    {
+      "champion": "Vayne",
+      "role": "BOTTOM",
+      "games": 2005,
+      "pick_rate": 0.0385,
+      "win_rate": 0.5067,
+      "tier": "A"
+    },
+    {
+      "champion": "Darius",
+      "role": "TOP",
+      "games": 2000,
+      "pick_rate": 0.0384,
+      "win_rate": 0.4695,
+      "tier": "C"
+    },
+    {
+      "champion": "Nautilus",
+      "role": "UTILITY",
+      "games": 1989,
+      "pick_rate": 0.0382,
+      "win_rate": 0.5083,
+      "tier": "A"
+    },
+    {
+      "champion": "Yone",
+      "role": "TOP",
+      "games": 1951,
+      "pick_rate": 0.0375,
+      "win_rate": 0.4777,
+      "tier": "C"
+    },
+    {
+      "champion": "Aatrox",
+      "role": "TOP",
+      "games": 1925,
+      "pick_rate": 0.037,
+      "win_rate": 0.4904,
+      "tier": "B"
+    },
+    {
+      "champion": "LeeSin",
+      "role": "JUNGLE",
+      "games": 1869,
+      "pick_rate": 0.0359,
+      "win_rate": 0.4794,
+      "tier": "C"
+    },
+    {
+      "champion": "Pyke",
+      "role": "UTILITY",
+      "games": 1869,
+      "pick_rate": 0.0359,
+      "win_rate": 0.4837,
+      "tier": "C"
+    },
+    {
+      "champion": "Leona",
+      "role": "UTILITY",
+      "games": 1836,
+      "pick_rate": 0.0353,
+      "win_rate": 0.5289,
+      "tier": "A"
+    },
+    {
+      "champion": "Aphelios",
+      "role": "BOTTOM",
+      "games": 1775,
+      "pick_rate": 0.0341,
+      "win_rate": 0.5262,
+      "tier": "A"
+    },
+    {
+      "champion": "Nocturne",
+      "role": "JUNGLE",
+      "games": 1770,
+      "pick_rate": 0.034,
+      "win_rate": 0.5107,
+      "tier": "A"
+    },
+    {
+      "champion": "Lillia",
+      "role": "JUNGLE",
+      "games": 1705,
+      "pick_rate": 0.0328,
+      "win_rate": 0.5478,
+      "tier": "S"
+    },
+    {
+      "champion": "Lucian",
+      "role": "BOTTOM",
+      "games": 1672,
+      "pick_rate": 0.0321,
+      "win_rate": 0.4928,
+      "tier": "B"
+    },
+    {
+      "champion": "Briar",
+      "role": "JUNGLE",
+      "games": 1647,
+      "pick_rate": 0.0316,
+      "win_rate": 0.5325,
+      "tier": "S"
+    },
+    {
+      "champion": "Katarina",
+      "role": "MIDDLE",
+      "games": 1641,
+      "pick_rate": 0.0315,
+      "win_rate": 0.4583,
+      "tier": "C"
+    }
+  ],
+  "matchup_examples": [
+    {
+      "champion": "Darius",
+      "opponent": "Garen",
+      "role": "TOP",
+      "wr": 0.4098,
+      "ci": 8.7,
+      "games": 122
+    },
+    {
+      "champion": "MasterYi",
+      "opponent": "Viego",
+      "role": "JUNGLE",
+      "wr": 0.4381,
+      "ci": 6.7,
+      "games": 210
+    },
+    {
+      "champion": "Yasuo",
+      "opponent": "Yone",
+      "role": "MIDDLE",
+      "wr": 0.455,
+      "ci": 6.6,
+      "games": 222
+    },
+    {
+      "champion": "Caitlyn",
+      "opponent": "Jhin",
+      "role": "BOTTOM",
+      "wr": 0.4638,
+      "ci": 4.1,
+      "games": 567
+    },
+    {
+      "champion": "Lux",
+      "opponent": "Seraphine",
+      "role": "UTILITY",
+      "wr": 0.5277,
+      "ci": 6.4,
+      "games": 235
+    },
+    {
+      "champion": "Garen",
+      "opponent": "Darius",
+      "role": "TOP",
+      "wr": 0.5902,
+      "ci": 8.7,
+      "games": 122
+    },
+    {
+      "champion": "Viego",
+      "opponent": "MasterYi",
+      "role": "JUNGLE",
+      "wr": 0.5619,
+      "ci": 6.7,
+      "games": 210
+    },
+    {
+      "champion": "Yone",
+      "opponent": "Yasuo",
+      "role": "MIDDLE",
+      "wr": 0.545,
+      "ci": 6.6,
+      "games": 222
+    }
+  ],
+  "benchmarks": [
+    {
+      "role": "TOP",
+      "cs10_median": 61.0,
+      "level10_median": null,
+      "gold10_median": null,
+      "sample": 52048
+    },
+    {
+      "role": "JUNGLE",
+      "cs10_median": 1.0,
+      "level10_median": null,
+      "gold10_median": null,
+      "sample": 52039
+    },
+    {
+      "role": "MIDDLE",
+      "cs10_median": 64.0,
+      "level10_median": null,
+      "gold10_median": null,
+      "sample": 52048
+    },
+    {
+      "role": "BOTTOM",
+      "cs10_median": 55.0,
+      "level10_median": null,
+      "gold10_median": null,
+      "sample": 52049
+    },
+    {
+      "role": "UTILITY",
+      "cs10_median": 13.0,
+      "level10_median": null,
+      "gold10_median": null,
+      "sample": 52041
+    }
+  ],
+  "checkpoints": [
+    {
+      "gold_diff_bucket": "bottom_quartile_@20m",
+      "win_rate": 0.282
+    },
+    {
+      "gold_diff_bucket": "top_quartile_@20m",
+      "win_rate": 0.718
+    }
+  ]
+}
