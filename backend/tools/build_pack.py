@@ -3,20 +3,22 @@
 
 Two data sources, nothing else:
   1. Curated findings hardcoded below, each traced to
-     /home/hshekhar/code/LoLTrends/docs/companion-app-content.md via source_ref.
-  2. Data-driven tables computed from the LoLTrends Feature Store parquets
-     (analysis_rows.parquet, champion_bans.parquet).
+     companion-app-content.md via source_ref.
+  2. Data-driven tables computed from the explicitly declared LoLTrends Feature
+     Store parquets (analysis_rows.parquet, champion_bans.parquet).
 
 Deterministic: fixed sort keys and rounding everywhere. Diagnostic statements
-never instruct (ADR-0003) — enforced by backend/tests/test_pack.py.
+never instruct (ADR-0003) — enforced by backend/tests/test_pack.py. Provenance
+records the canonical input manifest and generator source hash.
 
 Usage:
-  uv run python tools/build_pack.py [--feature-store DIR] [--out DIR]
+  uv run python tools/build_pack.py --feature-store DIR [--out DIR]
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 from datetime import datetime, timezone
@@ -25,9 +27,64 @@ from pathlib import Path
 import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_FEATURE_STORE = Path("/home/hshekhar/code/LoLTrends/data/feature_store")
 SOURCE_DOC = "companion-app-content.md"
+FEATURE_CONTRACT_VERSION = "loltrends-parity-v1"
+DECLARED_FEATURE_STORE_INPUTS = ("analysis_rows.parquet", "champion_bans.parquet")
 ROLES = ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"]
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def feature_store_manifest_sha256(feature_store: Path) -> str:
+    """Hash the canonical manifest of the files this generator declares as inputs."""
+    if not feature_store.is_dir():
+        raise FileNotFoundError(f"Feature Store directory does not exist: {feature_store}")
+    entries = []
+    for name in DECLARED_FEATURE_STORE_INPUTS:
+        path = feature_store / name
+        if not path.is_file():
+            raise FileNotFoundError(f"Missing declared Feature Store input: {path}")
+        entries.append({"path": name, "sha256": sha256_file(path), "bytes": path.stat().st_size})
+    manifest = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(manifest).hexdigest()
+
+
+def generator_revision() -> str:
+    """Identify the exact generator source used for a pack build."""
+    return f"sha256:{sha256_file(Path(__file__).resolve())}"
+
+
+PROVENANCE_SOURCES = {
+    "dataset": "6",
+    "findings": "1,2,3,7,12,14,24,30",
+    "habits": "2.11",
+    "objectives": "2.10",
+    "comeback_odds": "2.8",
+    "ban_advisor": "1.2",
+    "trap_picks": "1.4,2.14",
+    "tier_list": "1.4,3.15",
+    "matchup_examples": "1.3,3.16",
+    "benchmarks": "4.26",
+    "checkpoints": "2.6",
+}
+
+
+def build_provenance(feature_store_manifest: str, revision: str) -> dict[str, dict[str, str]]:
+    return {
+        table: {
+            "source_document": SOURCE_DOC,
+            "source_section": section,
+            "feature_store_manifest_sha256": feature_store_manifest,
+            "generator_revision": revision,
+            "feature_contract_version": FEATURE_CONTRACT_VERSION,
+        }
+        for table, section in PROVENANCE_SOURCES.items()
+    }
 
 
 def ref(section: int) -> str:
@@ -330,12 +387,15 @@ def build_benchmarks(df: pd.DataFrame) -> list[dict]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--feature-store", type=Path, default=DEFAULT_FEATURE_STORE)
+    parser.add_argument("--feature-store", type=Path, required=True)
     parser.add_argument("--out", type=Path, default=REPO_ROOT / "pack")
     args = parser.parse_args()
 
     analysis_path = args.feature_store / "analysis_rows.parquet"
     bans_path = args.feature_store / "champion_bans.parquet"
+    manifest_sha256 = feature_store_manifest_sha256(args.feature_store)
+    revision = generator_revision()
+
 
     df = pd.read_parquet(
         analysis_path,
@@ -358,6 +418,7 @@ def main() -> None:
     pack = {
         "schema_version": 1,
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "provenance": build_provenance(manifest_sha256, revision),
         "dataset": dataset,
         "findings": CURATED_FINDINGS,
         "habits": HABITS,

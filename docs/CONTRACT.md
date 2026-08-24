@@ -183,25 +183,45 @@ interface InGameSnapshot {
 
 ## Findings Pack schema v1 (`/pack/pack.schema.json` + `/pack/findings-pack.v1.json`)
 
-```jsonc
-{
-  "schema_version": 1,
-  "generated_at": "ISO",
-  "dataset": { "matches": 26036, "player_games": 260360, "patches": ["14.17","16.16"] },
-  "findings": [ { "key": "mastery_premium", "tier": "actionable", "title": "...", "statement": "...", "value": 3.7, "unit": "pp", "source_ref": "companion-app-content.md#7" } ],
-  "habits": [ { "key": "recall_safety", "label": "Recall safely", "effect_per_sd": 2.24 } ],   // 4 items, fixed keys: recall_safety, fast_first_dragon, spend_before_backing, plates_by_14
-  "objectives": { "baron_pre25_win_rate": .814, "baron_comeback_lift_pp": 29.5, "dragon_denial_win_rate": .954, "first_dragon_pre20_win_rate": .603, "herald_pre20_win_rate": .666 },
-  "comeback_odds": [ { "gold_deficit_at_15": -2000, "win_rate": .276 }, ... ],
-  "ban_advisor": [ { "champion": "Lillia", "win_rate": .548, "ban_rate": .017, "recommendation": "real-threat" } ],
-  "trap_picks": [ { "champion": "Hecarim", "win_rate": .415 } ],
-  "tier_list": [ { "champion": "...", "role": "MIDDLE", "games": 340, "pick_rate": .142, "win_rate": .534, "tier": "S" } ],
-  "matchup_examples": [ { "champion": "...", "opponent": "...", "role": "MIDDLE", "wr": .57, "ci": 2.1, "games": 41 } ],
-  "benchmarks": [ { "role": "TOP", "cs10_median": 62, "level10_median": null, "gold_diff_10_median": null, "feature_contract": { "cs10_median": "lane_minions_first_10m", "level10_median": "level10", "gold_diff_10_median": "gold_diff_10" }, "sample": 5000 } ],
-  "checkpoints": [ { "gold_diff_bucket": "-1000..0 @20m", "win_rate": .282 } ]
+### Table-level provenance
+
+Every numeric-bearing table in the pack has an entry in the root `provenance`
+map. The block is table-level (not repeated on numeric leaves) and is required
+by `pack/pack.schema.json`:
+
+```ts
+interface TableProvenance {
+  source_document: string;
+  source_section: string;
+  feature_store_manifest_sha256: string; // lowercase SHA-256 hex
+  generator_revision: string;             // sha256:<64 lowercase hex>
+  feature_contract_version: "loltrends-parity-v1";
+}
+interface PackProvenance {
+  dataset: TableProvenance;
+  findings: TableProvenance;
+  habits: TableProvenance;
+  objectives: TableProvenance;
+  comeback_odds: TableProvenance;
+  ban_advisor: TableProvenance;
+  trap_picks: TableProvenance;
+  tier_list: TableProvenance;
+  matchup_examples: TableProvenance;
+  benchmarks: TableProvenance;
+  checkpoints: TableProvenance;
 }
 ```
 
-Rules: every number traces to research docs (`source_ref`); Diagnostic content never phrased as advice (ADR-0003); missing tables → omit key, never invent (dashboard convention).
+`pack/findings-pack.v1.json` is generated only by
+`backend/tools/build_pack.py`; builds require an explicit `--feature-store`
+path. The generator hashes the declared Feature Store inputs and its own
+source, so a pack records the exact data snapshot and generator revision.
+Findings retain their per-finding `source_ref` in addition to the table-level
+provenance.
+
+Rules: every number traces to research docs (`source_ref`) or a table
+provenance block; Diagnostic content never phrased as advice (ADR-0003);
+missing tables → omit key, never invent (dashboard convention).
 
 ## Dev data
 

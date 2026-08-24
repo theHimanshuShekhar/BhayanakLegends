@@ -71,6 +71,7 @@ const benchmarks = [
 
 function makePack(overrides: Partial<FindingsPack> = {}): FindingsPack {
   return {
+    provenance: {} as FindingsPack["provenance"],
     schema_version: 1,
     generated_at: "2026-08-01T00:00:00Z",
     dataset: { matches: 26036, player_games: 260360, patches: ["14.17", "16.16"] },
