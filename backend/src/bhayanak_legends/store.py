@@ -40,14 +40,26 @@ class Store:
             self._conn.executescript(_SCHEMA)
 
     # -- settings -------------------------------------------------------
-    def get_setting(self, key: str) -> str | None:
+    def get_setting(self, key: str) -> str | bytes | None:
+        return self.get_raw_setting(key)
+
+    def get_raw_setting(self, key: str) -> str | bytes | None:
         with self._lock:
             row = self._conn.execute(
                 "SELECT value FROM settings WHERE key = ?", (key,)
             ).fetchone()
             return row["value"] if row else None
 
-    def set_setting(self, key: str, value: str | None) -> None:
+    def has_setting(self, key: str) -> bool:
+        with self._lock:
+            return (
+                self._conn.execute(
+                    "SELECT 1 FROM settings WHERE key = ?", (key,)
+                ).fetchone()
+                is not None
+            )
+
+    def set_raw_setting(self, key: str, value: str | bytes | None) -> None:
         with self._lock, self._conn:
             if value is None:
                 self._conn.execute("DELETE FROM settings WHERE key = ?", (key,))
@@ -57,6 +69,13 @@ class Store:
                     "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                     (key, value),
                 )
+
+    def delete_raw_setting(self, key: str) -> None:
+        self.set_raw_setting(key, None)
+
+    def set_setting(self, key: str, value: str | bytes | None) -> None:
+        self.set_raw_setting(key, value)
+
 
     # -- matches --------------------------------------------------------
     def upsert_match(

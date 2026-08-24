@@ -7,9 +7,9 @@ from fastapi.testclient import TestClient
 
 from bhayanak_legends.app import APP_VERSION, create_app
 from bhayanak_legends.config import SidecarConfig
+from bhayanak_legends.credentials import InMemoryCredentialStore
 from bhayanak_legends.routers_events import event_stream
 from bhayanak_legends.sse import Hub
-
 
 @pytest.fixture
 def client(tmp_path: Path):
@@ -23,7 +23,7 @@ def client(tmp_path: Path):
     repo_pack = Path(__file__).resolve().parents[2] / "pack"
     if repo_pack.exists():
         config.pack_dir = repo_pack
-    app = create_app(config)
+    app = create_app(config, credential_store=InMemoryCredentialStore())
     return TestClient(app)
 
 
@@ -56,6 +56,13 @@ def test_settings_roundtrip(client):
     assert body["riot_id"] == "SacredButtholio#OOF"
     assert body["has_key"] is True
     assert "riot_key" not in body
+
+def test_settings_key_delete(client):
+    saved = client.put("/settings", headers=AUTH, json={"riot_key": "RGAPI-test"})
+    assert saved.status_code == 200
+    deleted = client.put("/settings", headers=AUTH, json={"riot_key": None})
+    assert deleted.status_code == 200
+    assert deleted.json()["has_key"] is False
 
 
 def test_sync_status_idle_stub(client):
