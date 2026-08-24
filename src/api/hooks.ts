@@ -1,12 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
+import { useEvents } from "./sse";
 import type { PatchAggregate, SettingsPatch } from "./types";
-
 export function useHealth() {
   return useQuery({ queryKey: ["health"], queryFn: api.health });
 }
 
 export function usePack() {
+  const qc = useQueryClient();
+  useEvents((message) => {
+    if (message.type === "pack.updated") void qc.invalidateQueries({ queryKey: ["pack"] });
+  });
   return useQuery({ queryKey: ["pack"], queryFn: api.pack });
 }
 
@@ -81,7 +85,12 @@ export function useCancelSync() {
 }
 
 export function useSyncStatus() {
-  // polled as the SSE fallback; SSE updates overlay this via SyncPanel state
+  const qc = useQueryClient();
+  useEvents((message) => {
+    if (message.type === "sync.progress" || message.type === "sync.done") {
+      qc.setQueryData(["sync-status"], message.data);
+    }
+  });
   return useQuery({
     queryKey: ["sync-status"],
     queryFn: api.syncStatus,
@@ -90,7 +99,10 @@ export function useSyncStatus() {
 }
 
 export function useLiveStatus() {
-  // coarse health; polled as the SSE fallback for the live screens
+  const qc = useQueryClient();
+  useEvents((message) => {
+    if (message.type === "live.status") qc.setQueryData(["live-status"], message.data);
+  });
   return useQuery({
     queryKey: ["live-status"],
     queryFn: api.liveStatus,
@@ -99,7 +111,10 @@ export function useLiveStatus() {
 }
 
 export function useLiveSession() {
-  // rich champ-select snapshot; SSE "champselect.state" overlays this cache
+  const qc = useQueryClient();
+  useEvents((message) => {
+    if (message.type === "champselect.state") qc.setQueryData(["live-session"], message.data);
+  });
   return useQuery({
     queryKey: ["live-session"],
     queryFn: api.liveSession,
@@ -108,7 +123,10 @@ export function useLiveSession() {
 }
 
 export function useLiveIngame() {
-  // rich in-game snapshot; SSE "live.state" overlays this cache
+  const qc = useQueryClient();
+  useEvents((message) => {
+    if (message.type === "live.state") qc.setQueryData(["live-ingame"], message.data);
+  });
   return useQuery({
     queryKey: ["live-ingame"],
     queryFn: api.liveIngame,

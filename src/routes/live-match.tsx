@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { actionableErrorMessage, api } from "../api/client";
-import type { InGameSnapshot, PlayerLive } from "../api/types";
+import { useGameClock, useGameClockSource } from "../api/clock";
+import type { FindingsPack, InGameSnapshot, PlayerLive } from "../api/types";
 import { useEvents } from "../api/sse";
 import { useLiveIngame } from "../api/hooks";
 import {
@@ -19,25 +19,32 @@ import {
   WinProbabilityCard,
 } from "../components/live-match";
 
-/** Ticks locally between server/SSE updates so the clock advances every second. */
-function useGameClock(active: boolean, serverClockS: number) {
-  const base = useRef({ v: serverClockS, at: Date.now() });
-  const [display, setDisplay] = useState(serverClockS);
+function GameClockSource({ active, serverClock }: { active: boolean; serverClock: number }) {
+  useGameClockSource(active, serverClock);
+  return null;
+}
 
-  useEffect(() => {
-    base.current = { v: serverClockS, at: Date.now() };
-    setDisplay(serverClockS);
-  }, [serverClockS]);
+function GameClockDisplay() {
+  const clockS = useGameClock();
+  return (
+    <div
+      className="pill mono-n"
+      data-testid="game-clock"
+      style={{
+        marginLeft: "auto",
+        background: "var(--color-surface-3)",
+        color: "var(--color-text)",
+        boxShadow: "var(--shadow-z1)",
+      }}
+    >
+      {clockLabel(clockS)}
+    </div>
+  );
+}
 
-  useEffect(() => {
-    if (!active) return;
-    const id = setInterval(() => {
-      setDisplay(base.current.v + Math.floor((Date.now() - base.current.at) / 1000));
-    }, 500);
-    return () => clearInterval(id);
-  }, [active]);
-
-  return display;
+function LiveWinProbabilityCard({ pack, active }: { pack: FindingsPack | undefined; active: boolean }) {
+  const clockS = useGameClock();
+  return <WinProbabilityCard pack={pack} clockS={clockS} active={active} />;
 }
 
 function findLocalPlayer(snapshot: InGameSnapshot | undefined): PlayerLive | null {
@@ -51,10 +58,9 @@ export function LiveMatchPage() {
   const ingameQuery = useLiveIngame();
   const packQuery = useQuery({ queryKey: ["pack"], queryFn: api.pack });
 
-  // Poll is primary; SSE live.state frames overlay the same cache instantly.
   useEvents((msg) => {
     if (msg.type === "live.state") {
-      queryClient.setQueryData<InGameSnapshot>(["live-ingame"], msg.data as InGameSnapshot);
+      queryClient.setQueryData(["live-ingame"], msg.data);
     }
     if (msg.type === "pack.updated") {
       void queryClient.invalidateQueries({ queryKey: ["pack"] });
@@ -63,7 +69,6 @@ export function LiveMatchPage() {
 
   const ingame = ingameQuery.data;
   const active = !!ingame?.active;
-  const clockS = useGameClock(active, ingame?.clock_s ?? 0);
 
   return (
     <div
@@ -76,6 +81,7 @@ export function LiveMatchPage() {
         background: "radial-gradient(120% 80% at 20% 0%,#151831,var(--color-bg) 60%)",
       }}
     >
+      <GameClockSource active={active} serverClock={ingame?.clock_s ?? 0} />
       <div style={{ flex: "none", display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}>
         <span
           className="pill mono-n"
@@ -121,18 +127,7 @@ export function LiveMatchPage() {
           <span style={{ width: 6, height: 6, borderRadius: 999, background: "var(--color-info)" }} />
           Findings Pack v1
         </div>
-        <div
-          className="pill mono-n"
-          data-testid="game-clock"
-          style={{
-            marginLeft: "auto",
-            background: "var(--color-surface-3)",
-            color: "var(--color-text)",
-            boxShadow: "var(--shadow-z1)",
-          }}
-        >
-          {clockLabel(clockS)}
-        </div>
+        <GameClockDisplay />
       </div>
       {packQuery.isError && (
         <div style={{ fontSize: 10.5, color: "var(--color-danger)" }}>
@@ -159,7 +154,7 @@ export function LiveMatchPage() {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
-          <WinProbabilityCard pack={packQuery.data} clockS={clockS} active={active} />
+          <LiveWinProbabilityCard pack={packQuery.data} active={active} />
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <TeamVsTeamCard pack={packQuery.data} />
             <EventFeedCard events={ingame?.events ?? []} />

@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { ChampSelectSnapshot } from "../api/types";
 import { actionableErrorMessage } from "../api/client";
 import { useEvents } from "../api/sse";
 import { useLiveSession, useLiveStatus, usePack } from "../api/hooks";
@@ -54,10 +53,7 @@ export function ChampSelectPage() {
   // transition).
   useEvents((msg) => {
     if (msg.type === "champselect.state") {
-      queryClient.setQueryData<ChampSelectSnapshot>(
-        ["live-session"],
-        msg.data as ChampSelectSnapshot,
-      );
+      queryClient.setQueryData(["live-session"], msg.data);
     }
     if (msg.type === "pack.updated") {
       void queryClient.invalidateQueries({ queryKey: ["pack"] });
