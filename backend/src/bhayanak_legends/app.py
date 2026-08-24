@@ -26,6 +26,7 @@ from .models import (
     SyncStatus,
 )
 from .pack import PackError, PackStore
+from .release_channel import DEFAULT_MANIFEST_URL, ReleaseChannel, ReleaseResult
 from .routers_data import router as data_router
 from .routers_events import build_events_router
 from .sse import Hub
@@ -37,6 +38,41 @@ log = logging.getLogger("bhayanak_legends")
 
 class DevImportRequest(BaseModel):
     dir: str
+
+async def _run_release_channel_check(app: FastAPI, channel: ReleaseChannel) -> None:
+    try:
+        result: ReleaseResult = await channel.check_and_activate(app.state.pack_version)
+        if not result.activated:
+            return
+        app.state.pack.reload()
+        app.state.pack_error = None
+        app.state.pack_version = app.state.pack.version()
+        await app.state.hub.publish(
+            "pack.updated",
+            {
+                "schema_version": result.schema_version,
+                "pack_version": app.state.pack_version,
+            },
+        )
+    except Exception:
+        # Release updates are opportunistic. The bundled/current pack remains
+        # the source of truth if activation or reload unexpectedly fails.
+        log.exception("Findings Pack release activation failed")
+
+
+def _startup_release_channel_check(app: FastAPI) -> None:
+    manifest_url = os.environ.get("BHAYANAK_PACK_RELEASE_MANIFEST_URL", DEFAULT_MANIFEST_URL)
+    channel = ReleaseChannel(
+        app.state.config.resolved_pack_dir(),
+        manifest_url=manifest_url,
+        app_version=app.state.app_version,
+    )
+    app.state.release_channel = channel
+    app.state.release_channel_task = asyncio.create_task(
+        _run_release_channel_check(app, channel),
+        name="findings-pack-release-check",
+    )
+
 
 
 def create_app(
@@ -76,11 +112,16 @@ def create_app(
         loop = asyncio.get_running_loop()
         if app.state.sync_service is not None:
             app.state.sync_service.attach_loop(loop)
+        # Release channel startup: network check runs in the background.
+        _startup_release_channel_check(app)
         if app.state.live_service is not None:
             await app.state.live_service.start()
         # Auto-sync is intentionally scheduled after the readiness-critical hooks.
         _schedule_auto_sync_startup(app)
         yield
+        release_task = getattr(app.state, "release_channel_task", None)
+        if release_task is not None:
+            release_task.cancel()
         if app.state.sync_service is not None:
             app.state.sync_service.shutdown()
         if app.state.live_service is not None:
@@ -126,9 +167,9 @@ def create_app(
 
     @app.get("/health", response_model=Health)
     def health() -> Health:
-        if pack_error is None:
+        if app.state.pack_error is None:
             try:
-                pack_version = pack.version()
+                pack_version = app.state.pack.version()
             except PackError:
                 pack_version = None
         else:

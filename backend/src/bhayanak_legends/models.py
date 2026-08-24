@@ -297,6 +297,7 @@ class CheckpointBucket(ContractModel):
 
 class FindingsPack(ContractModel):
     schema_version: Literal[1]
+    pack_version: str = "v1"
     generated_at: str
     provenance: PackProvenance
     dataset: DatasetSummary

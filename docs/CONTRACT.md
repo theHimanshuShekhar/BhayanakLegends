@@ -182,10 +182,13 @@ interface InGameSnapshot {
 | `champselect.state` | `ChampSelectSnapshot` |
 | `live.state` | `InGameSnapshot` |
 | `live.status` | `LiveStatus` (coarse health) |
-| `pack.updated` | `{schema_version}` |
+| `pack.updated` | `{schema_version, pack_version}` |
 | `hello` | `{app_version, pack_version}` (sent on connect) |
 
 ## Findings Pack schema v1 (`/pack/pack.schema.json` + `/pack/findings-pack.v1.json`)
+The pack response also includes `pack_version` (defaulting to `v1` for the
+bundled baseline). Health, `/pack`, and the `hello`/`pack.updated` events expose
+the active release version after a successful activation.
 
 ### Table-level provenance
 
