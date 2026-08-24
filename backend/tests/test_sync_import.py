@@ -4,6 +4,7 @@ import shutil
 import threading
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from bhayanak_legends.app import create_app
@@ -14,6 +15,13 @@ from bhayanak_legends.sync import SyncService
 
 REPO = Path(__file__).resolve().parents[2]
 DEV_DIR = REPO / "data" / "dev-import" / "Gankruptcy-DADDY"
+# These tests exercise the real import path against gitignored, locally
+# downloaded matches. CI runs the same path deterministically through
+# tools/ci_seed.py + Playwright instead.
+requires_dev_import = pytest.mark.skipif(
+    not (DEV_DIR / "fetch_state.json").exists(),
+    reason="requires gitignored data/dev-import real-match fixtures",
+)
 AUTH = {"X-BL-Token": "dev"}
 FIRST_FIVE = [
     "SG2_140646556",
@@ -57,6 +65,7 @@ async def drain(queue: asyncio.Queue) -> list[dict]:
     return events
 
 
+@requires_dev_import
 async def test_import_from_dir_end_to_end(tmp_path: Path):
     app, client = build_app(tmp_path)
     svc = app.state.sync_service
@@ -89,6 +98,7 @@ async def test_import_from_dir_end_to_end(tmp_path: Path):
     assert res.json()["matches"] == 5
 
 
+@requires_dev_import
 async def test_import_is_idempotent_on_rerun(tmp_path: Path):
     app, _client = build_app(tmp_path)
     svc = app.state.sync_service
@@ -102,6 +112,7 @@ async def test_import_is_idempotent_on_rerun(tmp_path: Path):
     assert second["downloaded"] == 0
 
 
+@requires_dev_import
 def test_dev_import_endpoint_guarded(tmp_path: Path):
     app, client = build_app(tmp_path)
     app.state.config.token = "prod-secret"
