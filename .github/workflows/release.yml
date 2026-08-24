@@ -28,11 +28,15 @@ jobs:
       simulate_failure: ${{ inputs.simulate_failure || false }}
     permissions:
       contents: read
-
+  packaged-smoke:
+    name: Smoke packaged Windows app before release
+    uses: ./.github/workflows/windows-smoke.yml
+    permissions:
+      contents: read
   publish:
     name: Publish signed release
-    needs: verify
-    if: ${{ github.event_name == 'push' && needs.verify.result == 'success' }}
+    needs: [verify, packaged-smoke]
+    if: ${{ github.event_name == 'push' && needs.verify.result == 'success' && needs.packaged-smoke.result == 'success' }}
     permissions:
       contents: write
     runs-on: windows-latest
@@ -69,7 +73,7 @@ jobs:
         run: |
           uv sync --locked
           uv run pyinstaller --onefile --name bhayanak-legends-sidecar \
-            --add-data "../pack:pack" \
+            --add-data "../pack;pack" \
             --collect-submodules bhayanak_legends \
             src/bhayanak_legends/sidecar.py
           mkdir -p ../src-tauri/binaries
