@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #0e1020;
+  --color-deep: #0a0b16;
+  --color-surface: #181b2e;
+  --color-surface-2: #20243a;
+  --color-surface-3: #2a2f49;
+  --color-line: rgba(233, 233, 237, 0.1);
+  --color-dim: rgba(233, 233, 237, 0.46);
+  --color-dimmer: rgba(233, 233, 237, 0.3);
+  --color-text: #e9e9ed;
+  --color-accent: #9184d9;
+  --color-accent-low: #5d5294;
+  --color-danger: #e5738f;
+  --color-danger-low: #4d2436;
+  --color-teal: #57cfb4;
+  --color-teal-low: #1b463f;
+  --color-amber: #e8b96b;
+  --color-amber-low: #4a3a1c;
+  --color-info: #7bb0ef;
+  --color-info-low: #1e3350;
+
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --shadow-z1: 0 2px 0 rgba(0, 0, 0, 0.5), 0 10px 22px -10px rgba(0, 0, 0, 0.85),
+    inset 0 1px 0 rgba(255, 255, 255, 0.055);
+  --shadow-z2: 0 3px 0 rgba(0, 0, 0, 0.55), 0 20px 34px -14px rgba(0, 0, 0, 0.9),
+    inset 0 1px 0 rgba(255, 255, 255, 0.075);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-weight: 400;
+}
