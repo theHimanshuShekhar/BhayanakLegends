@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { usePack, useTrajectories } from "../api/hooks";
+import { actionableErrorMessage } from "../api/client";
 import { CaveatFooter } from "../components/journal/CaveatFooter";
 import { ChampionHeader } from "../components/champions/ChampionHeader";
 import { RoleChips } from "../components/champions/RoleChips";
@@ -78,7 +79,7 @@ export function ChampionsPage() {
       )}
       {pack.isError && (
         <div style={{ fontSize: 10.5, color: "var(--color-danger)" }}>
-          Findings Pack unavailable — sidecar offline.
+          {actionableErrorMessage(pack.error, "pack")}
         </div>
       )}
 

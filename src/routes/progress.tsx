@@ -1,4 +1,5 @@
 import { useBenchmarks, useHistorySummary, usePack, usePatchAggregates } from "../api/hooks";
+import { actionableErrorMessage } from "../api/client";
 import { CaveatFooter } from "../components/journal/CaveatFooter";
 import { ProgressSummaryCard } from "../components/progress/ProgressSummaryCard";
 import { RollingWrChart } from "../components/progress/RollingWrChart";
@@ -36,10 +37,9 @@ export function ProgressPage() {
           {summary.data && <ProgressSummaryCard summary={summary.data} />}
           <RollingWrChart points={perPatch} />
         </div>
-
         {benchmarks.isError && (
           <div style={{ fontSize: 10.5, color: "var(--color-danger)" }}>
-            Benchmarks unavailable — sidecar offline.
+            {actionableErrorMessage(benchmarks.error)}
           </div>
         )}
         {benchmarks.data && benchmarks.data.length > 0 && (
@@ -60,7 +60,7 @@ export function ProgressPage() {
 
         {aggregates.isError && (
           <div style={{ fontSize: 10.5, color: "var(--color-danger)" }}>
-            Patch aggregates unavailable — sidecar offline.
+            {actionableErrorMessage(aggregates.error)}
           </div>
         )}
       </div>
@@ -72,7 +72,7 @@ export function ProgressPage() {
         )}
         {pack.isError && (
           <div style={{ fontSize: 10.5, color: "var(--color-danger)" }}>
-            Findings Pack unavailable — sidecar offline.
+            {actionableErrorMessage(pack.error, "pack")}
           </div>
         )}
         {laneFinding && <LaneConversion finding={laneFinding} />}

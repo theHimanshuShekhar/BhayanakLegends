@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ChampSelectSnapshot } from "../api/types";
+import { actionableErrorMessage } from "../api/client";
 import { useEvents } from "../api/sse";
 import { useLiveSession, useLiveStatus, usePack } from "../api/hooks";
 import { pickHero } from "../components/champ-select/shared";
@@ -87,6 +88,11 @@ export function ChampSelectPage() {
         timerLabel={mmss(timerSec)}
         lastError={status?.last_error ?? null}
       />
+      {packQuery.isError && (
+        <div style={{ paddingTop: 10, fontSize: 10.5, color: "var(--color-danger)" }}>
+          {actionableErrorMessage(packQuery.error, "pack")}
+        </div>
+      )}
 
       <div
         className="champ-select-layout"
