@@ -1,6 +1,7 @@
 import { ReactNode } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useEvents } from "../api/sse";
+import { LiveCompanion } from "./LiveCompanion";
 import { UpdaterStatus } from "./UpdaterStatus";
 
 const NAV = [
@@ -129,6 +130,7 @@ export function Layout({ children }: { children: ReactNode }) {
         </div>
       </nav>
 
+      <LiveCompanion />
       <main className="rc-screen">{children}</main>
     </div>
   );
