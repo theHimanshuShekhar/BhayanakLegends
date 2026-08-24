@@ -7,7 +7,7 @@ real client shapes so first-try correctness on Windows is plausible.
 
 Riot endpoints used (all TLS with a self-signed cert → ``verify=False``):
 
-* LCU  (https://127.0.0.1:{port}, basic auth ``("riot", token)`` from lockfile):
+* LCU  (https://127.0.0.1:{port}, basic auth ``("riot", password)`` from lockfile):
   - GET /lol-gameflow/v1/gameflow-phase → bare JSON string, one of
     ``"None" | "Lobby" | "Matchmaking" | "RankedGame" | "ChampSelect" |
     "GameStart" | "InProgress" | "WaitingForStats" | "EndOfGame"``
@@ -104,11 +104,22 @@ class LockfileInfo:
 
 
 def parse_lockfile(text: str) -> LockfileInfo:
-    """``LeagueClient:port:token:protocol``; old clients put colons in the token."""
+    """Parse ``process:pid:port:password:protocol`` lockfile contents."""
     parts = text.strip().split(":")
-    if len(parts) < 4 or not parts[1].isdigit():
+    if len(parts) != 5:
         raise ValueError("malformed lockfile")
-    return LockfileInfo(port=int(parts[1]), token=":".join(parts[2:-1]), protocol=parts[-1])
+    process, pid, port, password, protocol = parts
+    if (
+        not process
+        or not pid.isdigit()
+        or int(pid) <= 0
+        or not port.isdigit()
+        or not 1 <= int(port) <= 65_535
+        or not password
+        or protocol not in {"http", "https"}
+    ):
+        raise ValueError("malformed lockfile")
+    return LockfileInfo(port=int(port), token=password, protocol=protocol)
 
 
 def lockfile_candidates() -> list[Path]:
@@ -148,11 +159,11 @@ class IngameTransport(Protocol):
 
 class HttpxLcuConnection:
     """Production LCU transport. Re-reads the lockfile per call and rebuilds the
-    underlying client whenever port/token rotate (client restarts mid-session)."""
+    underlying client whenever port/password/protocol rotate (client restarts mid-session)."""
 
     def __init__(self) -> None:
         self._client: httpx.AsyncClient | None = None
-        self._key: tuple[int, str] | None = None
+        self._key: tuple[int, str, str] | None = None
 
     def _ensure_client(self) -> bool:
         path = find_lockfile()
@@ -162,13 +173,13 @@ class HttpxLcuConnection:
             info = parse_lockfile(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return False
-        key = (info.port, info.token)
+        key = (info.port, info.token, info.protocol)
         if self._client is not None and key != self._key:
             self._drop()
         if self._client is None:
             self._key = key
             self._client = httpx.AsyncClient(
-                base_url=f"https://127.0.0.1:{info.port}",
+                base_url=f"{info.protocol}://127.0.0.1:{info.port}",
                 auth=("riot", info.token),
                 verify=False,
                 timeout=httpx.Timeout(2.0),
