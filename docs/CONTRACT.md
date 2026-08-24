@@ -21,8 +21,8 @@ Base URL: `http://127.0.0.1:{port}`
 | POST | /sync/start | `SyncStatus` | kicks era-first backfill (no-op if running) |
 | POST | /sync/cancel | `SyncStatus` | |
 | GET | /sync/status | `SyncStatus` | |
-| GET | /history/summary | `HistorySummary` | personal aggregates from local shards |
-| GET | /progress/trajectories | `TrajectoryPoint[]` | query: `patch?`, `role?`, `champion?` |
+| GET | /progress/aggregates | `PatchAggregate[]` | true Personal History patch aggregates; query: `patch?`, `role?`, `champion?` |
+| GET | /progress/trajectories | `TrajectoryPoint[]` | per-match rolling line; query: `patch?`, `role?`, `champion?` |
 | GET | /postgame/latest | `PostGameDigest \| null` | null = none yet |
 | GET | /benchmarks | `RoleBenchmark[]` | population medians + personal values |
 | GET | /live/status | `LiveStatus` | coarse LCU + in-game health |
@@ -62,7 +62,13 @@ interface RoleRow { role: string; games: number; wins: number; }
 
 interface TrajectoryPoint {
   patch: string; role: string; champion: string | null;
-  games: number; wins: number; rolling_wr: number; // 0..1 over window
+  played_at: string;                       // match timestamp, ISO
+  index: number;                           // chronological index in this response
+  rolling_wr: number;                      // 0..1 over the rolling window
+}
+interface PatchAggregate {
+  patch: string;
+  games: number; wins: number; win_rate: number; // true counts from Personal History
 }
 
 interface PostGameDigest {

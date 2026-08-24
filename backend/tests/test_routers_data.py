@@ -66,9 +66,11 @@ def test_history_summary_sorts_patch_ranges_numerically(tmp_path: Path):
     with client:
         body = client.get("/history/summary", headers=AUTH).json()
         points = client.get("/progress/trajectories", headers=AUTH).json()
+        aggregates = client.get("/progress/aggregates", headers=AUTH).json()
 
     assert body["patches"] == ["16.9", "16.10", "unknown"]
-    assert [point["patch"] for point in points] == ["16.9", "16.10", "unknown"]
+    assert [point["patch"] for point in points] == ["16.10", "16.9", "unknown"]
+    assert [row["patch"] for row in aggregates] == ["16.9", "16.10", "unknown"]
 
 
 def test_trajectories_rolling_window_math(tmp_path: Path):
@@ -88,18 +90,45 @@ def test_trajectories_rolling_window_math(tmp_path: Path):
 
     with client:
         points = client.get("/progress/trajectories", headers=AUTH).json()
+        aggregates = client.get("/progress/aggregates", headers=AUTH).json()
 
     assert len(points) == 12
+    assert all(set(point) == {"patch", "role", "champion", "played_at", "index", "rolling_wr"} for point in points)
+    assert [point["index"] for point in points] == list(range(12))
+    assert [point["played_at"] for point in points] == [
+        f"2026-01-{i + 1:02d}T00:00:00Z" for i in range(12)
+    ]
     first = points[0]
-    assert (first["games"], first["wins"], first["rolling_wr"]) == (1, 1, 1.0)
+    assert first["rolling_wr"] == 1.0
     sixth = points[5]
-    assert sixth["games"] == 6 and sixth["wins"] == 5
     assert abs(sixth["rolling_wr"] - 5 / 6) < 1e-9
     last = points[-1]
     window = outcomes[2:]
-    assert last["games"] == 10
-    assert last["wins"] == sum(window)
     assert abs(last["rolling_wr"] - sum(window) / 10) < 1e-9
+    assert aggregates == [{"patch": "16.7", "games": 12, "wins": 5, "win_rate": 5 / 12}]
+
+
+def test_patch_aggregates_do_not_double_count_multi_role_or_champion_matches(tmp_path: Path):
+    client = build_client(tmp_path)
+    store = client.app.state.store
+    for i in range(150):
+        seed(
+            store,
+            f"SG2_{i}",
+            patch="16.7" if i < 100 else "16.8",
+            role=("TOP", "MIDDLE")[i % 2],
+            champion=("Ahri", "Jinx", "Lux")[i % 3],
+            win=i % 2 == 0,
+            played_at=f"2026-01-{(i % 28) + 1:02d}T00:{i:02d}:00Z",
+        )
+
+    with client:
+        aggregates = client.get("/progress/aggregates", headers=AUTH).json()
+
+    assert aggregates == [
+        {"patch": "16.7", "games": 100, "wins": 50, "win_rate": 0.5},
+        {"patch": "16.8", "games": 50, "wins": 25, "win_rate": 0.5},
+    ]
 
 
 def test_trajectories_filters(tmp_path: Path):

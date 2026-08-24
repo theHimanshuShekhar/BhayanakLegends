@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { PatchAggregate } from "./types";
 
 let base = "";
 let token = "";
@@ -51,6 +52,12 @@ export const api = {
     const qs = new URLSearchParams(params).toString();
     return request<import("./types").TrajectoryPoint[]>(
       `/progress/trajectories${qs ? `?${qs}` : ""}`,
+    );
+  },
+  patchAggregates: (params: Record<string, string> = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request<PatchAggregate[]>(
+      `/progress/aggregates${qs ? `?${qs}` : ""}`,
     );
   },
   postgameLatest: () =>

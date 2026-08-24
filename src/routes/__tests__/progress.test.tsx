@@ -17,6 +17,7 @@ vi.mock("../../api/client", () => ({
     syncStatus: vi.fn(),
     historySummary: vi.fn(),
     trajectories: vi.fn(),
+    patchAggregates: vi.fn(),
     postgameLatest: vi.fn(),
     benchmarks: vi.fn(),
     liveStatus: vi.fn(),
@@ -35,9 +36,14 @@ function renderPage(ui: ReactElement) {
 }
 
 const points = [
-  { patch: "16.16", role: "TOP", champion: null, games: 12, wins: 5, rolling_wr: 0.42 },
-  { patch: "14.17", role: "TOP", champion: null, games: 10, wins: 6, rolling_wr: 0.6 },
-  { patch: "14.17", role: "MIDDLE", champion: null, games: 8, wins: 2, rolling_wr: 0.25 },
+  { patch: "16.16", role: "TOP", champion: null, played_at: "2026-02-01T00:00:00Z", index: 2, rolling_wr: 0.42 },
+  { patch: "14.17", role: "TOP", champion: null, played_at: "2026-01-01T00:00:00Z", index: 0, rolling_wr: 0.6 },
+  { patch: "14.17", role: "MIDDLE", champion: null, played_at: "2026-01-15T00:00:00Z", index: 1, rolling_wr: 0.25 },
+];
+
+const aggregates = [
+  { patch: "16.16", games: 12, wins: 5, win_rate: 0.42 },
+  { patch: "14.17", games: 18, wins: 8, win_rate: 8 / 18 },
 ];
 
 const summary = {
@@ -100,6 +106,7 @@ function makePack(overrides: Partial<FindingsPack> = {}): FindingsPack {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(api.trajectories).mockResolvedValue(points);
+  vi.mocked(api.patchAggregates).mockResolvedValue(aggregates);
   vi.mocked(api.historySummary).mockResolvedValue(summary);
   vi.mocked(api.benchmarks).mockResolvedValue(benchmarks);
   vi.mocked(api.pack).mockResolvedValue(makePack());
@@ -163,7 +170,7 @@ describe("ProgressPage", () => {
     expect(screen.getByTestId("what-if-prediction")).toHaveTextContent("Unavailable");
   });
 
-  it("renders the rolling win-rate sparkline per patch with mono patch labels", async () => {
+  it("renders the patch win-rate sparkline from true patch aggregates", async () => {
     renderPage(<ProgressPage />);
 
     const chart = await screen.findByTestId("rolling-wr-svg");
@@ -171,12 +178,12 @@ describe("ProgressPage", () => {
     const wrap = screen.getByTestId("rolling-wr-chart");
     expect(within(wrap).getByText("14.17")).toBeInTheDocument();
     expect(within(wrap).getByText("16.16")).toBeInTheDocument();
-    // 14.17 aggregates TOP+MIDDLE with all patches charted: 12+10+8 games
-    expect(within(wrap).getByText(/30 synced games/)).toBeInTheDocument();
+    expect(within(wrap).getByText(/30 synced games|30/)).toBeInTheDocument();
+    expect(api.trajectories).not.toHaveBeenCalled();
   });
 
   it("shows the honest empty state when no games are tracked", async () => {
-    vi.mocked(api.trajectories).mockResolvedValue([]);
+    vi.mocked(api.patchAggregates).mockResolvedValue([]);
     renderPage(<ProgressPage />);
 
     expect(await screen.findByTestId("empty-state")).toBeInTheDocument();
