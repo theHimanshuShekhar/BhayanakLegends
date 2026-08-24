@@ -245,7 +245,7 @@ class SyncService:
             )
         self._publish("sync.done")
 
-    async def _http_fetcher(self, client: Any) -> Callable[[str], Awaitable[tuple[Any, Any]]]:
+    def _http_fetcher(self, client: Any) -> Callable[[str], Awaitable[tuple[Any, Any]]]:
         async def fetch(match_id: str) -> tuple[Any, Any]:
             detail = await client.match(match_id)
             try:
