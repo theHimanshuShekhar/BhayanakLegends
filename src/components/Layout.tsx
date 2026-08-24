@@ -11,13 +11,42 @@ const NAV = [
   { to: "/history", label: "History" },
 ];
 
+export function ConnectionStatus({ connected }: { connected: boolean }) {
+  return (
+    <div
+      className="pill"
+      data-testid="connection-status"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      style={{
+        background: connected ? "var(--color-accent-low)" : "var(--color-surface-2)",
+        color: connected ? "#e7e5fe" : "var(--color-dim)",
+        boxShadow: "var(--shadow-z1)",
+      }}
+    >
+      <span
+        aria-hidden="true"
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: 999,
+          background: connected ? "var(--color-accent)" : "var(--color-dimmer)",
+          boxShadow: connected ? "0 0 8px var(--color-accent)" : "none",
+        }}
+      />
+      sidecar · {connected ? "connected" : "offline"}
+    </div>
+  );
+}
+
 export function Layout({ children }: { children: ReactNode }) {
   const connected = useEvents();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
   return (
     <div className="rc">
-      <div className="rc-topbar">
+      <header className="rc-topbar">
         <div
           style={{
             width: 14,
@@ -48,17 +77,18 @@ export function Layout({ children }: { children: ReactNode }) {
           <span style={{ width: 10, height: 10, borderRadius: 999, background: "#3a3f56" }} />
           <span style={{ width: 10, height: 10, borderRadius: 999, background: "#4a3040" }} />
         </div>
-      </div>
+      </header>
 
-      <div className="rc-navbar">
+      <nav className="rc-navbar" aria-label="Primary">
         {NAV.map((item) => {
-          const active = pathname === item.to;
+          const active = pathname === item.to || (item.to === "/live" && pathname === "/");
           return (
             <Link
               key={item.to}
               to={item.to}
               data-testid={`nav-${item.to.slice(1)}`}
               className="pill"
+              aria-current={active ? "page" : undefined}
               style={
                 active
                   ? {
@@ -79,42 +109,25 @@ export function Layout({ children }: { children: ReactNode }) {
           );
         })}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 7 }}>
+          <ConnectionStatus connected={connected} />
           <div
             className="pill"
             style={{
-              background: connected ? "var(--color-accent-low)" : "var(--color-surface-2)",
-              color: connected ? "#e7e5fe" : "var(--color-dim)",
-              boxShadow: "var(--shadow-z1)",
-            }}
-          >
-            <span
-              style={{
-                width: 6,
-                height: 6,
-                borderRadius: 999,
-                background: connected ? "var(--color-accent)" : "var(--color-dimmer)",
-                boxShadow: connected ? "0 0 8px var(--color-accent)" : "none",
-              }}
-            />
-            sidecar
-          </div>
-          <div
-            className="pill"
-            style={{
-              background: "var(--color-blue-low)",
+              background: "var(--color-info-low)",
               color: "#cfe3f9",
               boxShadow: "var(--shadow-z1)",
             }}
           >
             <span
+              aria-hidden="true"
               style={{ width: 6, height: 6, borderRadius: 999, background: "var(--color-info)" }}
             />
             Findings Pack · 26k games
           </div>
         </div>
-      </div>
+      </nav>
 
-      <div className="rc-screen">{children}</div>
+      <main className="rc-screen">{children}</main>
     </div>
   );
 }

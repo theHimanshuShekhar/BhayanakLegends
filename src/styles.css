@@ -8,8 +8,9 @@
   --color-surface-2: #20243a;
   --color-surface-3: #2a2f49;
   --color-line: rgba(233, 233, 237, 0.1);
-  --color-dim: rgba(233, 233, 237, 0.46);
-  --color-dimmer: rgba(233, 233, 237, 0.3);
+  /* Keep both secondary palette values above the AA threshold on dark surfaces. */
+  --color-dim: #a8acbd;
+  --color-dimmer: #9da1b5;
   --color-text: #e9e9ed;
   --color-accent: #9184d9;
   --color-accent-low: #5d5294;

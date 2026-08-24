@@ -10,6 +10,25 @@
   overflow: hidden;
 }
 
+.rc :where(a, button, input, select, textarea):focus-visible {
+  outline: 2px solid var(--color-amber);
+  outline-offset: 2px;
+}
+
+.rc :where(a, button) {
+  min-width: 24px;
+  min-height: 24px;
+}
+
+.rc :where(input, select, textarea) {
+  min-height: 24px;
+}
+
+.rc :where(input[type="checkbox"], input[type="radio"]) {
+  min-width: 24px;
+  min-height: 24px;
+}
+
 .rc-topbar {
   flex: none;
   display: flex;
@@ -30,6 +49,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 0 14px 14px;
 }
 
