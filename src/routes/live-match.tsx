@@ -1,34 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import type { FindingsPack, LiveStatus } from "../api/types";
+import type { LiveStatus } from "../api/types";
 import { useEvents } from "../api/sse";
 import {
-  EventFeed,
-  HabitNudges,
-  LanesAheadMeter,
-  ObjectiveCard,
-  WpBand,
-} from "../components/live";
-import { EmptyState, pct } from "../components/ui";
-import { PageHeader } from "../components/Layout";
-
-function pp(v: number | undefined): string {
-  if (v == null) return "—";
-  return `${v >= 0 ? "+" : ""}${v.toFixed(1)}pp`;
-}
-
-function gold(deficit: number): string {
-  return `${deficit.toLocaleString("en-US")}g`;
-}
-
-function clockLabel(totalSeconds: number): string {
-  const s = Math.max(0, Math.floor(totalSeconds));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = String(s % 60).padStart(2, "0");
-  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
-}
+  ActivePlayerCard,
+  CheatSheetCard,
+  clockLabel,
+  DeadNowCard,
+  EnemySpellsCard,
+  EventFeedCard,
+  ItemValueCard,
+  ObjectivesCard,
+  PlayerList,
+  RightNowCard,
+  TeamVsTeamCard,
+  WinProbabilityCard,
+} from "../components/live-match";
 
 /** Ticks locally between server/SSE updates so the clock advances every second. */
 function useGameClock(active: boolean, serverClockS: number) {
@@ -49,83 +37,6 @@ function useGameClock(active: boolean, serverClockS: number) {
   }, [active]);
 
   return display;
-}
-
-function ObjectivesPriors({ pack }: { pack: FindingsPack | undefined }) {
-  const o = pack?.objectives;
-  const lanesAhead = pack?.findings.find((f) => f.key === "lanes_ahead");
-  return (
-    <section className="space-y-4" data-testid="objectives-priors">
-      <div className="text-[10px] uppercase tracking-widest text-dimmer">Objectives priors</div>
-      <div className="grid gap-4 md:grid-cols-3">
-        <ObjectiveCard
-          objective="Baron"
-          headline="Comeback tool"
-          stats={[
-            { label: "pre-25 win rate", value: pct(o?.baron_pre25_win_rate) },
-            { label: "comeback lift", value: pp(o?.baron_comeback_lift_pp) },
-          ]}
-          // Actionable per pack tier: may instruct.
-          actionable
-          takeaway="Trailing teams that secure Baron flip games — treat it as the comeback lever, not a lead extender."
-        />
-        <ObjectiveCard
-          objective="Dragon"
-          headline="Checkpoint, not weapon"
-          stats={[
-            { label: "denial win rate", value: pct(o?.dragon_denial_win_rate) },
-            { label: "first before 20", value: pct(o?.first_dragon_pre20_win_rate) },
-          ]}
-          takeaway="Denying the enemy's dragons outvalues forcing risky ones."
-        />
-        <ObjectiveCard
-          objective="Herald"
-          headline="Early tempo"
-          stats={[{ label: "before 20 min", value: pct(o?.herald_pre20_win_rate) }]}
-          takeaway="Its window closes at 20 minutes."
-        />
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <section className="rounded-lg border border-line bg-surface p-4 shadow-z1" data-testid="card-comeback-odds">
-          <div className="text-[10px] uppercase tracking-widest text-accent">Comeback odds</div>
-          <h2 className="mt-0.5 text-sm font-medium">Gold down at 15 → win chance</h2>
-          {(pack?.comeback_odds ?? []).length === 0 ? (
-            <p className="mt-3 text-xs text-dim">Comeback table arrives with the next Findings Pack.</p>
-          ) : (
-            <table className="mt-3 w-full text-left">
-              <thead>
-                <tr className="text-[10px] uppercase tracking-widest text-dimmer">
-                  <th className="pb-1 font-normal">Gold deficit</th>
-                  <th className="pb-1 text-right font-normal">Win chance</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(pack?.comeback_odds ?? []).map((row) => (
-                  <tr key={row.gold_deficit_at_15} data-testid={`comeback-row-${row.gold_deficit_at_15}`} className="border-t border-line">
-                    <td className="py-1.5 font-mono text-xs">{gold(row.gold_deficit_at_15)}</td>
-                    <td className="py-1.5 text-right font-mono text-xs">{pct(row.win_rate)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-          <p className="mt-3 text-[10px] leading-relaxed text-dimmer">
-            Survivorship bias documented; surrender advisor model ships with the next Findings Pack.
-          </p>
-        </section>
-
-        <section className="rounded-lg border border-line bg-surface p-4 shadow-z1" data-testid="card-lanes-ahead">
-          <div className="text-[10px] uppercase tracking-widest text-accent">Lanes ahead</div>
-          <h2 className="mt-0.5 mb-3 text-sm font-medium">How the curve moves</h2>
-          <LanesAheadMeter finding={lanesAhead} />
-          {!lanesAhead && (
-            <p className="text-xs text-dim">Lanes-ahead finding arrives with the next Findings Pack.</p>
-          )}
-        </section>
-      </div>
-    </section>
-  );
 }
 
 export function LiveMatchPage() {
@@ -151,50 +62,98 @@ export function LiveMatchPage() {
   const clockS = useGameClock(active, status?.ingame.clock_s ?? 0);
 
   return (
-    <div>
-      <PageHeader kicker="Live companion" title="Live Match" />
-
-      {!active ? (
-        <div className="max-w-xl space-y-4">
-          <EmptyState
-            title=":2999 comes online at match start"
-            body="Win-probability guidance appears once the Live Client Data API is reachable. Borderless-windowed mode required for the widget experience."
+    <div
+      style={{
+        margin: "0 -14px -14px",
+        padding: "12px 14px 14px",
+        minHeight: "100%",
+        display: "flex",
+        flexDirection: "column",
+        background: "radial-gradient(120% 80% at 20% 0%,#151831,var(--color-bg) 60%)",
+      }}
+    >
+      <div style={{ flex: "none", display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}>
+        <span
+          className="pill mono-n"
+          data-testid="bridge-status"
+          style={
+            active
+              ? {
+                  background: "var(--color-teal-low)",
+                  color: "var(--color-teal)",
+                  boxShadow: "var(--shadow-z1)",
+                }
+              : {
+                  background: "var(--color-amber-low)",
+                  color: "var(--color-amber)",
+                  boxShadow: "var(--shadow-z1)",
+                }
+          }
+        >
+          <span
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: 999,
+              background: active ? "var(--color-teal)" : "var(--color-amber)",
+              boxShadow: active ? "0 0 8px var(--color-teal)" : "none",
+            }}
           />
+          {active ? ":2999 · 1s poll" : "waiting for :2999"}
+        </span>
+        <div
+          className="pill"
+          style={{ background: "var(--color-info-low)", color: "#cfe3f9", boxShadow: "var(--shadow-z1)" }}
+        >
+          <span style={{ width: 6, height: 6, borderRadius: 999, background: "var(--color-info)" }} />
+          Findings Pack v1
         </div>
-      ) : (
-        <div className="space-y-4">
-          <header className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-surface px-4 py-3 shadow-z1">
-            <div className="flex items-center gap-2" data-testid="score-strip">
-              <span className="size-2 rounded-full bg-accent" aria-hidden />
-              <span className="font-mono text-sm">0</span>
-              <span className="text-[10px] uppercase tracking-widest text-dimmer">blue vs red</span>
-              <span className="font-mono text-sm">0</span>
-              <span className="size-2 rounded-full bg-danger" aria-hidden />
-              {/* Placeholder strip until the LCU bridge exposes team scores. */}
-            </div>
-            <div className="flex items-baseline gap-2">
-              {status?.ingame.mode && (
-                <span className="text-[10px] uppercase tracking-widest text-dimmer">{status.ingame.mode}</span>
-              )}
-              <span className="font-mono text-xl" data-testid="game-clock">
-                {clockLabel(clockS)}
-              </span>
-            </div>
-          </header>
+        <div
+          className="pill mono-n"
+          data-testid="game-clock"
+          style={{
+            marginLeft: "auto",
+            background: "var(--color-surface-3)",
+            color: "var(--color-text)",
+            boxShadow: "var(--shadow-z1)",
+          }}
+        >
+          {clockLabel(clockS)}
+        </div>
+      </div>
 
-          <div className="grid gap-4 lg:grid-cols-[1fr_minmax(260px,340px)]">
-            <div className="space-y-4">
-              <WpBand pack={packQuery.data} clockS={clockS} />
-              <EventFeed />
-            </div>
-            <HabitNudges habits={packQuery.data?.habits ?? []} />
+      <PlayerList active={active} />
+
+      <div
+        style={{
+          flex: 1,
+          display: "grid",
+          gridTemplateColumns: "356px 1fr 320px",
+          gap: 14,
+          paddingTop: 14,
+          minHeight: 0,
+        }}
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, minHeight: 0 }}>
+          <ActivePlayerCard />
+          <CheatSheetCard />
+          <RightNowCard pack={packQuery.data} />
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
+          <WinProbabilityCard pack={packQuery.data} clockS={clockS} active={active} />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <TeamVsTeamCard pack={packQuery.data} />
+            <EventFeedCard />
           </div>
+          <ItemValueCard />
         </div>
-      )}
 
-      {/* The objectives priors board is always visible — it works without a live game. */}
-      <div className={active ? "mt-6" : ""}>
-        <ObjectivesPriors pack={packQuery.data} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
+          <DeadNowCard />
+          <ObjectivesCard pack={packQuery.data} />
+          <EnemySpellsCard />
+        </div>
       </div>
     </div>
   );

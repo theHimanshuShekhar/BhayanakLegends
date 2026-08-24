@@ -1,0 +1,68 @@
+/* Ported from the claude.design artifact (Rift Coach v0.1) — class names kept. */
+
+.rc {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+  color: var(--color-text);
+  overflow: hidden;
+}
+
+.rc-topbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 16px 8px;
+}
+
+.rc-navbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 16px 10px;
+}
+
+.rc-screen {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 14px 14px;
+}
+
+.card3 {
+  border-radius: 16px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-z1);
+}
+
+.card3b {
+  border-radius: 18px;
+  background: var(--color-surface-2);
+  box-shadow: var(--shadow-z2);
+}
+
+.mono-n {
+  font-family: var(--font-mono);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 5px 11px;
+  font: 600 10px var(--font-mono);
+  letter-spacing: 0.04em;
+  cursor: default;
+}
+
+.kicker {
+  font: 700 9.5px var(--font-mono);
+  letter-spacing: 0.13em;
+  color: var(--color-dim);
+  text-transform: uppercase;
+}

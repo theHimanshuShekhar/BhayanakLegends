@@ -1,36 +1,26 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ReactElement } from "react";
 import { PostGamePage } from "../postgame";
 import { api } from "../../api/client";
+import { makePack } from "./fixtures";
 
 vi.mock("../../api/client", () => ({
   api: {
-    health: vi.fn(),
     pack: vi.fn(),
-    settings: vi.fn(),
-    updateSettings: vi.fn(),
-    startSync: vi.fn(),
-    cancelSync: vi.fn(),
-    syncStatus: vi.fn(),
-    historySummary: vi.fn(),
-    trajectories: vi.fn(),
     postgameLatest: vi.fn(),
-    benchmarks: vi.fn(),
-    liveStatus: vi.fn(),
   },
 }));
 
-vi.mock("../../api/sse", () => ({
-  useEvents: vi.fn(() => true),
-}));
-
-function renderPage(ui: ReactElement) {
+function renderPage() {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>);
+  return render(
+    <QueryClientProvider client={qc}>
+      <PostGamePage />
+    </QueryClientProvider>,
+  );
 }
 
 const digest = {
@@ -38,8 +28,8 @@ const digest = {
   played_at: "2026-08-23T21:04:00Z",
   champion: "Thresh",
   role: "UTILITY",
-  win: true,
-  duration_s: 1934,
+  win: false,
+  duration_s: 1992,
   checkpoints: { gold_diff_10: 450, gold_diff_15: -1200, gold_diff_20: null },
   habits: [
     { key: "recall_safety", label: "Recall safely", value: "92%", verdict: "good" as const },
@@ -51,47 +41,78 @@ const digest = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(api.pack).mockResolvedValue(makePack());
 });
 
-describe("PostGamePage", () => {
-  it("renders the empty state when no games were analyzed", async () => {
+describe("PostGamePage — no digest yet", () => {
+  it("keeps the window chrome and shows the idle banner", async () => {
     vi.mocked(api.postgameLatest).mockResolvedValue(null);
-    renderPage(<PostGamePage />);
+    renderPage();
 
-    expect(await screen.findByTestId("empty-state")).toBeInTheDocument();
-    expect(screen.getByText("No games analyzed yet")).toBeInTheDocument();
-    expect(
-      screen.getByText("Play a game with the app running, or import your history from the History tab."),
-    ).toBeInTheDocument();
+    expect(await screen.findByTestId("empty-state")).toHaveTextContent(
+      "No games analyzed yet — Backfill from History",
+    );
+    expect(screen.getByTestId("verdict")).toHaveTextContent("No game analyzed");
+    expect(screen.getByText(/post-game review · the 30 seconds after a loss/i)).toBeInTheDocument();
   });
+});
 
-  it("renders the digest header with a WIN tag and mono duration", async () => {
+describe("PostGamePage — digest rendered into the design", () => {
+  beforeEach(() => {
     vi.mocked(api.postgameLatest).mockResolvedValue(digest);
-    renderPage(<PostGamePage />);
-
-    expect(await screen.findByText("Thresh")).toBeInTheDocument();
-    expect(screen.getByText("UTILITY")).toBeInTheDocument();
-    expect(screen.getByText("WIN")).toBeInTheDocument();
-    expect(screen.getByTestId("digest-duration")).toHaveTextContent("32:14");
   });
 
-  it("renders a LOSS tag for a lost game", async () => {
-    vi.mocked(api.postgameLatest).mockResolvedValue({ ...digest, win: false });
-    renderPage(<PostGamePage />);
+  it("renders the DEFEAT verdict tile with champion, role and duration", async () => {
+    renderPage();
 
-    expect(await screen.findByText("LOSS")).toBeInTheDocument();
+    expect(await screen.findByText("Defeat")).toBeInTheDocument();
+    expect(screen.getByTestId("verdict-sub")).toHaveTextContent("Thresh · UTILITY · 33:12");
+    expect(screen.getByTestId("verdict-header").textContent).toContain("TH");
   });
 
-  it("shows signed checkpoint gold, colored diagnostics, habit verdicts and headline", async () => {
-    vi.mocked(api.postgameLatest).mockResolvedValue(digest);
-    renderPage(<PostGamePage />);
+  it("renders the VICTORY tile for a won game", async () => {
+    vi.mocked(api.postgameLatest).mockResolvedValue({ ...digest, win: true });
+    renderPage();
+
+    expect(await screen.findByText("Victory")).toBeInTheDocument();
+  });
+
+  it("shows signed checkpoint gold with red/green reads", async () => {
+    renderPage();
 
     expect(await screen.findByText("+450")).toBeInTheDocument();
-    expect(screen.getByText("-1,200")).toBeInTheDocument();
-    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(2); // null @20 + n/a value
-    expect(screen.getByText("n/a")).toBeInTheDocument();
-    expect(screen.getByText(digest.headline)).toBeInTheDocument();
-    expect(screen.getAllByText(/diagnostic/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Backfill/)).toBeInTheDocument();
+    expect(screen.getByTestId("checkpoint-15")).toHaveTextContent("-1,200");
+    expect(screen.getByTestId("checkpoint-20")).toHaveTextContent("—");
+    expect(screen.getByText("Diagnostic")).toBeInTheDocument();
+  });
+
+  it("renders habit rows with verdict tags and the headline in the accent box", async () => {
+    renderPage();
+
+    expect(await screen.findByText(digest.headline)).toBeInTheDocument();
+    expect(screen.getByTestId("digest-headline")).toBeInTheDocument();
+    expect(screen.getByTestId("habit-recall_safety")).toHaveTextContent("good");
+    expect(screen.getByTestId("habit-plates_by_14")).toHaveTextContent("bad");
+    expect(screen.getByTestId("habit-fast_first_dragon")).toHaveTextContent("n/a");
+  });
+
+  it("binds objective read cards and comeback odds to pack + digest numbers", async () => {
+    renderPage();
+
+    expect(await screen.findByText("denial 95.4%")).toBeInTheDocument();
+    expect(screen.getByTestId("read-baron")).toHaveTextContent("+29.5pp lift");
+    // gold@15 -1,200 → nearest pack bucket -1000 → 27.6%
+    expect(await screen.findByText("27.6%")).toBeInTheDocument();
+    expect(screen.getByTestId("comeback-note")).toHaveTextContent("down 1,200g at 15");
+    expect(screen.getByText("Backfill")).toBeInTheDocument();
+  });
+
+  it("keeps the surrender read as a structure-only placeholder", async () => {
+    renderPage();
+
+    const card = await screen.findByTestId("surrender-read");
+    expect(within(card).getAllByText("—").length).toBeGreaterThan(0);
+    expect(card).toHaveTextContent(/surrender advisor ships with the next Findings Pack/);
+    expect(card).toHaveTextContent(/survivorship bias/);
   });
 });

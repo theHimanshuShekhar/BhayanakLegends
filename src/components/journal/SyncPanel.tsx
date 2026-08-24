@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { useCancelSync, useSaveSettings, useSettings, useStartSync, useSyncStatus } from "../../api/hooks";
-import "./kicker.css";
 import { useEvents } from "../../api/sse";
 import type { SseMessage } from "../../api/sse";
 import type { SettingsPatch, SyncStatus } from "../../api/types";
@@ -12,6 +11,25 @@ const DEFAULT_RIOT_ID = "SacredButtholio#OOF";
 function isTerminal(state: SyncStatus["state"]): boolean {
   return state !== "running";
 }
+
+function FieldLabel({ children }: { children: string }) {
+  return (
+    <span
+      style={{
+        fontSize: 9,
+        letterSpacing: ".08em",
+        textTransform: "uppercase",
+        color: "var(--color-dimmer)",
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+const inputStyle = {
+  background: "var(--color-deep)",
+} as const;
 
 export function SyncPanel() {
   const settings = useSettings();
@@ -65,16 +83,27 @@ export function SyncPanel() {
   const progressPct = total > 0 ? Math.min(100, Math.round((doneCount / total) * 100)) : 0;
 
   return (
-    <section className="rounded-lg border border-line bg-surface p-4 shadow-z1">
-      <div className="text-[10px] uppercase tracking-widest text-accent">Personal History</div>
-      <h2 className="mt-0.5 text-sm font-medium">Sync</h2>
-      <p className="mt-1 text-xs text-dim">
+    <section
+      className="card3b"
+      data-testid="sync-panel"
+      style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <span className="kicker">SYNC · BACKFILL</span>
+        <span
+          className="mono-n"
+          style={{ fontSize: 10, color: running ? "var(--color-accent)" : "var(--color-dimmer)" }}
+        >
+          {running ? "· running" : `· ${status?.state ?? "idle"}`}
+        </span>
+      </div>
+      <p style={{ margin: 0, fontSize: 10, lineHeight: 1.5, color: "var(--color-dim)" }}>
         Current-patch games download first; older history fills in across sessions.
       </p>
 
-      <form onSubmit={onSave} className="mt-3 grid grid-cols-2 gap-3" data-testid="sync-settings-form">
+      <form onSubmit={onSave} className="grid grid-cols-2 gap-3" data-testid="sync-settings-form">
         <label className="flex flex-col gap-1">
-          <span className="text-[10px] uppercase tracking-widest text-dimmer">Riot ID</span>
+          <FieldLabel>Riot ID</FieldLabel>
           <input
             value={riotId}
             onChange={(e) => {
@@ -82,11 +111,12 @@ export function SyncPanel() {
               setDirty(true);
             }}
             data-testid="input-riot-id"
-            className="rounded-md border border-line bg-deep px-2 py-1.5 font-mono text-xs outline-none focus:border-accent"
+            style={inputStyle}
+            className="rounded-[10px] border border-line bg-deep px-2.5 py-1.5 font-mono text-[11px] outline-none focus:border-accent"
           />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-[10px] uppercase tracking-widest text-dimmer">Region route</span>
+          <FieldLabel>Region route</FieldLabel>
           <select
             value={region}
             onChange={(e) => {
@@ -94,7 +124,8 @@ export function SyncPanel() {
               setDirty(true);
             }}
             data-testid="input-region"
-            className="rounded-md border border-line bg-deep px-2 py-1.5 text-xs outline-none focus:border-accent"
+            style={inputStyle}
+            className="rounded-[10px] border border-line bg-deep px-2.5 py-1.5 text-[11px] outline-none focus:border-accent"
           >
             {REGIONS.map((r) => (
               <option key={r} value={r}>
@@ -104,7 +135,7 @@ export function SyncPanel() {
           </select>
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-[10px] uppercase tracking-widest text-dimmer">Riot API key</span>
+          <FieldLabel>Riot API key</FieldLabel>
           <input
             type="password"
             value={key}
@@ -113,7 +144,8 @@ export function SyncPanel() {
               settings.data?.has_key ? "saved — leave blank to keep" : "paste a Riot API key"
             }
             data-testid="input-riot-key"
-            className="rounded-md border border-line bg-deep px-2 py-1.5 font-mono text-xs outline-none placeholder:text-dimmer focus:border-accent"
+            style={inputStyle}
+            className="rounded-[10px] border border-line bg-deep px-2.5 py-1.5 font-mono text-[11px] outline-none placeholder:text-dimmer focus:border-accent"
           />
         </label>
         <label className="mt-4 flex items-center gap-2 text-xs text-dim">
@@ -134,12 +166,20 @@ export function SyncPanel() {
             type="submit"
             disabled={save.isPending}
             data-testid="save-settings"
-            className="rounded-md border border-accent px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent-low disabled:opacity-40"
+            className="pill"
+            style={{
+              background: "var(--color-accent)",
+              color: "#0e1020",
+              border: "none",
+              cursor: "pointer",
+              opacity: save.isPending ? 0.4 : undefined,
+              boxShadow: "0 3px 0 var(--color-accent-low),0 8px 16px -6px rgba(145,132,217,.6)",
+            }}
           >
             Save settings
           </button>
           {save.isSuccess && !dirty && (
-            <span data-testid="save-ok" className="text-xs text-teal">
+            <span data-testid="save-ok" className="mono-n text-xs text-teal">
               Saved.
             </span>
           )}
@@ -149,10 +189,17 @@ export function SyncPanel() {
         </div>
       </form>
 
-      <div className="mt-4 border-t border-line pt-3">
+      <div style={{ borderTop: "1px solid var(--color-line)", paddingTop: 10 }}>
         <div className="flex items-center justify-between gap-3">
-          <div className="text-[10px] uppercase tracking-widest text-dimmer">
-            Backfill {running ? "· running" : `· ${status?.state ?? "idle"}`}
+          <div
+            style={{
+              fontSize: 9,
+              letterSpacing: ".08em",
+              textTransform: "uppercase",
+              color: "var(--color-dimmer)",
+            }}
+          >
+            Backfill queue
           </div>
           <div className="flex gap-2">
             <button
@@ -160,7 +207,14 @@ export function SyncPanel() {
               onClick={() => start.mutate(undefined, { onSuccess: () => setLive(null) })}
               disabled={running || start.isPending}
               data-testid="start-sync"
-              className="rounded-md border border-teal px-3 py-1.5 text-xs font-medium text-teal transition-colors hover:bg-teal-low disabled:opacity-40"
+              className="pill"
+              style={{
+                background: "var(--color-teal-low)",
+                color: "var(--color-teal)",
+                border: "none",
+                cursor: "pointer",
+                opacity: running || start.isPending ? 0.4 : undefined,
+              }}
             >
               Start sync
             </button>
@@ -169,7 +223,14 @@ export function SyncPanel() {
               onClick={() => cancel.mutate(undefined, { onSuccess: () => setLive(null) })}
               disabled={!running || cancel.isPending}
               data-testid="cancel-sync"
-              className="rounded-md border border-danger px-3 py-1.5 text-xs font-medium text-danger transition-colors hover:bg-danger-low disabled:opacity-40"
+              className="pill"
+              style={{
+                background: "var(--color-surface-3)",
+                color: "var(--color-dim)",
+                border: "none",
+                cursor: "pointer",
+                opacity: !running || cancel.isPending ? 0.4 : undefined,
+              }}
             >
               Cancel
             </button>

@@ -89,6 +89,25 @@ describe("HistoryPage", () => {
     expect(within(table).getByText("56.7%")).toBeInTheDocument(); // 34/60
   });
 
+  it("dresses the screen in the design system shells and pill buttons", async () => {
+    renderPage(<HistoryPage />);
+
+    const syncPanel = await screen.findByTestId("sync-panel");
+    expect(syncPanel).toHaveClass("card3b");
+
+    const save = screen.getByTestId("save-settings");
+    expect(save).toHaveClass("pill");
+    expect(save.style.background).toContain("var(--color-accent)");
+
+    const start = screen.getByTestId("start-sync");
+    expect(start).toHaveClass("pill");
+    expect(start.style.background).toContain("var(--color-teal-low)");
+
+    const cancel = screen.getByTestId("cancel-sync");
+    expect(cancel).toHaveClass("pill");
+    expect(cancel.style.background).toContain("var(--color-surface-3)");
+  });
+
   it("prefills the settings form defaults and shows saved-key state", async () => {
     renderPage(<HistoryPage />);
 
