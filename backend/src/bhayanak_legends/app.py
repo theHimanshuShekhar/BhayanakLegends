@@ -11,6 +11,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from .auth import TokenAuthMiddleware
 from .config import SidecarConfig
+from .live import ChampSelectSnapshot, InGameSnapshot
 from .models import LiveState, LiveStatus, SettingsPatch
 from .pack import PackError, PackStore
 from .routers_data import router as data_router
@@ -46,7 +47,6 @@ def create_app(config: SidecarConfig | None = None) -> FastAPI:
         LiveService = None  # type: ignore[assignment, misc]
         SyncService = None  # type: ignore[assignment, misc]
         log.warning("sync/live optional deps missing; services disabled")
-
     def settings_for_sync() -> dict:
         return {
             "riot_key": store.get_setting("riot_key"),
@@ -76,7 +76,18 @@ def create_app(config: SidecarConfig | None = None) -> FastAPI:
     app.state.app_version = APP_VERSION
     app.state.pack_error = pack_error
     app.state.sync_service = None if SyncService is None else SyncService(store, hub, settings_for_sync)
-    app.state.live_service = None if LiveService is None else LiveService(hub)
+    if LiveService is None:
+        app.state.live_service = None
+    else:
+        from .lcu import ChampionDirectory, HttpxIngameTransport, HttpxLcuConnection
+
+        champions = ChampionDirectory(data_dir / "ddragon")
+        app.state.live_service = LiveService(
+            HttpxLcuConnection(),
+            HttpxIngameTransport(),
+            hub,
+            champion_names=champions.get,
+        )
 
     app.add_middleware(TokenAuthMiddleware, token=config.token)
     app.add_middleware(
@@ -172,6 +183,20 @@ def create_app(config: SidecarConfig | None = None) -> FastAPI:
         if svc is not None:
             return svc.status()
         return LiveStatus(champ_select=LiveState(), ingame=LiveState()).model_dump()
+
+    @app.get("/live/session")
+    def live_session():
+        svc = app.state.live_service
+        if svc is not None:
+            return svc.session()
+        return ChampSelectSnapshot().model_dump()
+
+    @app.get("/live/ingame")
+    def live_ingame():
+        svc = app.state.live_service
+        if svc is not None:
+            return svc.ingame()
+        return InGameSnapshot().model_dump()
 
     app.include_router(build_events_router())
     app.include_router(data_router)

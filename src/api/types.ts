@@ -154,3 +154,77 @@ export interface LiveStatus {
   ingame: { active: boolean; game_id: number | null; mode: string | null; clock_s: number };
   last_error: string | null;
 }
+
+// Rich LCU-bridge snapshots (GET /live/session + SSE "champselect.state").
+// COMPLIANCE: enemy summoner names are stripped at the sidecar service layer —
+// ChampSelectEnemyCell.name is always null.
+export interface ChampSelectBan {
+  champion_id: number;
+  name: string | null; // null → UI renders "Champion {id}"
+}
+
+export type CellState = "intent" | "picked" | "hover" | "none";
+
+export interface ChampSelectAllyCell {
+  cell_id: number;
+  champion_id: number;
+  champion: string | null; // Data Dragon display name; null → UI renders "Champion {id}"
+  name: string | null;
+  is_local: boolean;
+  state: CellState;
+}
+
+export interface ChampSelectEnemyCell {
+  cell_id: number;
+  champion_id: number;
+  champion: string | null;
+  name: string | null; // always null — compliance
+  state: CellState;
+}
+
+export interface ChampSelectSnapshot {
+  active: boolean;
+  phase: string | null;
+  timer_sec: number | null;
+  bans_ally: ChampSelectBan[];
+  bans_enemy: ChampSelectBan[];
+  ally: ChampSelectAllyCell[];
+  enemy: ChampSelectEnemyCell[];
+}
+
+// Rich in-game snapshots (GET /live/ingame + SSE "live.state"); Live Client
+// Data API on :2999. Summoner names here are official spectator data.
+export interface ItemLive {
+  id: number;
+  count: number;
+}
+
+export interface PlayerLive {
+  summoner: string;
+  champion: string | null;
+  level: number;
+  kills: number;
+  deaths: number;
+  assists: number;
+  cs: number;
+  ward_score: number;
+  items: ItemLive[];
+}
+
+export interface LiveEvent {
+  name: string;
+  t_s: number;
+  actor: string | null;
+  victim: string | null;
+  detail: string | null; // DragonType on DragonKill
+}
+
+export interface InGameSnapshot {
+  active: boolean;
+  clock_s: number;
+  mode: string | null;
+  local_summoner: string | null;
+  local_champion: string | null;
+  teams: { order: PlayerLive[]; chaos: PlayerLive[] };
+  events: LiveEvent[];
+}

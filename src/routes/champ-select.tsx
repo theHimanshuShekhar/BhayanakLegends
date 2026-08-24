@@ -1,10 +1,10 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "../api/client";
-import type { LiveStatus } from "../api/types";
+import { useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import type { ChampSelectSnapshot } from "../api/types";
 import { useEvents } from "../api/sse";
-import { usePack } from "../api/hooks";
+import { useLiveSession, useLiveStatus, usePack } from "../api/hooks";
 import { pickHero } from "../components/champ-select/shared";
-import { BanStrip } from "../components/champ-select/BanStrip";
+import { BanStrip, championLabel } from "../components/champ-select/BanStrip";
 import { YourLaneCard } from "../components/champ-select/YourLaneCard";
 import { MasteryCard } from "../components/champ-select/MasteryCard";
 import { HowToPlayCard } from "../components/champ-select/HowToPlayCard";
@@ -15,41 +15,82 @@ import { BanAdvisorCard } from "../components/champ-select/BanAdvisorCard";
 import { YourSideCard } from "../components/champ-select/YourSideCard";
 import { MatchStartCard } from "../components/champ-select/MatchStartCard";
 
+function mmss(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const m = Math.floor(s / 60);
+  return `${String(m).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/** Ticks the champ-select countdown down locally between SSE frames. */
+function useCountdown(active: boolean, serverSeconds: number | null) {
+  const base = useRef({ v: serverSeconds ?? 0, at: Date.now() });
+  const [display, setDisplay] = useState(serverSeconds ?? 0);
+
+  useEffect(() => {
+    base.current = { v: serverSeconds ?? 0, at: Date.now() };
+    setDisplay(serverSeconds ?? 0);
+  }, [serverSeconds]);
+
+  useEffect(() => {
+    if (!active || serverSeconds == null) return;
+    const id = setInterval(() => {
+      setDisplay(Math.max(0, base.current.v - Math.floor((Date.now() - base.current.at) / 1000)));
+    }, 500);
+    return () => clearInterval(id);
+  }, [active, serverSeconds == null]);
+
+  return display;
+}
+
 export function ChampSelectPage() {
   const queryClient = useQueryClient();
-  const statusQuery = useQuery({
-    queryKey: ["live-status"],
-    queryFn: api.liveStatus,
-    refetchInterval: 3000,
-  });
+  const sessionQuery = useLiveSession();
+  const statusQuery = useLiveStatus();
   const packQuery = usePack();
 
-  // Poll is primary; SSE live.state frames update the same cache the moment
-  // the sidecar pushes them (fallback when a poll window misses a transition).
+  // Poll is primary; SSE champselect.state frames update the same cache the
+  // moment the sidecar pushes them (fallback when a poll window misses a
+  // transition).
   useEvents((msg) => {
-    if (msg.type === "live.state") {
-      queryClient.setQueryData<LiveStatus>(["live-status"], msg.data as LiveStatus);
+    if (msg.type === "champselect.state") {
+      queryClient.setQueryData<ChampSelectSnapshot>(
+        ["live-session"],
+        msg.data as ChampSelectSnapshot,
+      );
     }
     if (msg.type === "pack.updated") {
       void queryClient.invalidateQueries({ queryKey: ["pack"] });
     }
   });
 
+  const session = sessionQuery.data;
   const status = statusQuery.data;
-  const active = status?.champ_select.active ?? false;
-  const phase = status?.champ_select.phase ?? null;
+  const active = !!session?.active;
+  const timerSec = useCountdown(active, active ? (session?.timer_sec ?? null) : null);
   const hero = pickHero(packQuery.data);
+
+  const localCell = session?.ally.find((cell) => cell.is_local);
+  const localChampion =
+    localCell && localCell.state === "picked" && localCell.champion_id
+      ? championLabel(localCell.champion, localCell.champion_id)
+      : null;
+  const localTier =
+    packQuery.data?.tier_list.find((entry) => entry.champion === localChampion)?.tier ?? null;
 
   return (
     <div
       style={{ fontFamily: "var(--font-mono)", letterSpacing: "-.01em" }}
       data-testid="champ-select-page"
     >
-      <BanStrip active={active} phase={phase} lastError={status?.last_error ?? null} />
+      <BanStrip
+        snapshot={session}
+        timerLabel={mmss(timerSec)}
+        lastError={status?.last_error ?? null}
+      />
 
       <div style={{ display: "grid", gridTemplateColumns: "368px 1fr 316px", gap: 14, paddingTop: 14 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 11, minHeight: 0 }}>
-          <YourLaneCard />
+          <YourLaneCard champion={localChampion} tier={localTier} />
           <MasteryCard pack={packQuery.data} />
           <HowToPlayCard />
         </div>
@@ -64,7 +105,7 @@ export function ChampSelectPage() {
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
           <BanAdvisorCard pack={packQuery.data} />
-          <YourSideCard active={active} phase={phase} />
+          <YourSideCard session={session} />
           <MatchStartCard active={active} pick={hero?.champion} />
         </div>
       </div>
