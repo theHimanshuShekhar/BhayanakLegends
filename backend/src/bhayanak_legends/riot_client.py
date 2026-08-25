@@ -1,15 +1,17 @@
 """Riot API client for match-v5/account-v5 over a regional route.
 
 Temporary standalone mirror of loltrends' ``RiotSeedingClient`` semantics
-(dual-window rate limiting, 429 Retry-After backoff, NotFound handling);
-see docs/adr/0001-reuse-loltrends-as-extraction-library.md. This module
-exists only until loltrends publishes an importable wheel that does not
-drag streamlit/pandas into the sidecar; replace it wholesale then.
+(dual-window rate limiting, bounded transport/5xx/429 retries, and typed
+NotFound handling); see
+docs/adr/0008-vendored-riot-client-pending-loltrends-wheel.md.
+This module exists only until loltrends publishes an importable wheel that
+does not drag streamlit/pandas into the sidecar; replace it wholesale then.
 """
 
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable
@@ -54,6 +56,14 @@ class RiotRateLimited(RiotError):
     def __init__(self, retry_after_s: float | None = None) -> None:
         super().__init__(f"rate limited (retry-after={retry_after_s})")
         self.retry_after_s = retry_after_s
+
+
+class RiotRecoverableError(RiotError):
+    """Transport or 5xx failure persisting past the retry budget."""
+
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class RateLimiter:
@@ -105,6 +115,8 @@ class RiotClient:
         monotonic: Callable[[], float] = time.monotonic,
         max_retries: int = 3,
     ) -> None:
+        if max_retries < 0:
+            raise ValueError("max_retries must be non-negative")
         host = REGION_HOSTS.get(region_route)
         if host is None:
             raise ValueError(f"unknown region route {region_route!r}; expected one of {sorted(REGION_HOSTS)}")
@@ -154,23 +166,51 @@ class RiotClient:
         await self._client.aclose()
 
     async def _get_json(self, path: str, params: dict[str, Any] | None = None) -> Any:
-        last_rate_limit: RiotRateLimited | None = None
+        fallback_delays = (1.0, 2.0, 4.0)
         for attempt in range(self.max_retries + 1):
             wait = self._limiter.acquire()
             if wait > 0:
                 await self._sleep(wait)
-            response = await self._client.get(path, params=params)
+            try:
+                response = await self._client.get(path, params=params)
+            except httpx.TransportError as exc:
+                error = RiotRecoverableError(f"transport failure for {path}")
+                if attempt == self.max_retries:
+                    raise error from exc
+                await self._sleep(fallback_delays[min(attempt, len(fallback_delays) - 1)])
+                continue
+
             if response.status_code == 200:
                 return response.json()
             if response.status_code == 429:
+                fallback = fallback_delays[min(attempt, len(fallback_delays) - 1)]
                 raw = response.headers.get("Retry-After")
-                retry_after = float(raw) if raw else 2.0**attempt
-                last_rate_limit = RiotRateLimited(retry_after)
+                retry_after = fallback
+                if raw is not None:
+                    try:
+                        parsed = float(raw)
+                    except ValueError:
+                        pass
+                    else:
+                        if math.isfinite(parsed) and parsed >= 0:
+                            retry_after = min(parsed, 120.0)
+                error = RiotRateLimited(retry_after)
+                if attempt == self.max_retries:
+                    raise error
                 await self._sleep(retry_after)
+                continue
+            if 500 <= response.status_code <= 599:
+                error = RiotRecoverableError(
+                    f"{response.status_code} for {path}",
+                    status_code=response.status_code,
+                )
+                if attempt == self.max_retries:
+                    raise error
+                await self._sleep(fallback_delays[min(attempt, len(fallback_delays) - 1)])
                 continue
             if response.status_code == 404:
                 raise RiotNotFound(f"404 for {path}")
             if response.status_code == 403:
                 raise RiotForbidden(f"403 for {path}")
             response.raise_for_status()
-        raise last_rate_limit if last_rate_limit else RiotError("retry budget exhausted")
+        raise RiotError("retry budget exhausted")
