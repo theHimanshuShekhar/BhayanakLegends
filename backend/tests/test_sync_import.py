@@ -1,6 +1,7 @@
 import asyncio
 import json
 import shutil
+import sqlite3
 import threading
 from pathlib import Path
 
@@ -244,3 +245,141 @@ async def test_riot_backfill_resolves_and_persists_match(tmp_path: Path):
     events = await drain(queue)
     assert events[-1]["type"] == "sync.done"
     assert events[-1]["data"] == status
+
+
+def test_store_initializes_schema_version_one(tmp_path: Path):
+    store = Store(tmp_path / "app.db")
+
+    with store._lock:
+        version = store._conn.execute("PRAGMA user_version").fetchone()[0]
+        tables = {
+            row[0]
+            for row in store._conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+
+    assert version == 1
+    assert {"settings", "matches", "sync_queue"} <= tables
+
+
+def test_store_migrates_legacy_database_without_data_loss(tmp_path: Path):
+    path = tmp_path / "legacy.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """
+        CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE matches (
+            match_id TEXT PRIMARY KEY, played_at TEXT, patch TEXT, role TEXT,
+            champion TEXT, win INTEGER, duration_s INTEGER, features_json TEXT
+        );
+        CREATE TABLE sync_queue (
+            match_id TEXT PRIMARY KEY, priority INTEGER NOT NULL DEFAULT 100,
+            state TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
+            added_at TEXT
+        );
+        INSERT INTO settings VALUES ('puuid', 'preserved');
+        INSERT INTO matches VALUES ('done-match', '2026-01-01', '14.1', 'TOP',
+            'Aatrox', 1, 1800, '{"ok":true}');
+        INSERT INTO sync_queue VALUES ('done-match', 1, 'done', 2, '2026-01-01T00:00:00Z');
+        INSERT INTO sync_queue VALUES ('running-match', 2, 'running', 3, '2026-01-02T00:00:00Z');
+        INSERT INTO sync_queue VALUES ('failed-match', 3, 'failed', 4, '2026-01-03T00:00:00Z');
+        INSERT INTO sync_queue VALUES ('orphan-match', 4, 'done', 5, '2026-01-04T00:00:00Z');
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    store = Store(path)
+
+    assert store.get_setting("puuid") == "preserved"
+    assert store.all_matches()[0]["features_json"] == '{"ok":true}'
+    with store._lock:
+        version = store._conn.execute("PRAGMA user_version").fetchone()[0]
+        rows = store._conn.execute(
+            "SELECT match_id, priority, state, attempts, added_at "
+            "FROM sync_queue ORDER BY match_id"
+        ).fetchall()
+    assert version == 1
+    assert [tuple(row) for row in rows] == [
+        ("done-match", 1, "done", 2, "2026-01-01T00:00:00Z"),
+        ("failed-match", 3, "pending", 4, "2026-01-03T00:00:00Z"),
+        ("orphan-match", 4, "pending", 5, "2026-01-04T00:00:00Z"),
+        ("running-match", 2, "pending", 3, "2026-01-02T00:00:00Z"),
+    ]
+
+
+def test_store_rejects_future_schema_version(tmp_path: Path):
+    path = tmp_path / "future.db"
+    conn = sqlite3.connect(path)
+    conn.execute("PRAGMA user_version = 2")
+    conn.commit()
+    conn.close()
+
+    with pytest.raises(RuntimeError, match="unsupported database schema version"):
+        Store(path)
+
+    conn = sqlite3.connect(path)
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert conn.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table'"
+    ).fetchone()[0] == 0
+    conn.close()
+
+
+def test_queue_claim_and_match_completion_are_atomic(tmp_path: Path):
+    path = tmp_path / "queue.db"
+    first = Store(path)
+    first.enqueue(["match-1"])
+    second = Store(path)
+    claimed: list[dict] = []
+
+    def claim(store: Store) -> None:
+        row = store.claim_next_pending()
+        if row is not None:
+            claimed.append(row)
+
+    left = threading.Thread(target=claim, args=(first,))
+    right = threading.Thread(target=claim, args=(second,))
+    left.start()
+    right.start()
+    left.join()
+    right.join()
+
+    assert len(claimed) == 1
+    assert claimed[0]["state"] == "running"
+    assert first.claim_next_pending() is None
+
+    assert first.complete_match(
+        "match-1", "2026-01-01", "14.1", "TOP", "Aatrox", True, 1800, "{}"
+    )
+    assert not first.complete_match(
+        "match-1", "2026-01-01", "14.1", "TOP", "Aatrox", True, 1800, "{}"
+    )
+    assert first.all_matches()[0]["match_id"] == "match-1"
+    assert first.queue_stats()["done"] == 1
+
+
+def test_match_completion_rolls_back_match_and_queue_together(tmp_path: Path):
+    store = Store(tmp_path / "queue.db")
+    store.enqueue(["match-1"])
+    assert store.claim_next_pending() is not None
+
+    with pytest.raises(sqlite3.ProgrammingError):
+        store.complete_match(
+            "match-1",
+            "2026-01-01",
+            "14.1",
+            "TOP",
+            "Aatrox",
+            True,
+            1800,
+            object(),  # type: ignore[arg-type]
+        )
+
+    assert store.match_count() == 0
+    with store._lock:
+        state = store._conn.execute(
+            "SELECT state FROM sync_queue WHERE match_id = 'match-1'"
+        ).fetchone()["state"]
+    assert state == "running"

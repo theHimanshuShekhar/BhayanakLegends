@@ -217,7 +217,7 @@ class SyncService:
 
     async def _process(self, fetch_pair: Callable[[str], Awaitable[tuple[Any, Any]]], puuid: str) -> None:
         while not self._cancel.is_set():
-            item = self.store.next_pending()
+            item = self.store.claim_next_pending()
             if item is None:
                 break
             match_id = str(item["match_id"])
@@ -227,7 +227,7 @@ class SyncService:
                 detail, timeline = await fetch_pair(match_id)
                 parsed = parse_match(detail, puuid)
                 checkpoints = parse_checkpoints(timeline, puuid)
-                self.store.upsert_match(
+                completed = self.store.complete_match(
                     parsed["match_id"],
                     parsed["played_at"],
                     parsed["patch"],
@@ -237,14 +237,14 @@ class SyncService:
                     parsed["duration_s"],
                     json.dumps(checkpoints),
                 )
-                self.store.mark_queue_item(match_id, "done")
-                self._bump("downloaded")
+                if completed:
+                    self._bump("downloaded")
             except (FileNotFoundError, RiotNotFound):
-                self.store.mark_queue_item(match_id, "done")
+                self.store.fail_queue_item(match_id)
                 self._bump("skipped")
             except Exception:
                 log.exception("failed processing %s", match_id)
-                self.store.mark_queue_item(match_id, "failed", bump_attempts=True)
+                self.store.fail_queue_item(match_id)
                 self._bump("failed")
             self._publish("sync.progress")
         with self._lock:
