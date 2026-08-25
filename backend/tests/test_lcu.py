@@ -367,6 +367,27 @@ def test_build_ingame_snapshot_maps_players_scores_items_events():
     assert [e.t_s for e in snapshot.events] == sorted(e.t_s for e in snapshot.events)
 
 
+def test_build_ingame_snapshot_filters_unknown_events_and_normalizes_mode():
+    data = load_json("allgamedata.json")
+    data["gameData"]["gameMode"] = "PRACTICETOOL"
+    data["events"]["Events"] = [
+        {"EventName": "ChampionKill", "EventTime": float(index)}
+        for index in range(42)
+    ]
+    data["events"]["Events"].insert(5, {"EventName": "FirstBlood", "EventTime": 5.5})
+    data["events"]["Events"].insert(30, {"EventName": "Ace", "EventTime": 30.5})
+
+    snapshot, _game_id = build_ingame_snapshot(data)
+
+    assert snapshot.active is True
+    assert snapshot.mode is None
+    assert snapshot.clock_s == pytest.approx(754.32)
+    assert snapshot.local_summoner == "SacredButtholio"
+    assert len(snapshot.teams["order"]) == 5
+    assert [event.name for event in snapshot.events] == ["ChampionKill"] * 40
+    assert [event.t_s for event in snapshot.events] == [float(index) for index in range(2, 42)]
+
+
 # ------------------------------------------------------------ service loop
 
 
