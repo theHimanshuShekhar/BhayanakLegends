@@ -21,14 +21,29 @@ from .extract import parse_checkpoints, parse_match
 from .import_paths import canonical_import_directory
 
 try:
-    from .riot_client import RiotClient, RiotNotFound
+    from .riot_client import (
+        RiotClient,
+        RiotForbidden,
+        RiotNotFound,
+        RiotRateLimited,
+        RiotRecoverableError,
+    )
 except ImportError:  # pragma: no cover - optional dep guard
 
     class RiotClient:  # type: ignore[no-redef]
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             raise RuntimeError("riot_client unavailable")
 
+    class RiotForbidden(Exception):  # type: ignore[no-redef]
+        pass
+
     class RiotNotFound(Exception):  # type: ignore[no-redef]
+        pass
+
+    class RiotRateLimited(Exception):  # type: ignore[no-redef]
+        pass
+
+    class RiotRecoverableError(Exception):  # type: ignore[no-redef]
         pass
 
 log = logging.getLogger("bhayanak_legends.sync")
@@ -219,11 +234,20 @@ class SyncService:
         finally:
             await client.aclose()
 
-    async def _process(self, fetch_pair: Callable[[str], Awaitable[tuple[Any, Any]]], puuid: str) -> None:
-        while not self._cancel.is_set():
-            item = self.store.claim_next_pending()
+    async def _process(
+        self, fetch_pair: Callable[[str], Awaitable[tuple[Any, Any]]], puuid: str
+    ) -> None:
+        # Process each item that was pending at run start at most once. A
+        # recoverable item is returned to pending, but must wait for a later
+        # session rather than being retried indefinitely in this one.
+        remaining = self.store.queue_stats()["pending"]
+        recoverable_failure = False
+        deferred: set[str] = set()
+        while not self._cancel.is_set() and remaining:
+            item = self.store.claim_next_pending(deferred)
             if item is None:
                 break
+            remaining -= 1
             match_id = str(item["match_id"])
             with self._lock:
                 self._status["current_match_id"] = match_id
@@ -246,26 +270,35 @@ class SyncService:
             except (FileNotFoundError, RiotNotFound):
                 self.store.fail_queue_item(match_id)
                 self._bump("skipped")
+            except (RiotRecoverableError, RiotRateLimited):
+                log.warning("recoverable failure processing %s", match_id)
+                self.store.recover_queue_item(match_id)
+                deferred.add(match_id)
+                recoverable_failure = True
+                self._bump("failed")
+            except RiotForbidden:
+                log.warning("forbidden input while processing %s", match_id)
+                self.store.fail_queue_item(match_id)
+                self._bump("failed")
             except Exception:
                 log.exception("failed processing %s", match_id)
                 self.store.fail_queue_item(match_id)
                 self._bump("failed")
+            finally:
+                with self._lock:
+                    self._status["current_match_id"] = None
             self._publish("sync.progress")
         with self._lock:
-            self._status.update(
-                state="cancelled" if self._cancel.is_set() else "idle",
-                current_match_id=None,
-            )
+            state = "cancelled" if self._cancel.is_set() else "idle"
+            if recoverable_failure and state != "cancelled":
+                state = "error"
+            self._status.update(state=state, current_match_id=None)
         self._publish("sync.done")
 
     def _http_fetcher(self, client: Any) -> Callable[[str], Awaitable[tuple[Any, Any]]]:
         async def fetch(match_id: str) -> tuple[Any, Any]:
             detail = await client.match(match_id)
-            try:
-                timeline = await client.timeline(match_id)
-            except Exception:
-                log.warning("timeline unavailable for %s", match_id)
-                timeline = None
+            timeline = await client.timeline(match_id)
             return detail, timeline
 
         return fetch
@@ -274,11 +307,8 @@ class SyncService:
     def _file_fetcher(dir: Path) -> Callable[[str], Awaitable[tuple[Any, Any]]]:
         async def fetch(match_id: str) -> tuple[Any, Any]:
             detail = json.loads((dir / f"{match_id}.json").read_text(encoding="utf-8"))
-            timeline_path = dir / f"{match_id}_timeline.json"
-            timeline = (
-                json.loads(timeline_path.read_text(encoding="utf-8"))
-                if timeline_path.exists()
-                else None
+            timeline = json.loads(
+                (dir / f"{match_id}_timeline.json").read_text(encoding="utf-8")
             )
             return detail, timeline
 

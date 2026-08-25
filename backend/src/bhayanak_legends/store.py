@@ -1,3 +1,4 @@
+from collections.abc import Collection
 import sqlite3
 import threading
 from pathlib import Path
@@ -242,15 +243,22 @@ class Store:
                 added += cur.rowcount
         return added
 
-    def claim_next_pending(self) -> dict | None:
-        """Atomically claim and return the highest-priority pending item."""
+    def claim_next_pending(
+        self, exclude_match_ids: Collection[str] = ()
+    ) -> dict | None:
+        """Atomically claim the highest-priority pending item not excluded."""
+        excluded = tuple(exclude_match_ids)
         with self._lock:
             self._begin_immediate()
             try:
-                row = self._conn.execute(
-                    "SELECT match_id FROM sync_queue WHERE state = 'pending'"
-                    " ORDER BY priority, match_id LIMIT 1"
-                ).fetchone()
+                query = "SELECT match_id FROM sync_queue WHERE state = 'pending'"
+                params: tuple[str, ...] = ()
+                if excluded:
+                    placeholders = ", ".join("?" for _ in excluded)
+                    query += f" AND match_id NOT IN ({placeholders})"
+                    params = excluded
+                query += " ORDER BY priority, match_id LIMIT 1"
+                row = self._conn.execute(query, params).fetchone()
                 if row is None:
                     self._conn.commit()
                     return None
@@ -283,6 +291,23 @@ class Store:
             else:
                 updated = self._conn.execute(
                     "UPDATE sync_queue SET state = 'failed' "
+                    "WHERE match_id = ? AND state = 'running'",
+                    (match_id,),
+                ).rowcount
+        return updated == 1
+
+    def recover_queue_item(self, match_id: str, bump_attempts: bool = True) -> bool:
+        """Return a claimed item to pending after a recoverable failure."""
+        with self._lock, self._conn:
+            if bump_attempts:
+                updated = self._conn.execute(
+                    "UPDATE sync_queue SET state = 'pending', attempts = attempts + 1 "
+                    "WHERE match_id = ? AND state = 'running'",
+                    (match_id,),
+                ).rowcount
+            else:
+                updated = self._conn.execute(
+                    "UPDATE sync_queue SET state = 'pending' "
                     "WHERE match_id = ? AND state = 'running'",
                     (match_id,),
                 ).rowcount
