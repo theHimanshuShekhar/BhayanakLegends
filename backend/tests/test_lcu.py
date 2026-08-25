@@ -190,7 +190,7 @@ def test_replay_transport_settings_are_env_overridable(monkeypatch, tmp_path):
     monkeypatch.setenv("BHAYANAK_LCU_LOCKFILE", str(lockfile))
     monkeypatch.setenv("BHAYANAK_LIVE_CLIENT_DATA_URL", "http://127.0.0.1:23457/allgamedata")
 
-    config = SidecarConfig()
+    config = SidecarConfig(token="test-token-123456789012345678901234")
 
     assert config.lcu_lockfile == lockfile
     assert config.live_client_data_url.endswith(":23457/allgamedata")
@@ -570,11 +570,19 @@ class StubLiveService:
         }
 
 
-AUTH = {"X-BL-Token": "test-token-123"}
+AUTH = {
+    "X-BL-Token": "test-token-123456789012345678901234",
+    "Host": "127.0.0.1:23110",
+}
 
 
 def _client(tmp_path: Path):
-    config = SidecarConfig(port=23110, token="test-token-123", data_dir=tmp_path / "data", pack_dir=None)
+    config = SidecarConfig(
+        port=23110,
+        token="test-token-123456789012345678901234",
+        data_dir=tmp_path / "data",
+        pack_dir=None,
+    )
     repo_pack = Path(__file__).resolve().parents[2] / "pack"
     if repo_pack.exists():
         config.pack_dir = repo_pack

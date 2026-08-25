@@ -10,7 +10,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, ValidationError
 from starlette.middleware.cors import CORSMiddleware
 
-from .auth import TokenAuthMiddleware
+from .auth import HostValidationMiddleware, RequestLoggingMiddleware, TokenAuthMiddleware
 from .config import SidecarConfig
 from .credentials import CredentialBackend, CredentialError, CredentialStore
 from .import_paths import (
@@ -143,6 +143,7 @@ def create_app(
     hub = Hub()
     app = FastAPI(title="Bhayanak Legends sidecar", version=APP_VERSION, lifespan=lifespan)
     app.state.config = config
+    app.state.listener_port = config.port
     app.state.store = store
     app.state.credential_store = credentials
     app.state.pack = pack
@@ -186,6 +187,8 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(HostValidationMiddleware)
+    app.add_middleware(RequestLoggingMiddleware)
 
     @app.get("/health", response_model=Health)
     def health() -> Health:

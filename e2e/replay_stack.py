@@ -18,7 +18,7 @@ FAKE = ROOT / "e2e" / "replay_fake.py"
 LCU_PORT = 23123
 LIVE_PORT = 23124
 SIDECAR_PORT = 23122
-TOKEN = "dev"
+TOKEN = "local-sidecar-development-token-32chars"
 
 
 def port_answers(port: int) -> bool:
@@ -97,7 +97,11 @@ def seed_personal_history(data_dir: Path) -> None:
     request = urllib.request.Request(
         f"http://127.0.0.1:{SIDECAR_PORT}/dev/import",
         data=json.dumps({"dir": str(seed_dir)}).encode("utf-8"),
-        headers={"X-BL-Token": TOKEN, "Content-Type": "application/json"},
+        headers={
+            "X-BL-Token": TOKEN,
+            "Host": f"127.0.0.1:{SIDECAR_PORT}",
+            "Content-Type": "application/json",
+        },
         method="POST",
     )
     with urllib.request.urlopen(request, timeout=120) as response:
@@ -120,6 +124,7 @@ def main() -> int:
         {
             "BHAYANAK_PORT": str(SIDECAR_PORT),
             "BHAYANAK_TOKEN": TOKEN,
+            "BHAYANAK_ALLOW_IMPORT": "1",
             "BHAYANAK_DATA_DIR": str(temp_dir),
             "BHAYANAK_LCU_LOCKFILE": str(lockfile),
             "BHAYANAK_LIVE_CLIENT_DATA_URL": f"http://127.0.0.1:{LIVE_PORT}/liveclientdata/allgamedata",

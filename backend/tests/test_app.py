@@ -18,7 +18,7 @@ from bhayanak_legends.sse import Hub
 def client(tmp_path: Path):
     config = SidecarConfig(
         port=23110,
-        token="test-token-123",
+        token="test-token-123456789012345678901234",
         data_dir=tmp_path / "data",
         pack_dir=None,
     )
@@ -30,11 +30,14 @@ def client(tmp_path: Path):
     return TestClient(app)
 
 
-AUTH = {"X-BL-Token": "test-token-123"}
+AUTH = {
+    "X-BL-Token": "test-token-123456789012345678901234",
+    "Host": "127.0.0.1:23110",
+}
 
 
 def test_health_requires_auth(client):
-    assert client.get("/health").status_code == 401
+    assert client.get("/health", headers={"Host": "127.0.0.1:23110"}).status_code == 401
     res = client.get("/health", headers=AUTH)
     assert res.status_code == 200
     body = res.json()
@@ -89,9 +92,17 @@ def test_pack_load_failure_returns_same_bounded_503(client, monkeypatch):
     assert "raw pack" not in response.text
 
 def test_requires_token(client):
-    assert client.get("/settings").status_code == 401
+    valid_host = {"Host": "127.0.0.1:23110"}
+    assert client.get("/settings", headers=valid_host).status_code == 401
     bad = {**AUTH, "X-BL-Token": "wrong"}
     assert client.get("/settings", headers=bad).status_code == 401
+    assert (
+        client.get(
+            "/events?token=t%C3%B6k%C3%A9n",
+            headers=valid_host,
+        ).status_code
+        == 401
+    )
     assert client.get("/settings", headers=AUTH).status_code == 200
 
 def test_fresh_install_has_empty_riot_identity(client):
@@ -99,7 +110,144 @@ def test_fresh_install_has_empty_riot_identity(client):
     assert response.status_code == 200
     assert response.json()["riot_id"] is None
 
+@pytest.mark.parametrize(
+    "host",
+    [
+        "127.0.0.1",
+        "127.0.0.1:23110",
+        "localhost",
+        "LOCALHOST:23110",
+        "[::1]",
+        "[::1]:23110",
+    ],
+)
+def test_loopback_hosts_are_accepted(client, host):
+    response = client.get("/health", headers={"Host": host, "X-BL-Token": AUTH["X-BL-Token"]})
+    assert response.status_code == 200
 
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        None,
+        "127.0.0.1:80",
+        "127.0.0.1:23111",
+        "localhost:0",
+        "127.0.0.2",
+        "example.test",
+        "user@localhost",
+        "[::1",
+        "::1",
+        "[::2]",
+        "[::1]x",
+        "localhost:",
+        "localhost:abc",
+    ],
+)
+def test_invalid_hosts_are_rejected_before_token(client, host):
+    headers = {"X-BL-Token": AUTH["X-BL-Token"]}
+    if host is not None:
+        headers["Host"] = host
+    response = client.get("/health", headers=headers)
+    assert response.status_code == 400
+    assert response.json() == {"detail": "invalid host"}
+
+
+def test_duplicate_hosts_are_rejected(client):
+    response = client.request(
+        "GET",
+        "/health",
+        headers=[
+            ("Host", "127.0.0.1:23110"),
+            ("Host", "localhost:23110"),
+            ("X-BL-Token", AUTH["X-BL-Token"]),
+        ],
+    )
+    assert response.status_code == 400
+    assert response.json() == {"detail": "invalid host"}
+
+
+def test_invalid_host_takes_precedence_over_invalid_token(client):
+    response = client.get(
+        "/health",
+        headers={"Host": "example.test", "X-BL-Token": "wrong"},
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_request_logs_redact_query_and_token(client, caplog):
+    secret = AUTH["X-BL-Token"]
+    with caplog.at_level("INFO", logger="bhayanak_legends.requests"):
+        failed = client.get(
+            f"/events?token={secret}-wrong",
+            headers={"Host": "127.0.0.1:23110"},
+        )
+        assert failed.status_code == 401
+
+        async def receive():
+            await asyncio.sleep(3600)
+            return {"type": "http.disconnect"}
+
+        messages: list[dict] = []
+        started = asyncio.Event()
+
+        async def send(message):
+            messages.append(message)
+            if message["type"] == "http.response.start":
+                started.set()
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/events",
+            "raw_path": b"/events",
+            "query_string": f"token={secret}".encode(),
+            "headers": [(b"host", b"127.0.0.1:23110")],
+            "scheme": "http",
+            "server": ("127.0.0.1", 23110),
+            "client": ("127.0.0.1", 12345),
+            "root_path": "",
+            "http_version": "1.1",
+        }
+        task = asyncio.create_task(client.app(scope, receive, send))
+        await asyncio.wait_for(started.wait(), timeout=1)
+        assert messages[0]["status"] == 200
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    assert "/events" in caplog.text
+    assert "?token=" not in caplog.text
+    assert secret not in caplog.text
+
+
+@pytest.mark.parametrize("origin", ["http://localhost:1420", "tauri://localhost"])
+def test_desktop_cors_origins_remain_allowed(client, origin):
+    response = client.options(
+        "/health",
+        headers={
+            "Host": "127.0.0.1:23110",
+            "Origin": origin,
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == origin
+
+
+
+
+def test_cors_preflight_rejects_foreign_host(client):
+    response = client.options(
+        "/health",
+        headers={
+            "Host": "attacker.example",
+            "Origin": "http://localhost:1420",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert response.status_code == 400
+    assert response.json() == {"detail": "invalid host"}
 def test_settings_roundtrip(client):
     res = client.put(
         "/settings",
@@ -194,7 +342,7 @@ def test_sync_status_idle_stub(client):
 def _startup_app(tmp_path: Path):
     config = SidecarConfig(
         port=23110,
-        token="test-token-123",
+        token="test-token-123456789012345678901234",
         data_dir=tmp_path / "data",
         pack_dir=None,
     )

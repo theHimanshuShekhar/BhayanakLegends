@@ -10,7 +10,7 @@ REPO = Path(__file__).resolve().parents[2]
 FIXTURES = REPO / "backend" / "tests" / "fixtures"
 SEED_DIR = REPO / "data" / "dev-import" / "ci"
 SIDECAR = "http://127.0.0.1:23110"
-TOKEN = "dev"
+TOKEN = "local-sidecar-development-token-32chars"
 
 
 def main() -> None:
@@ -33,7 +33,11 @@ def main() -> None:
     req = urllib.request.Request(
         f"{SIDECAR}/dev/import",
         data=json.dumps({"dir": str(SEED_DIR)}).encode(),
-        headers={"X-BL-Token": TOKEN, "Content-Type": "application/json"},
+        headers={
+            "X-BL-Token": TOKEN,
+            "Host": "127.0.0.1:23110",
+            "Content-Type": "application/json",
+        },
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=120) as res:

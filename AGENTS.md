@@ -15,8 +15,8 @@ Run all four; a change is not done while any is red.
 1. `cd backend && uv run pytest -q`
 2. `pnpm vitest run`
 3. `pnpm build`
-4. `pnpm exec playwright test` — needs a sidecar on `127.0.0.1:23110` with token `dev` first:
-   `cd backend && BHAYANAK_PORT=23110 BHAYANAK_TOKEN=dev BHAYANAK_ALLOW_IMPORT=true BHAYANAK_IMPORT_ROOTS='["../data/dev-import"]' uv run python -m bhayanak_legends.sidecar &`
+4. `pnpm exec playwright test` — needs a sidecar on `127.0.0.1:23110` with an explicit token first:
+   `cd backend && BHAYANAK_PORT=23110 BHAYANAK_TOKEN=local-sidecar-development-token-32chars BHAYANAK_ALLOW_IMPORT=true BHAYANAK_IMPORT_ROOTS='["../data/dev-import"]' uv run python -m bhayanak_legends.sidecar &`
    then seed CI data with `uv run python tools/ci_seed.py` when `data/dev-import/` is absent.
 
 ## Guardrails
