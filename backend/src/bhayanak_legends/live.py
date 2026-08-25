@@ -16,10 +16,12 @@ Enemy ability/ult timers remain out of scope entirely.
 
 from __future__ import annotations
 
+
 import asyncio
 import contextlib
 import inspect
 import logging
+import math
 from typing import get_args
 
 from pydantic import BaseModel, Field
@@ -194,6 +196,104 @@ def build_live_event(raw: dict) -> LiveEvent:
     )
 
 
+def _normalize_int(value: object, default: int | None = None) -> int | None:
+    if value is _MISSING:
+        return default
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _normalize_float(value: object, default: float | None = None) -> float | None:
+    if value is _MISSING:
+        return default
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return result if math.isfinite(result) else None
+
+
+_MISSING = object()
+
+
+def _build_live_player(raw: object) -> tuple[str, PlayerLive] | None:
+    if not isinstance(raw, dict):
+        return None
+    summoner = raw.get("summonerName")
+    if not isinstance(summoner, str) or not summoner.strip():
+        return None
+    champion = raw.get("championName")
+    if champion is not None and not isinstance(champion, str):
+        return None
+    if "scores" not in raw:
+        scores: dict = {}
+    else:
+        scores = raw["scores"]
+        if not isinstance(scores, dict):
+            return None
+
+    numeric_fields = {
+        "level": _normalize_int(raw.get("level", _MISSING), 1),
+        "kills": _normalize_int(scores.get("kills", _MISSING), 0),
+        "deaths": _normalize_int(scores.get("deaths", _MISSING), 0),
+        "assists": _normalize_int(scores.get("assists", _MISSING), 0),
+        "cs": _normalize_int(scores.get("creepScore", _MISSING), 0),
+        "ward_score": _normalize_float(scores.get("wardScore", _MISSING), 0.0),
+    }
+    if any(value is None for value in numeric_fields.values()):
+        return None
+
+    items: list[ItemLive] = []
+    for item in raw.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        item_id = _normalize_int(item.get("itemID", _MISSING))
+        if not item_id:
+            continue
+        count = _normalize_int(item.get("count", _MISSING), 0)
+        if count is None:
+            continue
+        items.append(ItemLive(id=item_id, count=count))
+
+    return (
+        str(raw.get("team") or "").strip().lower(),
+        PlayerLive(
+            summoner=summoner,
+            champion=champion,
+            level=numeric_fields["level"],
+            kills=numeric_fields["kills"],
+            deaths=numeric_fields["deaths"],
+            assists=numeric_fields["assists"],
+            cs=numeric_fields["cs"],
+            ward_score=numeric_fields["ward_score"],
+            items=items,
+        ),
+    )
+
+
+def _build_live_event_row(raw: object) -> LiveEvent | None:
+    if not isinstance(raw, dict):
+        return None
+    name = raw.get("EventName")
+    if not isinstance(name, str) or name not in _LIVE_EVENT_NAMES:
+        return None
+    event_time = _normalize_float(raw.get("EventTime", _MISSING), 0.0)
+    if event_time is None:
+        return None
+    actor = raw.get("KillerName") or raw.get("CreatorName")
+    victim = raw.get("VictimName")
+    detail = raw.get("DragonType")
+    if any(value is not None and not isinstance(value, str) for value in (actor, victim, detail)):
+        return None
+    return LiveEvent(name=name, t_s=event_time, actor=actor, victim=victim, detail=detail)
+
+
 def build_ingame_snapshot(data: dict | None) -> tuple[InGameSnapshot, int | None]:
     """Pure: /liveclientdata/allgamedata payload → (snapshot, game_id)."""
     if not data:
@@ -203,38 +303,21 @@ def build_ingame_snapshot(data: dict | None) -> tuple[InGameSnapshot, int | None
     local_summoner = active_player.get("summonerName")
     teams: dict[str, list[PlayerLive]] = {"order": [], "chaos": []}
     local_champion: str | None = None
-    for player in data.get("allPlayers") or []:
-        side = str(player.get("team") or "").strip().lower()  # "ORDER"/"CHAOS" → order/chaos
-        scores = player.get("scores") or {}
-        items = [
-            ItemLive(id=int(item.get("itemID") or 0), count=int(item.get("count") or 0))
-            for item in player.get("items") or []
-            if item.get("itemID")
-        ]
-        row = PlayerLive(
-            summoner=str(player.get("summonerName") or ""),
-            champion=player.get("championName"),
-            level=int(player.get("level") or 1),
-            kills=int(scores.get("kills") or 0),
-            deaths=int(scores.get("deaths") or 0),
-            assists=int(scores.get("assists") or 0),
-            cs=int(scores.get("creepScore") or 0),
-            ward_score=float(scores.get("wardScore") or 0.0),
-            items=items,
-        )
+    for raw_player in data.get("allPlayers") or []:
+        built_player = _build_live_player(raw_player)
+        if built_player is None:
+            continue
+        side, row = built_player
         if side in teams:
             teams[side].append(row)
         if local_summoner is not None and row.summoner == local_summoner:
             local_champion = row.champion
-    events = sorted(
-        (
-            build_live_event(raw)
-            for raw in ((data.get("events") or {}).get("Events") or [])
-            if isinstance(raw.get("EventName"), str)
-            and raw.get("EventName") in _LIVE_EVENT_NAMES
-        ),
-        key=lambda e: e.t_s,
-    )[-MAX_EVENTS:]
+    events: list[LiveEvent] = []
+    for raw_event in ((data.get("events") or {}).get("Events") or []):
+        event = _build_live_event_row(raw_event)
+        if event is not None:
+            events.append(event)
+    events = sorted(events, key=lambda event: event.t_s)[-MAX_EVENTS:]
     clock = game_data.get("gameTime", game_data.get("gameClock")) or 0
     raw_mode = game_data.get("gameMode")
     mode = raw_mode if isinstance(raw_mode, str) and raw_mode in _GAME_MODES else None
