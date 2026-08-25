@@ -32,8 +32,9 @@ from .manifest_signing import (
 )
 
 MANIFEST_MAX_BYTES = 256 * 1024
-ASSET_MAX_BYTES = 512 * 1024 * 1024
-MAX_ARCHIVE_MEMBERS = 4096
+COMPRESSED_ASSET_MAX_BYTES = 64 * 1024 * 1024
+EXPANDED_ASSET_MAX_BYTES = 256 * 1024 * 1024
+MAX_ARCHIVE_MEMBERS = 1024
 SIGNATURE_MAX_BYTES = 16 * 1024
 MAX_REDIRECTS = 8
 
@@ -51,13 +52,13 @@ SCHEMA_FILENAME = "pack.schema.json"
 class ReleaseChannelError(RuntimeError):
     """A release was unavailable or failed pre-activation validation."""
 
-
 @dataclass(frozen=True)
 class ReleaseResult:
     activated: bool
     pack_version: str | None
     schema_version: int | None = None
     reason: str | None = None
+    activation: ActivationTransaction | None = None
 
 
 @dataclass(frozen=True)
@@ -67,7 +68,7 @@ class ReleaseManifest:
     feature_contract_version: str
     download_url: str
     sha256: str
-    size: int | None
+    size: int
     required_model_artifacts: tuple[dict[str, str], ...]
     min_app_version: str | None
     max_app_version: str | None
@@ -176,8 +177,12 @@ def _manifest(raw: Any, base_url: str) -> ReleaseManifest:
     if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", sha):
         raise ReleaseChannelError("release manifest has no valid asset sha256")
     size = raw.get("size", asset.get("size"))
-    if size is not None and (not isinstance(size, int) or size < 0):
-        raise ReleaseChannelError("release manifest size must be a non-negative integer")
+    if isinstance(size, bool) or not isinstance(size, int) or size < 0:
+        raise ReleaseChannelError("release manifest requires a non-negative integer size")
+    if size > COMPRESSED_ASSET_MAX_BYTES:
+        raise ReleaseChannelError(
+            f"release manifest size exceeds {COMPRESSED_ASSET_MAX_BYTES} byte limit"
+        )
     compatibility = raw.get("app_compatibility")
     if compatibility is not None and not isinstance(compatibility, dict):
         raise ReleaseChannelError("app_compatibility must be an object")
@@ -208,32 +213,51 @@ def _safe_member(name: str) -> PurePosixPath:
         raise ReleaseChannelError("release archive contains an unsafe path")
     return path
 
-
 def _extract_candidate(download: Path, destination: Path) -> None:
     destination.mkdir(parents=True, exist_ok=True)
     if zipfile.is_zipfile(download):
         with zipfile.ZipFile(download) as archive:
-            total = 0
-            members = 0
+            files: list[tuple[zipfile.ZipInfo, PurePosixPath]] = []
+            declared_total = 0
             for info in archive.infolist():
-                members += 1
-                if members > MAX_ARCHIVE_MEMBERS:
-                    raise ReleaseChannelError("release archive has too many members")
                 path = _safe_member(info.filename)
                 if not path.parts or info.is_dir():
                     continue
+                if info.file_size < 0:
+                    raise ReleaseChannelError("release archive has an invalid member size")
+                files.append((info, path))
+                declared_total += info.file_size
+                if len(files) > MAX_ARCHIVE_MEMBERS:
+                    raise ReleaseChannelError("release archive has too many file members")
+                if declared_total > EXPANDED_ASSET_MAX_BYTES:
+                    raise ReleaseChannelError("release archive exceeds expanded size limit")
+
+            written_total = 0
+            for info, path in files:
                 target = destination.joinpath(*path.parts)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with archive.open(info) as source, target.open("wb") as sink:
                     for chunk in iter(lambda: source.read(1024 * 1024), b""):
-                        total += len(chunk)
-                        if total > ASSET_MAX_BYTES:
-                            raise ReleaseChannelError("release archive exceeds size limit")
+                        if not chunk:
+                            continue
+                        written_total += len(chunk)
+                        if written_total > EXPANDED_ASSET_MAX_BYTES:
+                            raise ReleaseChannelError("release archive exceeds expanded size limit")
                         sink.write(chunk)
         return
     # A plain JSON asset is useful for a tiny release and for local/offline tests.
     target = destination / PACK_FILENAME
-    shutil.copyfile(download, target)
+    if download.stat().st_size > EXPANDED_ASSET_MAX_BYTES:
+        raise ReleaseChannelError("release JSON exceeds expanded size limit")
+    written = 0
+    with download.open("rb") as source, target.open("wb") as sink:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            if not chunk:
+                continue
+            written += len(chunk)
+            if written > EXPANDED_ASSET_MAX_BYTES:
+                raise ReleaseChannelError("release JSON exceeds expanded size limit")
+            sink.write(chunk)
 
 
 def _validate_candidate(
@@ -285,6 +309,45 @@ def _validate_candidate(
         )
     except PackError as exc:
         raise ReleaseChannelError(f"release pack failed validation: {exc}") from exc
+
+class ActivationTransaction:
+    """Retain activation backups until the new pack has been reloaded."""
+
+    def __init__(
+        self,
+        rollback_dir: Path,
+        changed: list[tuple[Path, Path | None]],
+    ) -> None:
+        self._rollback_dir = rollback_dir
+        self._changed = changed
+        self._closed = False
+
+    def finalize(self) -> None:
+        if self._closed:
+            return
+        shutil.rmtree(self._rollback_dir, ignore_errors=False)
+        self._closed = True
+
+    def rollback(self) -> None:
+        if self._closed:
+            return
+        first_error: OSError | None = None
+        for target, backup in reversed(self._changed):
+            try:
+                if backup is not None and backup.exists():
+                    os.replace(backup, target)
+                elif target.exists():
+                    target.unlink()
+            except OSError as exc:
+                first_error = first_error or exc
+        try:
+            shutil.rmtree(self._rollback_dir, ignore_errors=False)
+        except OSError as exc:
+            first_error = first_error or exc
+        self._closed = True
+        if first_error is not None:
+            raise first_error
+
 
 class ReleaseChannel:
     """Download and activate a compatible Findings Pack release."""
@@ -376,8 +439,14 @@ class ReleaseChannel:
                 return final_url, b"".join(chunks)
         raise ReleaseChannelError(f"{label} has too many redirects")
 
-    async def check_and_activate(self, current_version: str | None = None) -> ReleaseResult:
+    async def check_and_activate(
+        self,
+        current_version: str | None = None,
+        *,
+        defer_finalize: bool = False,
+    ) -> ReleaseResult:
         """Check the public manifest and activate only a newer valid candidate."""
+        transaction: ActivationTransaction | None = None
         try:
             async with self._client_context() as client:
                 manifest_response_url, raw_manifest = await self._fetch_bytes(
@@ -428,9 +497,20 @@ class ReleaseChannel:
                         app_version=self.app_version,
                         schema_path=self.pack_dir / SCHEMA_FILENAME,
                     )
-                    self._activate(candidate)
-                return ReleaseResult(True, release.pack_version, pack["schema_version"], "activated")
+                    transaction = self._activate(candidate, validated=True)
+                if transaction is not None and not defer_finalize:
+                    transaction.finalize()
+                    transaction = None
+                return ReleaseResult(
+                    True,
+                    release.pack_version,
+                    pack["schema_version"],
+                    "activated",
+                    transaction,
+                )
         except (httpx.HTTPError, OSError, ReleaseChannelError, json.JSONDecodeError) as exc:
+            if transaction is not None:
+                transaction.rollback()
             log.warning("Findings Pack release check failed: %s", exc)
             return ReleaseResult(False, current_version, None, str(exc))
 
@@ -444,55 +524,83 @@ class ReleaseChannel:
         client: httpx.AsyncClient,
         url: str,
         target: Path,
-        expected_size: int | None,
+        expected_size: int,
         *,
         expected_origin: tuple[str, str, int | None],
     ) -> None:
+        if expected_size < 0 or expected_size > COMPRESSED_ASSET_MAX_BYTES:
+            raise ReleaseChannelError("release asset size is outside the allowed limit")
         current = url
-        for _ in range(MAX_REDIRECTS + 1):
-            self._validate_transport_url(current, label="release asset", expected_origin=expected_origin)
-            async with client.stream("GET", current, follow_redirects=False) as response:
-                if response.is_redirect:
-                    location = response.headers.get("location")
-                    if not location:
-                        raise ReleaseChannelError("release asset redirect has no location")
-                    current = urllib.parse.urljoin(current, location)
-                    continue
-                try:
-                    response.raise_for_status()
-                except httpx.HTTPError as exc:
-                    raise ReleaseChannelError("release asset request failed") from exc
-                content_length = response.headers.get("content-length")
-                if expected_size is not None and content_length:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            for _ in range(MAX_REDIRECTS + 1):
+                self._validate_transport_url(current, label="release asset", expected_origin=expected_origin)
+                async with client.stream("GET", current, follow_redirects=False) as response:
+                    if response.is_redirect:
+                        location = response.headers.get("location")
+                        if not location:
+                            raise ReleaseChannelError("release asset redirect has no location")
+                        current = urllib.parse.urljoin(current, location)
+                        continue
                     try:
-                        if int(content_length) != expected_size:
+                        response.raise_for_status()
+                    except httpx.HTTPError as exc:
+                        raise ReleaseChannelError("release asset request failed") from exc
+                    content_length = response.headers.get("content-length")
+                    if content_length is not None:
+                        try:
+                            declared_length = int(content_length)
+                        except ValueError as exc:
+                            raise ReleaseChannelError("release asset content length is invalid") from exc
+                        if declared_length != expected_size:
                             raise ReleaseChannelError("release asset size does not match manifest")
-                    except ValueError as exc:
-                        raise ReleaseChannelError("release asset content length is invalid") from exc
-                written = 0
-                with target.open("wb") as stream:
-                    async for chunk in response.aiter_bytes(1024 * 1024):
-                        if chunk:
-                            stream.write(chunk)
+                        if declared_length > COMPRESSED_ASSET_MAX_BYTES:
+                            raise ReleaseChannelError("release asset exceeds size limit")
+                    written = 0
+                    with target.open("wb") as stream:
+                        async for chunk in response.aiter_bytes(1024 * 1024):
+                            if not chunk:
+                                continue
                             written += len(chunk)
-                            if written > ASSET_MAX_BYTES:
-                                raise ReleaseChannelError("release asset exceeds size limit")
-                if expected_size is not None and written != expected_size:
-                    raise ReleaseChannelError("release asset was truncated")
-                self._validate_transport_url(
-                    str(response.url),
-                    label="release asset",
-                    expected_origin=expected_origin,
-                )
-                return
-        raise ReleaseChannelError("release asset has too many redirects")
+                            if written > expected_size or written > COMPRESSED_ASSET_MAX_BYTES:
+                                raise ReleaseChannelError("release asset exceeds declared size limit")
+                            stream.write(chunk)
+                    if written != expected_size:
+                        raise ReleaseChannelError("release asset was truncated")
+                    self._validate_transport_url(
+                        str(response.url),
+                        label="release asset",
+                        expected_origin=expected_origin,
+                    )
+                    return
+            raise ReleaseChannelError("release asset has too many redirects")
+        except Exception:
+            target.unlink(missing_ok=True)
+            raise
 
-    def _activate(self, candidate: Path) -> None:
+    def _activate(
+        self,
+        candidate: Path,
+        *,
+        validated: bool = False,
+    ) -> ActivationTransaction:
         self.pack_dir.mkdir(parents=True, exist_ok=True)
+        if not validated:
+            schema_path = candidate / SCHEMA_FILENAME
+            if not schema_path.is_file():
+                schema_path = self.pack_dir / SCHEMA_FILENAME
+            try:
+                validate_pack_directory(candidate, schema_path=schema_path)
+            except PackError as exc:
+                raise ReleaseChannelError(f"release pack failed validation: {exc}") from exc
+
+        rollback_dir = Path(
+            tempfile.mkdtemp(prefix=f".{self.pack_dir.name}-rollback-", dir=self.pack_dir.parent)
+        )
+        changed: list[tuple[Path, Path | None]] = []
+        transaction = ActivationTransaction(rollback_dir, changed)
         staged_pack = candidate / PACK_FILENAME
         target_pack = self.pack_dir / PACK_FILENAME
-        changed: list[tuple[Path, Path | None]] = []
-        rollback = candidate.parent / "rollback"
         try:
             # Artifacts are staged first. The JSON is the commit point: readers
             # see either the old validated pack or the complete new pack.
@@ -504,21 +612,24 @@ class ReleaseChannel:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 backup: Path | None = None
                 if target.exists():
-                    backup = rollback / relative
+                    backup = rollback_dir / relative
                     backup.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(target, backup)
-                os.replace(source, target)
                 changed.append((target, backup))
+                os.replace(source, target)
+
+            if not staged_pack.is_file():
+                raise ReleaseChannelError(f"release is missing {PACK_FILENAME}")
+            backup = None
+            if target_pack.exists():
+                backup = rollback_dir / PACK_FILENAME
+                shutil.copy2(target_pack, backup)
+            changed.append((target_pack, backup))
             os.replace(staged_pack, target_pack)
         except Exception:
-            # An interrupted final replace must not leave old pack metadata
-            # paired with new model bytes.
-            for target, backup in reversed(changed):
-                if backup is not None and backup.exists():
-                    os.replace(backup, target)
-                elif target.exists():
-                    target.unlink()
+            transaction.rollback()
             raise
+        return transaction
 
     async def __aexit__(self, *args: object) -> None:
         return None
