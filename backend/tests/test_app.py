@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from bhayanak_legends.app import APP_VERSION, create_app
 from bhayanak_legends.config import SidecarConfig
 from bhayanak_legends.credentials import InMemoryCredentialStore
+from bhayanak_legends.pack import PackError
 from bhayanak_legends.routers_events import event_stream
 from bhayanak_legends.sse import Hub
 
@@ -41,6 +42,51 @@ def test_health_requires_auth(client):
     assert body["app_version"] == APP_VERSION
     assert "pack_version" in body
 
+
+
+def test_invalid_findings_pack_returns_bounded_503_and_degraded_health(
+    client, monkeypatch
+):
+    invalid_pack = {
+        "schema_version": 1,
+        "pack_version": "v1",
+        "raw_secret": "do-not-leak",
+    }
+    monkeypatch.setattr(client.app.state.pack, "load", lambda: invalid_pack)
+
+    pack_response = client.get("/pack", headers=AUTH)
+    assert pack_response.status_code == 503
+    assert pack_response.json() == {"detail": "Findings Pack validation failed"}
+    assert "raw_secret" not in pack_response.text
+    assert "traceback" not in pack_response.text.lower()
+
+    health_response = client.get("/health", headers=AUTH)
+    assert health_response.status_code == 200
+    assert health_response.json()["status"] == "degraded"
+    assert health_response.json()["pack_version"] is None
+
+
+def test_unrelated_pack_error_is_not_mapped_to_validation_503(client, monkeypatch):
+    def fail_unexpectedly():
+        raise RuntimeError("programmer failure")
+
+    monkeypatch.setattr(client.app.state.pack, "load", fail_unexpectedly)
+
+    with pytest.raises(RuntimeError, match="programmer failure"):
+        client.get("/pack", headers=AUTH)
+
+
+def test_pack_load_failure_returns_same_bounded_503(client, monkeypatch):
+    def fail_to_load():
+        raise PackError("raw pack path and body")
+
+    monkeypatch.setattr(client.app.state.pack, "load", fail_to_load)
+
+    response = client.get("/pack", headers=AUTH)
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Findings Pack validation failed"}
+    assert "raw pack" not in response.text
 
 def test_requires_token(client):
     assert client.get("/settings").status_code == 401
