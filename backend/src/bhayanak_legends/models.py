@@ -5,6 +5,7 @@ unvalidated ``dict`` from a route makes a contract drift invisible until a
 frontend crashes, so response models reject unknown states and shapes.
 """
 
+import math
 from math import isfinite
 from typing import Any, Literal
 
