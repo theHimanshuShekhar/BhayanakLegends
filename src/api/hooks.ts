@@ -24,6 +24,9 @@ export interface TrajectoryFilters {
   champion?: string;
 }
 
+export interface TrajectoryQueryOptions {
+  enabled?: boolean;
+}
 function cleanParams(filters: TrajectoryFilters): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(filters)) {
@@ -32,21 +35,38 @@ function cleanParams(filters: TrajectoryFilters): Record<string, string> {
   return out;
 }
 
-export function useTrajectories(filters: TrajectoryFilters = {}) {
+export function useTrajectories(
+  filters: TrajectoryFilters = {},
+  options: TrajectoryQueryOptions = {},
+) {
   const params = cleanParams(filters);
+  const enabled =
+    options.enabled ??
+    ((filters.role == null && filters.champion == null) ||
+      Boolean(params.role && params.champion));
   return useQuery({
     queryKey: ["trajectories", params],
     queryFn: () => api.trajectories(params),
+    enabled,
   });
 }
 
-export function usePatchAggregates(filters: TrajectoryFilters = {}) {
+export function usePatchAggregates(
+  filters: TrajectoryFilters = {},
+  options: TrajectoryQueryOptions = {},
+) {
   const params = cleanParams(filters);
+  const enabled =
+    options.enabled ??
+    ((filters.role == null && filters.champion == null) ||
+      Boolean(params.role && params.champion));
   return useQuery<PatchAggregate[]>({
     queryKey: ["patch-aggregates", params],
     queryFn: () => api.patchAggregates(params),
+    enabled,
   });
 }
+
 
 export function usePostgameLatest() {
   return useQuery({ queryKey: ["postgame-latest"], queryFn: api.postgameLatest });

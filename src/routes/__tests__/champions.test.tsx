@@ -17,6 +17,7 @@ vi.mock("../../api/client", () => ({
     syncStatus: vi.fn(),
     historySummary: vi.fn(),
     trajectories: vi.fn(),
+    patchAggregates: vi.fn(),
     postgameLatest: vi.fn(),
     benchmarks: vi.fn(),
     liveStatus: vi.fn(),
@@ -51,10 +52,15 @@ function makePack(overrides: Partial<FindingsPack> = {}): FindingsPack {
       { champion: "Ahri", role: "MIDDLE", games: 340, pick_rate: 0.142, win_rate: 0.534, tier: "S" },
       { champion: "Qiyana", role: "MIDDLE", games: 200, pick_rate: 0.05, win_rate: 0.4233, tier: "B" },
       { champion: "Darius", role: "TOP", games: 610, pick_rate: 0.224, win_rate: 0.517, tier: "A" },
+      { champion: "Garen", role: "TOP", games: 500, pick_rate: 0.2, win_rate: 0.51, tier: "A" },
     ],
     matchup_examples: [
       { champion: "Ahri", opponent: "Zed", role: "MIDDLE", wr: 0.57, ci: 2.1, games: 41 },
       { champion: "Ahri", opponent: "Yasuo", role: "MIDDLE", wr: 0.44, ci: 1.8, games: 33 },
+      { champion: "Qiyana", opponent: "Qiyana", role: "MIDDLE", wr: 0.9, ci: 1, games: 1 },
+      { champion: "Darius", opponent: "Garen", role: "TOP", wr: 0.4098, ci: 8.7, games: 42 },
+      { champion: "Garen", opponent: "Darius", role: "TOP", wr: 0.5902, ci: 8.7, games: 42 },
+      { champion: "Darius", opponent: "Darius", role: "TOP", wr: 0.5, ci: 0, games: 1 },
     ],
     benchmarks: [],
     checkpoints: [],
@@ -62,193 +68,124 @@ function makePack(overrides: Partial<FindingsPack> = {}): FindingsPack {
   };
 }
 
-// ADR-0003 phrasing discipline: the matchups caveat is Diagnostic — it must
-// describe, never instruct.
 const IMPERATIVE_RE =
   /\b(avoid|ban|pick|play|try|consider|use|stop|start|don't|dont|do not)\b/i;
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(api.pack).mockResolvedValue(makePack());
-  vi.mocked(api.trajectories).mockResolvedValue([
-    { patch: "14.17", role: "MIDDLE", champion: null, played_at: "2026-01-01T00:00:00Z", index: 0, rolling_wr: 0.6 },
-    { patch: "16.16", role: "MIDDLE", champion: null, played_at: "2026-02-01T00:00:00Z", index: 1, rolling_wr: 0.42 },
-  ]);
+  vi.mocked(api.trajectories).mockResolvedValue([]);
+  vi.mocked(api.patchAggregates).mockResolvedValue([]);
 });
 
 describe("ChampionsPage", () => {
-  it("renders the champion header from the first tier_list entry of the selected role", async () => {
-    vi.mocked(api.pack).mockResolvedValue(
-      makePack({
-        ban_advisor: [
-          { champion: "Ahri", win_rate: 0.534, ban_rate: 0.061, recommendation: "real-threat" },
-        ],
-      }),
+  it("starts with no champion header or directional claim", async () => {
+    renderPage(<ChampionsPage />);
+
+    await screen.findByTestId("tier-list");
+    expect(screen.queryByTestId("champion-header")).not.toBeInTheDocument();
+    expect(screen.getByTestId("matchups-card")).toHaveTextContent(
+      "Select a champion to see directional examples.",
     );
-    renderPage(<ChampionsPage />);
-
-    const header = await screen.findByTestId("champion-header");
-    expect(within(header).getByText("Ahri")).toBeInTheDocument();
-    expect(within(header).getByText("S tier")).toBeInTheDocument();
-    expect(within(header).getByText("Middle · 340 games logged")).toBeInTheDocument();
-    expect(within(header).getByText("14.2%")).toBeInTheDocument(); // pick
-    expect(within(header).getByText("6.1%")).toBeInTheDocument(); // ban, from pack.ban_advisor
-    expect(within(header).getByText("53.4%")).toBeInTheDocument(); // win
+    expect(api.trajectories).not.toHaveBeenCalled();
+    expect(api.patchAggregates).not.toHaveBeenCalled();
   });
 
-  it("shows an em-dash ban cell when the pack carries no ban rate for the champion", async () => {
+  it("selects the exact tier row and announces it", async () => {
     renderPage(<ChampionsPage />);
+    const row = await screen.findByRole("button", { name: /Ahri, S tier/i });
 
-    const header = await screen.findByTestId("champion-header");
-    const banCell = within(header).getByText("BAN").parentElement!;
-    expect(banCell).toHaveTextContent("—");
+    row.focus();
+    fireEvent.keyDown(row, { key: "Enter" });
+
+    expect(row).toHaveFocus();
+    expect(row).toHaveAttribute("aria-pressed", "true");
+    expect(await screen.findByTestId("champion-header")).toHaveTextContent("Ahri");
+    expect(screen.getByText("Ahri selected for MIDDLE")).toBeInTheDocument();
   });
 
-  it("renders the item spike timing slot with the rolling-wr sparkline per patch", async () => {
+  it("clears selected champion and claims when the role changes", async () => {
     renderPage(<ChampionsPage />);
+    fireEvent.click(await screen.findByTestId("tier-row-Ahri"));
+    await screen.findByTestId("champion-header");
 
-    const card = await screen.findByTestId("item-spike-card");
-    expect(card.querySelector("polyline")).toBeInTheDocument();
-    expect(within(card).getByText("14.17")).toBeInTheDocument();
-    expect(within(card).getByText("16.16")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("role-TOP"));
+
+    await waitFor(() => expect(screen.queryByTestId("champion-header")).not.toBeInTheDocument());
+    expect(screen.getByTestId("matchups-card")).toHaveTextContent(
+      "Select a champion to see directional examples.",
+    );
+    expect(screen.getByTestId("trajectory-selection-guidance")).toBeInTheDocument();
   });
 
-  it("filters header, tier list and matchups by role chip", async () => {
+  it("filters matchup evidence directionally without relabeling reverse rows", async () => {
     renderPage(<ChampionsPage />);
-
     fireEvent.click(await screen.findByTestId("role-TOP"));
+    fireEvent.click(await screen.findByTestId("tier-row-Darius"));
 
-    await waitFor(() =>
-      expect(screen.getByTestId("champion-header")).toHaveTextContent("Darius"),
-    );
-    const list = screen.getByTestId("tier-list");
-    expect(within(list).getByText("Darius")).toBeInTheDocument();
-    expect(within(list).queryByText("Ahri")).not.toBeInTheDocument();
-    // no TOP matchups in the pack -> honest empty lines, no invented rows
-    expect(screen.getByTestId("you-counter-list")).toHaveTextContent(/no clear edges/i);
-  });
-
-  it("splits matchups into you-counter / counters-you with wr ± ci and games", async () => {
-    renderPage(<ChampionsPage />);
-
-    const youCounter = await screen.findByTestId("you-counter-list");
-    expect(within(youCounter).getByText("Zed")).toBeInTheDocument();
-    expect(within(youCounter).getByText("57.0% ±2.1 · 41g")).toBeInTheDocument();
-
-    const countersYou = screen.getByTestId("counters-you-list");
-    expect(within(countersYou).getByText("Yasuo")).toBeInTheDocument();
-    expect(within(countersYou).getByText("44.0% ±1.8 · 33g")).toBeInTheDocument();
-  });
-
-  it("renders real tier rows with the trap tag for pack trap picks", async () => {
-    renderPage(<ChampionsPage />);
-
-    const list = await screen.findByTestId("tier-list");
-    expect(within(list).getByText("Ahri")).toBeInTheDocument();
-    const qiyanaRow = within(list).getByText("Qiyana").closest("div")!;
-    expect(qiyanaRow).toHaveTextContent("42.3%");
-    expect(qiyanaRow).toHaveTextContent("· trap");
-    // non-trap rows carry no trap tag
-    const ahriRow = within(list).getByText("Ahri").closest("div")!;
-    expect(ahriRow).not.toHaveTextContent("trap");
-  });
-
-  it("keeps the build-order card idle with its approximate-v1 caveat", async () => {
-    renderPage(<ChampionsPage />);
-
-    const card = await screen.findByTestId("build-order-card");
-    expect(card).toHaveTextContent(/build analytics land after the data-dragon item refresh/i);
-    expect(card).toHaveTextContent(/treat as approximate v1/i);
-    // no invented build rows
-    expect(within(card).queryByText(/Everfrost/i)).not.toBeInTheDocument();
-  });
-
-  it("renders comp, damage-fit and gold-waste cards when the pack carries them", async () => {
-    vi.mocked(api.pack).mockResolvedValue(
-      makePack({
-        findings: [
-          {
-            key: "comp_ad_heavy",
-            tier: "diagnostic",
-            title: "AD-heavy comp",
-            statement: "AD-heavy comps win 57% against this champion's pool.",
-            value: 0.57,
-            unit: "%",
-            source_ref: "companion-app-content.md#5",
-          },
-          {
-            key: "damage_fit",
-            tier: "actionable",
-            title: "Damage fit",
-            statement: "Your AP burst lines up against their weaker resist axis.",
-            value: 0.71,
-            unit: null,
-            source_ref: "companion-app-content.md#6",
-          },
-          {
-            key: "gold_waste",
-            tier: "diagnostic",
-            title: "Gold waste",
-            statement: "Average gold wasted per completed item.",
-            value: 340,
-            unit: "g",
-            source_ref: "companion-app-content.md#8",
-          },
-        ],
-      }),
-    );
-    renderPage(<ChampionsPage />);
-
-    expect(await screen.findByTestId("comp-card")).toHaveTextContent("57%");
-    expect(screen.getByTestId("damage-fit-card")).toHaveTextContent("0.71");
-    expect(screen.getByTestId("gold-waste-card")).toHaveTextContent("340g");
-  });
-
-  it("omits comp / damage-fit / gold-waste cards when the pack lacks them", async () => {
-    renderPage(<ChampionsPage />);
-    await screen.findByTestId("champion-header");
-
-    expect(screen.queryByTestId("comp-card")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("damage-fit-card")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("gold-waste-card")).not.toBeInTheDocument();
-  });
-
-  it("does not mistake the ban_waste_correlation finding for gold waste", async () => {
-    vi.mocked(api.pack).mockResolvedValue(
-      makePack({
-        findings: [
-          {
-            key: "ban_waste_correlation",
-            tier: "diagnostic",
-            title: "Most bans are wasted",
-            statement: "Ban-rate vs win-rate correlation is only +0.125.",
-            value: 0.125,
-            unit: "correlation",
-            source_ref: "companion-app-content.md#9",
-          },
-        ],
-      }),
-    );
-    renderPage(<ChampionsPage />);
-    await screen.findByTestId("champion-header");
-
-    expect(screen.queryByTestId("gold-waste-card")).not.toBeInTheDocument();
-  });
-
-  it("carries the population caveat footer once", async () => {
-    renderPage(<ChampionsPage />);
-    await screen.findByTestId("champion-header");
-
-    expect(screen.getAllByTestId("population-caveat")).toHaveLength(1);
-    expect(screen.getByText(/friend group's 26k games/)).toBeInTheDocument();
-  });
-
-  it("keeps diagnostic caveats descriptive only (ADR-0003)", async () => {
-    renderPage(<ChampionsPage />);
     const card = await screen.findByTestId("matchups-card");
+    expect(card).toHaveTextContent("FAVORABLE EXAMPLES FOR DARIUS");
+    expect(card).toHaveTextContent("DIFFICULT EXAMPLES FOR DARIUS");
+    expect(card).toHaveTextContent("Darius vs Garen");
+    expect(card).toHaveTextContent("41.0% ±8.7 · 42g");
+    expect(card).not.toHaveTextContent("Garen vs Darius");
+    expect(card).not.toHaveTextContent("Darius vs Darius");
+    expect(card).toHaveTextContent("Findings Pack · matchup_examples");
+  });
 
-    const text = card.textContent ?? "";
-    const offenders = text.match(new RegExp(IMPERATIVE_RE.source, "gi"));
-    expect(offenders, `diagnostic copy must not instruct; found: ${offenders?.join(", ")}`).toBeNull();
+  it("shows directional empty copy without numbers for a champion with no direction", async () => {
+    renderPage(<ChampionsPage />);
+    fireEvent.click(await screen.findByTestId("tier-row-Qiyana"));
+
+    const card = await screen.findByTestId("matchups-card");
+    expect(card).toHaveTextContent(
+      "The current Findings Pack has no directional example for Qiyana.",
+    );
+    expect(within(card).queryByText(/%|games|±/)).not.toBeInTheDocument();
+  });
+
+  it("passes identical selected role and champion filters to both progress sources", async () => {
+    renderPage(<ChampionsPage />);
+    fireEvent.click(await screen.findByTestId("tier-row-Ahri"));
+
+    await waitFor(() => {
+      expect(api.trajectories).toHaveBeenCalledWith({ role: "MIDDLE", champion: "Ahri" });
+      expect(api.patchAggregates).toHaveBeenCalledWith({ role: "MIDDLE", champion: "Ahri" });
+    });
+  });
+
+  it("keeps every rolling point and displays aggregate values separately", async () => {
+    vi.mocked(api.trajectories).mockResolvedValue([
+      { patch: "16.16", role: "MIDDLE", champion: "Ahri", played_at: "2026-02-03T00:00:00Z", index: 2, rolling_wr: 0.4 },
+      { patch: "14.17", role: "MIDDLE", champion: "Ahri", played_at: "2026-01-01T00:00:00Z", index: 0, rolling_wr: 0.6 },
+      { patch: "14.17", role: "MIDDLE", champion: "Ahri", played_at: "2026-01-02T00:00:00Z", index: 1, rolling_wr: 0.55 },
+    ]);
+    vi.mocked(api.patchAggregates).mockResolvedValue([
+      { patch: "14.17", games: 2, wins: 1, win_rate: 0.5 },
+      { patch: "16.16", games: 1, wins: 0, win_rate: 0 },
+    ]);
+    renderPage(<ChampionsPage />);
+    fireEvent.click(await screen.findByTestId("tier-row-Ahri"));
+
+    const card = await screen.findByTestId("trajectory-card");
+    await waitFor(() => expect(card.querySelector("polyline")).toHaveAttribute("points", "0,30 150,33 300,42"));
+    expect(screen.getByTestId("trajectory-aggregates")).toHaveTextContent("1 wins · 2 games · 50.0%");
+    expect(screen.getByTestId("trajectory-aggregates")).toHaveTextContent("0 wins · 1 games · 0.0%");
+    expect(card).not.toHaveTextContent(/item timing|Data.?Dragon|item-completion/i);
+  });
+
+  it("renders Backfill for empty Personal History while keeping matchup data visible", async () => {
+    renderPage(<ChampionsPage />);
+    fireEvent.click(await screen.findByTestId("tier-row-Ahri"));
+
+    expect(await screen.findByTestId("trajectory-empty")).toHaveTextContent("Backfill");
+    expect(screen.getByTestId("matchups-card")).toHaveTextContent("Ahri vs Zed");
+  });
+
+  it("keeps diagnostic matchup copy descriptive", async () => {
+    renderPage(<ChampionsPage />);
+    fireEvent.click(await screen.findByTestId("tier-row-Ahri"));
+    const card = await screen.findByTestId("matchups-card");
+    expect(card.textContent).not.toMatch(IMPERATIVE_RE);
   });
 });
