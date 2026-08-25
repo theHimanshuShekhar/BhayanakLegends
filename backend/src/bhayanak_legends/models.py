@@ -8,7 +8,14 @@ frontend crashes, so response models reject unknown states and shapes.
 from math import isfinite
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    FiniteFloat,
+    StrictInt,
+    model_validator,
+)
 
 
 class ContractModel(BaseModel):
@@ -217,6 +224,17 @@ class TableProvenance(PackModel):
     feature_contract_version: Literal["loltrends-parity-v1"]
 
 
+class ComebackFeatureContract(PackModel):
+    feature: str = Field(min_length=1)
+    feature_contract_version: str = Field(min_length=1)
+
+    def is_compatible(self) -> bool:
+        return (
+            self.feature == "gold_diff_15"
+            and self.feature_contract_version == "loltrends-parity-v1"
+        )
+
+
 class PackProvenance(PackModel):
     dataset: TableProvenance
     findings: TableProvenance
@@ -317,25 +335,27 @@ class PackBenchmark(PackModel):
         return self
 
 
-
 class DatasetSummary(PackModel):
     matches: int = Field(ge=0)
     player_games: int = Field(ge=0)
     patches: list[str]
 
 
-class ComebackOdds(PackModel):
-    gold_deficit_at_15: float
-    win_rate: float
-class CheckpointBucket(PackModel):
-    gold_diff_bucket: str
-    win_rate: float
+class ComebackOdds(ContractModel):
+    gold_deficit_at_15: StrictInt
+    win_rate: FiniteFloat = Field(ge=0, le=1)
+
+
+class CheckpointBucket(ContractModel):
+    gold_diff_bucket: Literal["bottom_quartile_@20m", "top_quartile_@20m"]
+    win_rate: FiniteFloat = Field(ge=0, le=1)
 
 
 class FindingsPack(PackModel):
     schema_version: Literal[1]
     pack_version: str = Field(default="v1", min_length=1)
     generated_at: str
+    comeback_feature_contract: ComebackFeatureContract
     provenance: PackProvenance
     dataset: DatasetSummary
     findings: list[PackFinding]
@@ -348,3 +368,23 @@ class FindingsPack(PackModel):
     matchup_examples: list[MatchupExample]
     benchmarks: list[PackBenchmark]
     checkpoints: list[CheckpointBucket]
+
+    @model_validator(mode="after")
+    def validate_pack_contract(self) -> "FindingsPack":
+        checkpoint_keys = [row.gold_diff_bucket for row in self.checkpoints]
+        if len(checkpoint_keys) != 2 or set(checkpoint_keys) != {
+            "bottom_quartile_@20m",
+            "top_quartile_@20m",
+        }:
+            raise ValueError("checkpoints must contain one bottom and one top quartile row")
+
+        anchors = [row.gold_deficit_at_15 for row in self.comeback_odds]
+        if len(anchors) != 3:
+            raise ValueError("comeback odds must contain exactly three anchors")
+        if any(not math.isfinite(anchor) or anchor >= 0 for anchor in anchors):
+            raise ValueError("comeback anchors must be finite, strictly negative integers")
+        if len(set(anchors)) != len(anchors):
+            raise ValueError("comeback anchors must be distinct")
+        if any(left <= right for left, right in zip(anchors, anchors[1:])):
+            raise ValueError("comeback anchors must be ordered mildest to most severe")
+        return self

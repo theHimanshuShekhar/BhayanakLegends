@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Iterable
 
 import jsonschema
+from pydantic import ValidationError
+
 from .pack_contract import validate_pack_semantics
 
 from .models import FindingsPack
@@ -120,6 +122,10 @@ class PackStore:
             validate_pack_semantics(pack)
         except ValueError as e:
             raise PackError(f"Findings Pack failed semantic validation: {e}") from e
+        try:
+            FindingsPack.model_validate(pack)
+        except ValidationError as e:
+            raise PackError("Findings Pack failed contract validation") from e
         if pack.get("schema_version") != 1:
             raise PackError(f"unsupported pack schema_version {pack.get('schema_version')}")
         self._pack = pack

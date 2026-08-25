@@ -72,10 +72,16 @@ export type PackProvenance = Record<
   TableProvenance
 >;
 
+export interface ComebackFeatureContract {
+  feature: "gold_diff_15";
+  feature_contract_version: "loltrends-parity-v1";
+}
+
 export interface FindingsPack {
   schema_version: number;
   pack_version: string;
   generated_at: string;
+  comeback_feature_contract: ComebackFeatureContract;
   provenance: PackProvenance;
   dataset: { matches: number; player_games: number; patches: string[] };
   findings: PackFinding[];
@@ -87,7 +93,10 @@ export interface FindingsPack {
   tier_list: TierEntry[];
   matchup_examples: MatchupExample[];
   benchmarks: BenchmarkRow[];
-  checkpoints: { gold_diff_bucket: string; win_rate: number }[];
+  checkpoints: {
+    gold_diff_bucket: "bottom_quartile_@20m" | "top_quartile_@20m";
+    win_rate: number;
+  }[];
 }
 
 export interface PackFinding {

@@ -209,6 +209,11 @@ COMEBACK_ODDS = [
     {"gold_deficit_at_15": -7000, "win_rate": 0.03},
 ]
 
+COMEBACK_FEATURE_CONTRACT = {
+    "feature": "gold_diff_15",
+    "feature_contract_version": FEATURE_CONTRACT_VERSION,
+}
+
 CHECKPOINTS = [
     {"gold_diff_bucket": "bottom_quartile_@20m", "win_rate": 0.282},
     {"gold_diff_bucket": "top_quartile_@20m", "win_rate": 0.718},
@@ -422,6 +427,7 @@ def main() -> None:
     pack = {
         "schema_version": 1,
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "comeback_feature_contract": COMEBACK_FEATURE_CONTRACT,
         "provenance": build_provenance(manifest_sha256, revision),
         "dataset": dataset,
         "findings": CURATED_FINDINGS,

@@ -11,7 +11,8 @@ AUTH = {
     "X-BL-Token": "local-sidecar-development-token-32chars",
     "Host": "127.0.0.1:23110",
 }
-REPO = Path(__file__).resolve().parents[3]
+REPO = Path(__file__).resolve().parents[2]
+SHIPPED_PACK = json.loads((REPO / "pack" / "findings-pack.v1.json").read_text())
 
 
 def build_client(tmp_path: Path, pack: dict | None = None) -> TestClient:
@@ -181,7 +182,7 @@ def test_postgame_latest_and_none(tmp_path: Path):
 
 
 PACK = {
-    "schema_version": 1,
+    **SHIPPED_PACK,
     "benchmarks": [
         {
             "role": "MIDDLE",
@@ -241,7 +242,7 @@ def test_benchmarks_join_total_cs_only_when_pack_defines_total_cs(tmp_path: Path
 def test_benchmarks_all_roles_use_same_unit_total_cs_fixture(tmp_path: Path):
     roles = ("TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY")
     pack = {
-        "schema_version": 1,
+        **PACK,
         "benchmarks": [
             {
                 "role": role,
