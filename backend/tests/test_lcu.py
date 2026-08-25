@@ -511,6 +511,62 @@ def test_build_ingame_snapshot_filters_unknown_events_and_normalizes_mode():
     assert [event.t_s for event in snapshot.events] == [float(index) for index in range(2, 42)]
 
 
+def test_build_ingame_snapshot_skips_malformed_rows_and_preserves_siblings():
+    data = load_json("allgamedata.json")
+    data["allPlayers"] = [
+        data["allPlayers"][0],
+        "not-a-player-row",
+        {"team": "ORDER"},
+        {
+            **data["allPlayers"][1],
+            "scores": {**data["allPlayers"][1]["scores"], "kills": "not-a-score"},
+        },
+        {
+            **data["allPlayers"][2],
+            "items": [
+                data["allPlayers"][2]["items"][0],
+                "not-an-item-row",
+                {},
+                {"itemID": 1056, "count": "not-a-count"},
+                data["allPlayers"][2]["items"][1],
+                data["allPlayers"][2]["items"][2],
+            ],
+        },
+        {"summonerName": "FixturePlayer11", "team": "ORDER"},
+    ]
+
+    data["events"]["Events"] = [
+        {"EventName": "ChampionKill", "EventTime": 3.0},
+        "not-an-event-row",
+        {"EventTime": 4.0},
+        {"EventName": "DragonKill", "EventTime": "not-a-time"},
+        {"EventName": "GameStart", "EventTime": 1.0},
+    ]
+
+    snapshot, _game_id = build_ingame_snapshot(data)
+
+    assert snapshot.active is True
+    assert [player.summoner for player in snapshot.teams["order"]] == [
+        "FixturePlayer01",
+        "FixturePlayer03",
+        "FixturePlayer11",
+    ]
+    player = next(player for player in snapshot.teams["order"] if player.summoner == "FixturePlayer03")
+    assert [(item.id, item.count) for item in player.items] == [(3157, 1), (1056, 1), (2003, 2)]
+    defaults = next(player for player in snapshot.teams["order"] if player.summoner == "FixturePlayer11")
+    assert (defaults.level, defaults.kills, defaults.deaths, defaults.assists, defaults.cs, defaults.ward_score) == (
+        1,
+        0,
+        0,
+        0,
+        0,
+        0.0,
+    )
+    assert [event.name for event in snapshot.events] == ["GameStart", "ChampionKill"]
+    assert [event.t_s for event in snapshot.events] == [1.0, 3.0]
+
+
+
 # ------------------------------------------------------------ service loop
 
 
