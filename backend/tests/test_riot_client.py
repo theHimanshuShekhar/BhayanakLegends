@@ -5,6 +5,7 @@ from bhayanak_legends.riot_client import (
     RATE_LIMIT_MIN_INTERVAL_S,
     RateLimiter,
     RiotClient,
+    RiotError,
     RiotForbidden,
     RiotNotFound,
     RiotRateLimited,
@@ -201,6 +202,21 @@ async def test_non_retryable_4xx_is_single_attempt(status: int, exception: type[
 
     client, sleeper = make_client(handler)
     with pytest.raises(exception):
+        await client.match("SG2_1")
+    await client.aclose()
+
+    assert calls["n"] == 1
+    assert sleeper.spans == []
+@pytest.mark.parametrize("status", [201, 204, 206])
+async def test_unexpected_success_is_single_attempt(status: int):
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(status)
+
+    client, sleeper = make_client(handler)
+    with pytest.raises(RiotError, match="unexpected"):
         await client.match("SG2_1")
     await client.aclose()
 

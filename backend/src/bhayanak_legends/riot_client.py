@@ -212,5 +212,7 @@ class RiotClient:
                 raise RiotNotFound(f"404 for {path}")
             if response.status_code == 403:
                 raise RiotForbidden(f"403 for {path}")
+            if response.is_success:
+                raise RiotError(f"unexpected {response.status_code} for {path}")
             response.raise_for_status()
         raise RiotError("retry budget exhausted")
