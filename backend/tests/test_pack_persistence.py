@@ -13,7 +13,10 @@ from bhayanak_legends.credentials import InMemoryCredentialStore
 
 ROOT = Path(__file__).resolve().parents[2]
 BUNDLED_PACK = ROOT / "pack"
-AUTH = {"X-BL-Token": "test-token"}
+AUTH = {
+    "X-BL-Token": "local-sidecar-development-token-32chars",
+    "Host": "127.0.0.1:23110",
+}
 
 
 def _copy_seed(destination: Path) -> Path:
@@ -24,7 +27,8 @@ def _copy_seed(destination: Path) -> Path:
 
 def _config(tmp_path: Path) -> SidecarConfig:
     return SidecarConfig(
-        token="test-token",
+        token="local-sidecar-development-token-32chars",
+        port=23110,
         data_dir=tmp_path / "data",
     )
 
