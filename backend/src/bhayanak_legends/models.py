@@ -302,7 +302,7 @@ class CheckpointBucket(PackModel):
 
 class FindingsPack(PackModel):
     schema_version: Literal[1]
-    pack_version: str = Field(min_length=1)
+    pack_version: str = Field(default="v1", min_length=1)
     generated_at: str
     provenance: PackProvenance
     dataset: DatasetSummary
