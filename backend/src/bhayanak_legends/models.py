@@ -277,7 +277,7 @@ class MatchupExample(PackModel):
     games: int = Field(ge=0)
 
 
-class PackFeatureContract(ContractModel):
+class PackFeatureContract(PackModel):
     cs10_median: Literal["cs10", "lane_minions_first_10m"] | None = None
     level10_median: Literal["level10"] | None = None
     gold_diff_10_median: Literal["gold_diff_10"] | None = None
