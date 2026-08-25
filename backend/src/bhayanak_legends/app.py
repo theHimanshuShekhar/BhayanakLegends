@@ -51,12 +51,29 @@ class DevImportRequest(BaseModel):
 
 async def _run_release_channel_check(app: FastAPI, channel: ReleaseChannel) -> None:
     try:
-        result: ReleaseResult = await channel.check_and_activate(app.state.pack_version)
+        result: ReleaseResult = await channel.check_and_activate(
+            app.state.pack_version,
+            defer_finalize=True,
+        )
         if not result.activated:
             return
-        app.state.pack.reload()
-        app.state.pack_error = None
-        app.state.pack_version = app.state.pack.version()
+        try:
+            app.state.pack.reload()
+            app.state.pack_error = None
+            app.state.pack_version = app.state.pack.version()
+            if result.activation is not None:
+                result.activation.finalize()
+        except Exception:
+            if result.activation is not None:
+                try:
+                    result.activation.rollback()
+                except Exception:
+                    log.exception("Findings Pack release rollback failed")
+            try:
+                app.state.pack.reload()
+            except Exception:
+                log.exception("Findings Pack previous release reload failed")
+            raise
         await app.state.hub.publish(
             "pack.updated",
             {
@@ -68,7 +85,6 @@ async def _run_release_channel_check(app: FastAPI, channel: ReleaseChannel) -> N
         # Release updates are opportunistic. The bundled/current pack remains
         # the source of truth if activation or reload unexpectedly fails.
         log.exception("Findings Pack release activation failed")
-
 
 def _startup_release_channel_check(app: FastAPI) -> None:
     manifest_url = os.environ.get("BHAYANAK_PACK_RELEASE_MANIFEST_URL", DEFAULT_MANIFEST_URL)

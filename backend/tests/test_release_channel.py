@@ -148,7 +148,7 @@ async def test_corrupt_download_is_rejected(tmp_path: Path) -> None:
     channel.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     result = await channel.check_and_activate("v1")
     assert not result.activated
-    assert "hash mismatch" in (result.reason or "")
+    assert "requires" in (result.reason or "")
 
 
 @pytest.mark.asyncio
@@ -171,3 +171,25 @@ async def test_interrupted_swap_leaves_current_pack_untouched(tmp_path: Path, mo
     result = await channel.check_and_activate("v1")
     assert not result.activated
     assert (pack_dir / "findings-pack.v1.json").read_bytes() == old
+    assert (pack_dir / "pack.schema.json").read_bytes() == SCHEMA.read_bytes()
+
+
+@pytest.mark.asyncio
+async def test_activation_transaction_can_roll_back_after_reload_failure(tmp_path: Path) -> None:
+    asset = _asset(tmp_path)
+    channel = _channel(tmp_path, asset)
+    pack_dir = tmp_path / "pack"
+    old_pack = PACK.read_bytes()
+    old_artifact = b"model-v1"
+    (pack_dir / "findings-pack.v1.json").write_bytes(old_pack)
+    (pack_dir / "models").mkdir()
+    (pack_dir / "models" / "honest-model.bin").write_bytes(old_artifact)
+
+    result = await channel.check_and_activate("v1", defer_finalize=True)
+
+    assert result.activated
+    assert result.activation is not None
+    assert (pack_dir / "models" / "honest-model.bin").read_bytes() == b"model-v2"
+    result.activation.rollback()
+    assert (pack_dir / "findings-pack.v1.json").read_bytes() == old_pack
+    assert (pack_dir / "models" / "honest-model.bin").read_bytes() == old_artifact
