@@ -44,9 +44,13 @@ def test_schema_accepts_unknown_future_tables_only_as_objects():
     future["future_table"] = ["not", "a", "table"]
     with pytest.raises(ValidationError):
         Draft202012Validator(SCHEMA).validate(future)
-def test_pack_matches_schema():
+def test_pack_matches_schema_and_strict_model():
     Draft202012Validator.check_schema(SCHEMA)
     Draft202012Validator(SCHEMA).validate(PACK)
+
+    model = FindingsPack.model_validate(PACK)
+
+    assert model.pack_version == "v1"
 
 
 NUMERIC_TABLES = (
@@ -158,24 +162,22 @@ def test_findings_pack_ignores_unknown_future_fields_and_tables():
     assert not hasattr(validated.benchmarks[0], "future_metric")
 
 
-@pytest.mark.parametrize(
-    ("field", "value"),
-    [
-        ("pack_version", None),
-        ("pack_version", ""),
-        ("pack_version", 1),
-    ],
-)
-def test_findings_pack_requires_non_empty_string_pack_version(field, value):
+@pytest.mark.parametrize("value", [None, 1, ""])
+def test_findings_pack_rejects_invalid_pack_version(value):
     broken = copy.deepcopy(PACK)
-    broken["pack_version"] = "v1"
-    if value is None:
-        broken.pop(field, None)
-    else:
-        broken[field] = value
+    broken["pack_version"] = value
 
     with pytest.raises(PydanticValidationError):
         FindingsPack.model_validate(broken)
+
+
+def test_findings_pack_defaults_missing_version_to_v1():
+    legacy = copy.deepcopy(PACK)
+    legacy.pop("pack_version", None)
+
+    model = FindingsPack.model_validate(legacy)
+
+    assert model.pack_version == "v1"
 
 
 @pytest.mark.parametrize("value", [None, 1, ""])
