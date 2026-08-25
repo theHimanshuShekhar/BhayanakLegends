@@ -1,39 +1,18 @@
 import type { FindingsPack } from "../../api/types";
-import { pct } from "../ui";
 import { clockLabel, Dot } from "./bits";
 
-function nearestBucket(pack: FindingsPack | undefined, clockS: number) {
-  const rows = pack?.checkpoints ?? [];
-  let best: (typeof rows)[number] | null = null;
-  let bestDistance = Number.POSITIVE_INFINITY;
-  for (const row of rows) {
-    const minute = /@(\d+)m/.exec(row.gold_diff_bucket)?.[1];
-    if (minute == null) continue;
-    const distance = Math.abs(Number(minute) * 60 - clockS);
-    // strict `<` keeps the earlier checkpoint on ties
-    if (distance < bestDistance) {
-      best = row;
-      bestDistance = distance;
-    }
-  }
-  return best;
-}
-
-/** Bucket keys arrive in pack-specific shapes; give the quartile form a readable label. */
-function bucketLabel(bucket: string): string {
-  const quartile = /^(bottom|top)_quartile_@?(\d+)m$/.exec(bucket);
-  return quartile ? `${quartile[1]} quartile @${quartile[2]}m` : bucket;
-}
-
 /**
- * Win probability, honest edition (ADR-0003): the number is a nearest-bucket
- * lookup in pack.checkpoints, labeled Checkpoint estimate · Diagnostic. The
- * calibrated live model ships with the next pack as a model artifact.
+ * The shipped Findings Pack does not contain the complete live probability
+ * contract: an exact live gold observation, compatible quartile boundaries,
+ * and model inputs. Keep this state explicit instead of deriving a number
+ * from a clock-only checkpoint lookup.
  */
+const LIVE_PROBABILITY: number | null = null;
+
 export function WinProbabilityCard({
-  pack,
+  pack: _pack,
   clockS,
-  active,
+  active: _active,
   packVersion,
 }: {
   pack: FindingsPack | undefined;
@@ -41,11 +20,10 @@ export function WinProbabilityCard({
   active: boolean;
   packVersion: string | null;
 }) {
-  const bucket = nearestBucket(pack, clockS);
-  const wr = active && bucket ? bucket.win_rate : null;
-  const y = wr == null ? 54 : Math.round(106 - wr * 100);
-  // Semantic signal: teal when the estimate is favorable, rose when behind.
-  const signal = wr == null ? "var(--color-dimmer)" : wr >= 0.5 ? "var(--color-teal)" : "var(--color-danger)";
+  void clockS;
+  const wr = LIVE_PROBABILITY;
+  const y = 54;
+  const signal = "var(--color-dimmer)";
   return (
     <section
       className="card3b"
@@ -72,7 +50,7 @@ export function WinProbabilityCard({
             color: signal,
           }}
         >
-          {wr == null ? "—" : pct(wr)}
+          —
         </span>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 5 }}>
@@ -85,18 +63,8 @@ export function WinProbabilityCard({
             padding: "2px 7px",
           }}
         >
-          Checkpoint estimate
+          Unavailable
         </span>
-        <span
-          style={{ font: "700 8px var(--font-mono)", letterSpacing: ".1em", color: "var(--color-dimmer)" }}
-        >
-          Diagnostic
-        </span>
-        {bucket && (
-          <span className="mono-n" style={{ marginLeft: "auto", fontSize: 9, color: "var(--color-dimmer)" }}>
-            {bucketLabel(bucket.gold_diff_bucket)}
-          </span>
-        )}
       </div>
       <svg
         viewBox="0 0 640 108"
@@ -155,12 +123,12 @@ export function WinProbabilityCard({
         }}
       >
         <span className="mono-n">0:00</span>
-        <span>checkpoint timeline lands with the LCU bridge</span>
+        <span>live inputs unavailable</span>
         <span className="mono-n">{clockLabel(clockS)}</span>
       </div>
       <p style={{ margin: "8px 0 0", fontSize: 9.5, lineHeight: 1.5, color: "var(--color-dimmer)" }}>
-        Nearest population checkpoint, not your game's odds — the calibrated model ships with the
-        next pack.
+        The current Findings Pack lacks the compatible live input, quartile boundaries, and model inputs needed to
+        map this game. Personal History remains separate from live inference.
       </p>
     </section>
   );

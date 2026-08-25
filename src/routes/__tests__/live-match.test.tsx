@@ -20,6 +20,8 @@ vi.mock("../../api/client", () => ({
   api: {
     pack: vi.fn(),
   },
+  actionableErrorMessage: (_error: unknown, context?: string) =>
+    context === "pack" ? "The Findings Pack is unavailable." : "Something went wrong.",
   connection: () => ({ base: "", token: "t" }),
   eventsUrl: () => "http://127.0.0.1:1/events?token=t",
 }));
@@ -81,15 +83,19 @@ describe("LiveMatchPage — idle", () => {
     expect(screen.queryByText(forbiddenEnemyName)).not.toBeInTheDocument();
   });
 
-  it("labels the win probability card as a diagnostic checkpoint estimate with the honesty caption", async () => {
+  it("keeps the unsupported live probability unavailable without a future-pack promise", async () => {
     renderPage();
     const band = await screen.findByTestId("wp-band");
-    expect(band).toHaveTextContent("Checkpoint estimate");
-    expect(band).toHaveTextContent("Diagnostic");
-    expect(band).toHaveTextContent(/calibrated model ships with the next pack/);
-    // No live game state → no number is claimed.
+    expect(band).toHaveTextContent("—");
+    expect(band).toHaveTextContent(
+      "The current Findings Pack lacks the compatible live input, quartile boundaries, and model inputs needed to map this game.",
+    );
+    expect(band).toHaveTextContent("Personal History");
+    expect(band).not.toHaveTextContent(/next pack|future pack/i);
+    expect(band).not.toHaveTextContent(/bottom quartile|top quartile/i);
     expect(screen.getByTestId("wp-value")).toHaveTextContent("—");
   });
+
 
   it("binds the objectives cards to real pack numbers", async () => {
     renderPage();
@@ -182,14 +188,13 @@ describe("LiveMatchPage — active game", () => {
     expect(screen.getByTestId("active-stat-level")).toHaveTextContent("12");
   });
 
-  it("shows the nearest checkpoint bucket as the win probability estimate", async () => {
+  it("suppresses unsupported live probability for any active-game clock", async () => {
     renderPage();
-    // clock 1254 → first quartile cohort row (both share the 20m checkpoint) —
-    // nearest-time selection remains until #75 suppresses unsupported live probability
-    expect(await screen.findByText("28.2%")).toBeInTheDocument();
+    await screen.findByTestId("player-row-local");
     const band = screen.getByTestId("wp-band");
-    expect(band).toHaveTextContent("bottom quartile @20m");
-    expect(screen.getByTestId("wp-value")).toHaveTextContent("28.2%");
+    expect(screen.getByTestId("wp-value")).toHaveTextContent("—");
+    expect(band).not.toHaveTextContent(/bottom quartile|top quartile/i);
+    expect(band).not.toHaveTextContent(/\d+(?:\.\d+)?%/);
     expect(screen.getByTestId("bridge-status")).toHaveTextContent(":2999 · 1s poll");
   });
 
@@ -269,6 +274,26 @@ describe("LiveMatchPage — Findings Pack version parity", () => {
     });
     expect(screen.getByText("Findings Pack v1")).toBeInTheDocument();
     expect(api.pack).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps loading state dash-only with unavailable live probability copy", async () => {
+    vi.mocked(api.pack).mockReturnValueOnce(new Promise<FindingsPack>(() => {}));
+    renderPage();
+    const band = await screen.findByTestId("wp-band");
+    expect(screen.getByTestId("wp-value")).toHaveTextContent("—");
+    expect(band).toHaveTextContent("compatible live input");
+    expect(band).not.toHaveTextContent(/bottom quartile|top quartile|\d+(?:\.\d+)?%/i);
+    expect(band).not.toHaveTextContent(/v\d/);
+  });
+
+  it("keeps pack errors bounded while the probability card stays suppressed", async () => {
+    vi.mocked(api.pack).mockRejectedValueOnce(new Error("sensitive pack detail"));
+    renderPage();
+    expect(await screen.findByText("The Findings Pack is unavailable.")).toBeInTheDocument();
+    const band = screen.getByTestId("wp-band");
+    expect(screen.getByTestId("wp-value")).toHaveTextContent("—");
+    expect(band).toHaveTextContent("compatible live input");
+    expect(band).not.toHaveTextContent(/sensitive pack detail|bottom quartile|top quartile|\d+(?:\.\d+)?%/i);
   });
 
   it("suppresses version claims when a successful pack response has no version", async () => {
