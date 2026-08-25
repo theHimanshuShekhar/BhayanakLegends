@@ -34,10 +34,12 @@ export function WinProbabilityCard({
   pack,
   clockS,
   active,
+  packVersion,
 }: {
   pack: FindingsPack | undefined;
   clockS: number;
   active: boolean;
+  packVersion: string | null;
 }) {
   const bucket = nearestBucket(pack, clockS);
   const wr = active && bucket ? bucket.win_rate : null;
@@ -59,7 +61,7 @@ export function WinProbabilityCard({
             color: "var(--color-dim)",
           }}
         >
-          WIN PROBABILITY · FINDINGS PACK V1
+          WIN PROBABILITY · FINDINGS PACK{packVersion ? ` ${packVersion}` : ""}
         </span>
         <span
           className="mono-n"

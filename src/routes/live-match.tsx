@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { actionableErrorMessage, api } from "../api/client";
 import { useGameClock, useGameClockSource } from "../api/clock";
@@ -42,9 +43,17 @@ function GameClockDisplay() {
   );
 }
 
-function LiveWinProbabilityCard({ pack, active }: { pack: FindingsPack | undefined; active: boolean }) {
+function LiveWinProbabilityCard({
+  pack,
+  active,
+  packVersion,
+}: {
+  pack: FindingsPack | undefined;
+  active: boolean;
+  packVersion: string | null;
+}) {
   const clockS = useGameClock();
-  return <WinProbabilityCard pack={pack} clockS={clockS} active={active} />;
+  return <WinProbabilityCard pack={pack} clockS={clockS} active={active} packVersion={packVersion} />;
 }
 
 function findLocalPlayer(snapshot: InGameSnapshot | undefined): PlayerLive | null {
@@ -57,15 +66,34 @@ export function LiveMatchPage() {
   const queryClient = useQueryClient();
   const ingameQuery = useLiveIngame();
   const packQuery = useQuery({ queryKey: ["pack"], queryFn: api.pack });
+  const [activePackVersion, setActivePackVersion] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!packQuery.isSuccess) return;
+    const version = packQuery.data?.pack_version;
+    setActivePackVersion(typeof version === "string" && version.trim().length > 0 ? version : null);
+  }, [packQuery.data, packQuery.isSuccess]);
+
+  const renderPack =
+    activePackVersion !== null && packQuery.data?.pack_version === activePackVersion ? packQuery.data : undefined;
 
   useEvents((msg) => {
     if (msg.type === "live.state") {
       queryClient.setQueryData(["live-ingame"], msg.data);
     }
+    if (msg.type === "hello") {
+      const version = msg.data.pack_version;
+      if (version !== null && (typeof version !== "string" || version.trim().length === 0)) return;
+      setActivePackVersion(version);
+    }
     if (msg.type === "pack.updated") {
+      if (!Number.isInteger(msg.data.schema_version)) return;
+      if (typeof msg.data.pack_version !== "string" || msg.data.pack_version.trim().length === 0) return;
+      setActivePackVersion(msg.data.pack_version);
       void queryClient.invalidateQueries({ queryKey: ["pack"] });
     }
   });
+
 
   const ingame = ingameQuery.data;
   const active = !!ingame?.active;
@@ -125,7 +153,7 @@ export function LiveMatchPage() {
           style={{ background: "var(--color-info-low)", color: "#cfe3f9", boxShadow: "var(--shadow-z1)" }}
         >
           <span style={{ width: 6, height: 6, borderRadius: 999, background: "var(--color-info)" }} />
-          Findings Pack v1
+          Findings Pack{activePackVersion ? ` ${activePackVersion}` : ""}
         </div>
         <GameClockDisplay />
       </div>
@@ -155,13 +183,13 @@ export function LiveMatchPage() {
         <div style={{ display: "flex", flexDirection: "column", gap: 10, minHeight: 0 }}>
           <ActivePlayerCard player={findLocalPlayer(ingame)} />
           <CheatSheetCard />
-          <RightNowCard pack={packQuery.data} />
+          <RightNowCard pack={renderPack} />
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
-          <LiveWinProbabilityCard pack={packQuery.data} active={active} />
+          <LiveWinProbabilityCard pack={renderPack} active={active} packVersion={activePackVersion} />
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <TeamVsTeamCard pack={packQuery.data} />
+            <TeamVsTeamCard pack={renderPack} />
             <EventFeedCard events={ingame?.events ?? []} />
           </div>
           <ItemValueCard />
@@ -169,7 +197,7 @@ export function LiveMatchPage() {
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
           <DeadNowCard />
-          <ObjectivesCard pack={packQuery.data} />
+          <ObjectivesCard pack={renderPack} />
           <EnemySpellsCard />
         </div>
       </div>

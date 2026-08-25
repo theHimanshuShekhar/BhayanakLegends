@@ -131,6 +131,43 @@ describe("shared SSE owner", () => {
     ).toBe("champselect.state");
   });
 
+  it("retains valid pack.updated versions and rejects malformed version fields", () => {
+    const valid = parseSseMessage({
+      type: "pack.updated",
+      ts: "2026-08-24T00:00:00Z",
+      data: { schema_version: 1, pack_version: "v2" },
+    });
+    expect(valid).toEqual({
+      type: "pack.updated",
+      ts: "2026-08-24T00:00:00Z",
+      data: { schema_version: 1, pack_version: "v2" },
+    });
+
+    for (const data of [
+      { schema_version: 1 },
+      { schema_version: 1, pack_version: "" },
+      { schema_version: 1, pack_version: "   " },
+      { schema_version: 1, pack_version: 42 },
+      { schema_version: 1.5, pack_version: "v2" },
+      { schema_version: Number.NaN, pack_version: "v2" },
+      { schema_version: Number.POSITIVE_INFINITY, pack_version: "v2" },
+    ]) {
+      expect(parseSseMessage({ type: "pack.updated", ts: "now", data })).toBeNull();
+    }
+
+    expect(
+      parseSseMessage({
+        type: "hello",
+        ts: "now",
+        data: { app_version: "dev", pack_version: null },
+      }),
+    ).toEqual({
+      type: "hello",
+      ts: "now",
+      data: { app_version: "dev", pack_version: null },
+    });
+  });
+
   it("opens one source for multiple subscribers and fans out validated events", async () => {
     const received: SseMessage[] = [];
     render(

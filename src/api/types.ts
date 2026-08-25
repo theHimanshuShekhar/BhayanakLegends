@@ -74,6 +74,7 @@ export type PackProvenance = Record<
 
 export interface FindingsPack {
   schema_version: number;
+  pack_version: string;
   generated_at: string;
   provenance: PackProvenance;
   dataset: { matches: number; player_games: number; patches: string[] };
