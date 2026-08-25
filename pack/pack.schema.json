@@ -8,6 +8,7 @@
   "required": [
     "schema_version",
     "generated_at",
+    "comeback_feature_contract",
     "provenance",
     "dataset",
     "findings",
@@ -43,6 +44,15 @@
     "schema_version": { "const": 1 },
     "pack_version": { "type": "string", "minLength": 1 },
     "generated_at": { "type": "string", "format": "date-time", "description": "UTC ISO-8601 build timestamp" },
+    "comeback_feature_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["feature", "feature_contract_version"],
+      "properties": {
+        "feature": { "type": "string", "minLength": 1 },
+        "feature_contract_version": { "type": "string", "minLength": 1 }
+      }
+    },
     "dataset": {
       "type": "object",
       "additionalProperties": true,
@@ -114,13 +124,15 @@
     },
     "comeback_odds": {
       "type": "array",
-      "minItems": 1,
+      "minItems": 3,
+      "maxItems": 3,
+      "description": "Ordered, mildest-to-most-severe negative gold deficits at 15 minutes.",
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": ["gold_deficit_at_15", "win_rate"],
         "properties": {
-          "gold_deficit_at_15": { "type": "integer", "maximum": 0 },
+          "gold_deficit_at_15": { "type": "integer", "maximum": -1 },
           "win_rate": { "type": "number", "minimum": 0, "maximum": 1 }
         }
       }
@@ -236,16 +248,39 @@
     },
     "checkpoints": {
       "type": "array",
-      "minItems": 1,
+      "minItems": 2,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "description": "Exactly two categorical Findings Pack population cohorts at 20 minutes; these are not timeline points.",
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": ["gold_diff_bucket", "win_rate"],
         "properties": {
-          "gold_diff_bucket": { "type": "string", "minLength": 1 },
+          "gold_diff_bucket": {
+            "enum": ["bottom_quartile_@20m", "top_quartile_@20m"]
+          },
           "win_rate": { "type": "number", "minimum": 0, "maximum": 1 }
         }
-      }
+      },
+      "allOf": [
+        {
+          "contains": {
+            "type": "object",
+            "properties": { "gold_diff_bucket": { "const": "bottom_quartile_@20m" } }
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "type": "object",
+            "properties": { "gold_diff_bucket": { "const": "top_quartile_@20m" } }
+          },
+          "minContains": 1,
+          "maxContains": 1
+        }
+      ]
     }
   },
   "$defs": {

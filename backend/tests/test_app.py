@@ -91,6 +91,32 @@ def test_pack_load_failure_returns_same_bounded_503(client, monkeypatch):
     assert response.json() == {"detail": "Findings Pack validation failed"}
     assert "raw pack" not in response.text
 
+@pytest.mark.parametrize("pack_body", [None, "{not-json"])
+def test_pack_endpoint_returns_bounded_503_for_missing_or_malformed_pack(
+    tmp_path: Path, pack_body: str | None
+):
+    pack_dir = tmp_path / "pack"
+    pack_dir.mkdir()
+    if pack_body is not None:
+        (pack_dir / "findings-pack.v1.json").write_text(pack_body)
+    config = SidecarConfig(
+        port=23110,
+        token="local-sidecar-development-token-32chars",
+        data_dir=tmp_path / "data",
+        pack_dir=pack_dir,
+    )
+    app = create_app(config, credential_store=InMemoryCredentialStore())
+
+    with TestClient(app) as test_client:
+        response = test_client.get("/pack", headers=AUTH)
+
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert "traceback" not in detail.lower()
+    assert "findings pack" in detail.lower()
+    if pack_body is not None:
+        assert pack_body not in response.text
+
 def test_requires_token(client):
     valid_host = {"Host": "127.0.0.1:23110"}
     assert client.get("/settings", headers=valid_host).status_code == 401

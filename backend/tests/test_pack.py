@@ -13,6 +13,9 @@ from pydantic import ValidationError as PydanticValidationError
 from bhayanak_legends.models import FindingsPack
 import pytest
 from jsonschema import Draft202012Validator, ValidationError
+from pydantic import ValidationError as PydanticValidationError
+
+from bhayanak_legends.models import FindingsPack
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PACK_DIR = REPO_ROOT / "pack"
@@ -68,6 +71,90 @@ def test_pack_matches_schema_and_strict_model():
     model = FindingsPack.model_validate(PACK)
 
     assert model.pack_version == "v1"
+
+
+def test_pack_declares_canonical_comeback_input():
+    assert PACK["comeback_feature_contract"] == {
+        "feature": "gold_diff_15",
+        "feature_contract_version": "loltrends-parity-v1",
+    }
+
+
+def test_schema_requires_comeback_contract_declaration():
+    broken = copy.deepcopy(PACK)
+    del broken["comeback_feature_contract"]
+
+    with pytest.raises(ValidationError):
+        Draft202012Validator(SCHEMA).validate(broken)
+
+
+def test_mismatched_comeback_contract_is_valid_but_incompatible():
+    broken = copy.deepcopy(PACK)
+    broken["comeback_feature_contract"]["feature"] = "gold_diff_20"
+
+    validated = FindingsPack.model_validate(broken)
+
+    assert validated.comeback_feature_contract.is_compatible() is False
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        [],
+        [{"gold_diff_bucket": "bottom_quartile_@20m", "win_rate": 0.282}],
+        [
+            {"gold_diff_bucket": "bottom_quartile_@20m", "win_rate": 0.282},
+            {"gold_diff_bucket": "top_quartile_@20m", "win_rate": 0.718},
+            {"gold_diff_bucket": "top_quartile_@20m", "win_rate": 0.718},
+        ],
+        [
+            {"gold_diff_bucket": "bottom_quartile_@20m", "win_rate": 0.282},
+            {"gold_diff_bucket": "bottom_quartile_@20m", "win_rate": 0.3},
+        ],
+        [
+            {"gold_diff_bucket": "bottom_quartile_@15m", "win_rate": 0.282},
+            {"gold_diff_bucket": "top_quartile_@20m", "win_rate": 0.718},
+        ],
+    ],
+)
+def test_schema_rejects_non_normative_checkpoint_rows(rows):
+    broken = copy.deepcopy(PACK)
+    broken["checkpoints"] = rows
+    with pytest.raises(ValidationError):
+        Draft202012Validator(SCHEMA).validate(broken)
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        [{"gold_deficit_at_15": -2000, "win_rate": 0.276}],
+        [
+            {"gold_deficit_at_15": -2000, "win_rate": 0.276},
+            {"gold_deficit_at_15": -2000, "win_rate": 0.276},
+            {"gold_deficit_at_15": -7000, "win_rate": 0.03},
+        ],
+        [
+            {"gold_deficit_at_15": -2000, "win_rate": 0.276},
+            {"gold_deficit_at_15": -7000, "win_rate": 0.03},
+            {"gold_deficit_at_15": -5000, "win_rate": 0.076},
+        ],
+        [
+            {"gold_deficit_at_15": 0, "win_rate": 0.276},
+            {"gold_deficit_at_15": -5000, "win_rate": 0.076},
+            {"gold_deficit_at_15": -7000, "win_rate": 0.03},
+        ],
+        [
+            {"gold_deficit_at_15": -2000.5, "win_rate": 0.276},
+            {"gold_deficit_at_15": -5000, "win_rate": 0.076},
+            {"gold_deficit_at_15": -7000, "win_rate": 0.03},
+        ],
+    ],
+)
+def test_pack_model_rejects_malformed_comeback_rows(rows):
+    broken = copy.deepcopy(PACK)
+    broken["comeback_odds"] = rows
+    with pytest.raises(PydanticValidationError):
+        FindingsPack.model_validate(broken)
 
 
 NUMERIC_TABLES = (
@@ -153,6 +240,11 @@ def test_generator_reproduces_from_declared_feature_store(tmp_path):
             text=True,
         )
         generated = json.loads((output_dir / "findings-pack.v1.json").read_text())
+        Draft202012Validator(SCHEMA).validate(generated)
+        assert generated["comeback_feature_contract"] == {
+            "feature": "gold_diff_15",
+            "feature_contract_version": "loltrends-parity-v1",
+        }
         generated.pop("generated_at")
         outputs.append(generated)
     assert outputs[0] == outputs[1]

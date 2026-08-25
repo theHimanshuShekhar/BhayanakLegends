@@ -246,6 +246,38 @@ interface PackProvenance {
 }
 ```
 
+The root pack also declares the exact Personal History input used by the
+comeback table. It is a contract declaration, not an inferred match on a
+similarly named field:
+
+```ts
+interface ComebackFeatureContract {
+  feature: "gold_diff_15";
+  feature_contract_version: "loltrends-parity-v1";
+}
+```
+
+`checkpoints` is exactly two Findings Pack population cohorts: one
+`bottom_quartile_@20m` row and one `top_quartile_@20m` row, with rates `0.282`
+and `0.718` respectively. The `@20m` suffix names the source feature
+checkpoint; these categorical quartiles are not timeline points, numeric
+boundaries, or a time series. A live lookup additionally requires an exact
+live observation, source quartile cut points, and a compatible pack
+feature/model contract; `clock_s` alone is insufficient, so incomplete inputs
+must suppress the number.
+
+`comeback_odds` is an ordered set of distinct, finite, strictly negative
+integer anchors at the canonical `gold_diff_15` checkpoint. Rows are ordered
+from the mildest to the most severe deficit. The shipped anchors are `-2000`,
+`-5000`, and `-7000`, with rates `0.276`, `0.076`, and `0.03`. Its supported
+domain begins at the mildest anchor and ends at the most severe anchor.
+Internal bucket boundaries are arithmetic midpoints; an exact midpoint
+belongs to the more severe anchor. Values outside the domain, non-deficits,
+missing Personal History values, or a missing/mismatched
+`comeback_feature_contract` are suppression conditions for the post-game
+consumer (see #76), rather than triggers for fallback, interpolation, or
+extrapolation.
+
 `pack/findings-pack.v1.json` is generated only by
 `backend/tools/build_pack.py`; builds require an explicit `--feature-store`
 path. The generator hashes the declared Feature Store inputs and its own
