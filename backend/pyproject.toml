@@ -10,6 +10,7 @@ dependencies = [
     "pydantic-settings>=2.3",
     "jsonschema>=4.22",
     "httpx>=0.27",
+    "cryptography>=44",
 ]
 
 [dependency-groups]
