@@ -202,7 +202,7 @@ describe("ChampSelectPage — active session", () => {
     renderPage();
     await screen.findByTestId("cs-ban-strip");
     const side = screen.getByTestId("cs-your-side");
-    expect(side).toHaveTextContent("Xayah · SacredButtholio");
+    expect(side).toHaveTextContent("Xayah · FixturePlayer03");
     expect(side).toHaveTextContent("YOU");
 
     expect(screen.getByTestId("your-lane-champion")).toHaveTextContent("Xayah");

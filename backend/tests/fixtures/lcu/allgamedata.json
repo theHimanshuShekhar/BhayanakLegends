@@ -8,12 +8,12 @@
     "queue": 420
   },
   "activePlayer": {
-    "summonerName": "SacredButtholio",
+    "summonerName": "FixturePlayer03",
     "championName": "Viktor"
   },
   "allPlayers": [
     {
-      "summonerName": "AllyTop",
+      "summonerName": "FixturePlayer01",
       "championName": "Ornn",
       "team": "ORDER",
       "level": 11,
@@ -22,7 +22,7 @@
       "items": [ { "itemID": 3065, "count": 1, "slot": 0 }, { "itemID": 2003, "count": 2, "slot": 6 } ]
     },
     {
-      "summonerName": "AllyJungle",
+      "summonerName": "FixturePlayer02",
       "championName": "Vi",
       "team": "ORDER",
       "level": 12,
@@ -31,7 +31,7 @@
       "items": [ { "itemID": 3053, "count": 1, "slot": 0 } ]
     },
     {
-      "summonerName": "SacredButtholio",
+      "summonerName": "FixturePlayer03",
       "championName": "Viktor",
       "team": "ORDER",
       "level": 12,
@@ -44,7 +44,7 @@
       ]
     },
     {
-      "summonerName": "AllyBot",
+      "summonerName": "FixturePlayer04",
       "championName": "Xayah",
       "team": "ORDER",
       "level": 12,
@@ -53,7 +53,7 @@
       "items": [ { "itemID": 3046, "count": 1, "slot": 0 } ]
     },
     {
-      "summonerName": "AllySupport",
+      "summonerName": "FixturePlayer05",
       "championName": "Leona",
       "team": "ORDER",
       "level": 10,
@@ -62,7 +62,7 @@
       "items": [ { "itemID": 3190, "count": 1, "slot": 0 }, { "itemID": 3340, "count": 1, "slot": 7 } ]
     },
     {
-      "summonerName": "HiddenEnemy",
+      "summonerName": "FixturePlayer06",
       "championName": "Camille",
       "team": "CHAOS",
       "level": 12,
@@ -71,7 +71,7 @@
       "items": [ { "itemID": 3142, "count": 1, "slot": 0 } ]
     },
     {
-      "summonerName": "EnemyJungle",
+      "summonerName": "FixturePlayer07",
       "championName": "Lee Sin",
       "team": "CHAOS",
       "level": 11,
@@ -80,7 +80,7 @@
       "items": []
     },
     {
-      "summonerName": "EnemyMid",
+      "summonerName": "FixturePlayer08",
       "championName": "Ahri",
       "team": "CHAOS",
       "level": 11,
@@ -89,7 +89,7 @@
       "items": [ { "itemID": 3157, "count": 1, "slot": 0 } ]
     },
     {
-      "summonerName": "EnemyADC",
+      "summonerName": "FixturePlayer09",
       "championName": "Ashe",
       "team": "CHAOS",
       "level": 11,
@@ -98,7 +98,7 @@
       "items": [ { "itemID": 3072, "count": 1, "slot": 0 } ]
     },
     {
-      "summonerName": "EnemySupport",
+      "summonerName": "FixturePlayer10",
       "championName": "Thresh",
       "team": "CHAOS",
       "level": 10,
@@ -123,9 +123,9 @@
       {
         "EventName": "ChampionKill",
         "EventTime": 700.14,
-        "KillerName": "SacredButtholio",
-        "VictimName": "EnemyADC",
-        "Assisting": [ "AllyBot", "AllySupport" ]
+        "KillerName": "FixturePlayer03",
+        "VictimName": "FixturePlayer09",
+        "Assisting": [ "FixturePlayer04", "FixturePlayer05" ]
       },
       {
         "EventName": "TurretKilled",

@@ -8,7 +8,7 @@
       "championPickIntent": 0,
       "spell1Id": 4,
       "spell2Id": 12,
-      "summonerName": "AllyTop"
+      "summonerName": "FixturePlayer01"
     },
     {
       "cellId": 1,
@@ -16,7 +16,7 @@
       "championPickIntent": 117,
       "spell1Id": 0,
       "spell2Id": 0,
-      "summonerName": "AllyJungle"
+      "summonerName": "FixturePlayer02"
     },
     {
       "cellId": 2,
@@ -24,7 +24,7 @@
       "championPickIntent": 1,
       "spell1Id": 4,
       "spell2Id": 14,
-      "summonerName": "SacredButtholio"
+      "summonerName": "FixturePlayer03"
     },
     {
       "cellId": 3,
@@ -32,7 +32,7 @@
       "championPickIntent": 0,
       "spell1Id": 0,
       "spell2Id": 0,
-      "summonerName": "AllyBot"
+      "summonerName": "FixturePlayer04"
     },
     {
       "cellId": 4,
@@ -40,7 +40,7 @@
       "championPickIntent": 0,
       "spell1Id": 7,
       "spell2Id": 4,
-      "summonerName": "AllySupport"
+      "summonerName": "FixturePlayer05"
     }
   ],
   "theirTeam": [
@@ -50,7 +50,7 @@
       "championPickIntent": 0,
       "spell1Id": 4,
       "spell2Id": 6,
-      "summonerName": "HiddenEnemy"
+      "summonerName": "FixturePlayer06"
     },
     {
       "cellId": 6,
@@ -58,7 +58,7 @@
       "championPickIntent": 0,
       "spell1Id": 4,
       "spell2Id": 11,
-      "summonerName": "HiddenEnemyTwo"
+      "summonerName": "FixturePlayer07"
     },
     {
       "cellId": 7,
@@ -66,7 +66,7 @@
       "championPickIntent": 34,
       "spell1Id": 0,
       "spell2Id": 0,
-      "summonerName": "HiddenEnemyThree"
+      "summonerName": "FixturePlayer08"
     },
     {
       "cellId": 8,
@@ -74,7 +74,7 @@
       "championPickIntent": 0,
       "spell1Id": 0,
       "spell2Id": 0,
-      "summonerName": "HiddenEnemyFour"
+      "summonerName": "FixturePlayer09"
     },
     {
       "cellId": 9,
@@ -82,7 +82,7 @@
       "championPickIntent": 0,
       "spell1Id": 7,
       "spell2Id": 21,
-      "summonerName": "HiddenEnemyFive"
+      "summonerName": "FixturePlayer10"
     }
   ],
   "bans": {

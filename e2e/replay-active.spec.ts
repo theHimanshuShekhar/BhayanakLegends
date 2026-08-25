@@ -31,14 +31,14 @@ test.describe("active Live Companion replay", () => {
     await expect(page.getByTestId("cs-your-side")).toContainText("Annie");
     await expect(page.getByTestId("cs-your-side")).toContainText("YOU");
     await expect(page.getByTestId("cs-your-side")).toContainText("Miss Fortune");
-    await expect(page.getByText("HiddenEnemy", { exact: false })).toHaveCount(0);
+    await expect(page.getByText("FixturePlayer06", { exact: false })).toHaveCount(0);
 
     const sessionResponse = await request.get(`${SIDECAR}/live/session`, { headers: AUTH });
     expect(sessionResponse.ok()).toBeTruthy();
     const session = await sessionResponse.json();
     expect(session.active).toBe(true);
     expect(session.enemy.every((cell: { name: string | null }) => cell.name === null)).toBe(true);
-    expect(JSON.stringify(session)).not.toContain("HiddenEnemy");
+    expect(JSON.stringify(session)).not.toContain("FixturePlayer06");
 
     await setScenario(request, LCU, "champ-select-update");
     await expect(page.getByTestId("cs-your-side")).toContainText("Miss Fortune");

@@ -36,11 +36,11 @@ export const champSelectSession: ChampSelectSnapshot = {
   ],
   bans_enemy: [{ champion_id: 412, champion: null }],
   ally: [
-    { cell_id: 0, champion_id: 22, champion: "Lucian", name: "AllyTop", is_local: false, state: "picked" },
-    { cell_id: 1, champion_id: 121, champion: null, name: "AllyJungle", is_local: false, state: "intent" },
-    { cell_id: 2, champion_id: 498, champion: "Xayah", name: "SacredButtholio", is_local: true, state: "picked" },
+    { cell_id: 0, champion_id: 22, champion: "Lucian", name: "FixturePlayer01", is_local: false, state: "picked" },
+    { cell_id: 1, champion_id: 121, champion: null, name: "FixturePlayer02", is_local: false, state: "intent" },
+    { cell_id: 2, champion_id: 498, champion: "Xayah", name: "FixturePlayer03", is_local: true, state: "picked" },
     { cell_id: 3, champion_id: 0, champion: null, name: null, is_local: false, state: "none" },
-    { cell_id: 4, champion_id: 34, champion: "Amumu", name: "AllySupport", is_local: false, state: "intent" },
+    { cell_id: 4, champion_id: 34, champion: "Amumu", name: "FixturePlayer05", is_local: false, state: "intent" },
   ],
   enemy: [
     { cell_id: 5, champion_id: 238, champion: "Camille", name: null, state: "picked" },
@@ -66,22 +66,22 @@ export const ingameSnapshot: InGameSnapshot = {
   active: true,
   clock_s: 1254,
   mode: "CLASSIC",
-  local_summoner: "SacredButtholio",
+  local_summoner: "FixturePlayer03",
   local_champion: "Viktor",
   teams: {
     order: [
-      { summoner: "AllyTop", champion: "Ornn", level: 11, kills: 2, deaths: 3, assists: 4, cs: 178, ward_score: 0.8, items: [] },
-      { summoner: "AllyJungle", champion: "Vi", level: 12, kills: 3, deaths: 2, assists: 6, cs: 141, ward_score: 1.1, items: [] },
-      { summoner: "SacredButtholio", champion: "Viktor", level: 12, kills: 4, deaths: 2, assists: 7, cs: 213, ward_score: 1.42, items: [] },
-      { summoner: "AllyBot", champion: "Xayah", level: 12, kills: 5, deaths: 1, assists: 3, cs: 236, ward_score: 0.4, items: [] },
-      { summoner: "AllySupport", champion: "Leona", level: 10, kills: 1, deaths: 4, assists: 12, cs: 32, ward_score: 2.6, items: [] },
+      { summoner: "FixturePlayer01", champion: "Ornn", level: 11, kills: 2, deaths: 3, assists: 4, cs: 178, ward_score: 0.8, items: [] },
+      { summoner: "FixturePlayer02", champion: "Vi", level: 12, kills: 3, deaths: 2, assists: 6, cs: 141, ward_score: 1.1, items: [] },
+      { summoner: "FixturePlayer03", champion: "Viktor", level: 12, kills: 4, deaths: 2, assists: 7, cs: 213, ward_score: 1.42, items: [] },
+      { summoner: "FixturePlayer04", champion: "Xayah", level: 12, kills: 5, deaths: 1, assists: 3, cs: 236, ward_score: 0.4, items: [] },
+      { summoner: "FixturePlayer05", champion: "Leona", level: 10, kills: 1, deaths: 4, assists: 12, cs: 32, ward_score: 2.6, items: [] },
     ],
     chaos: [
-      { summoner: "HiddenEnemy", champion: "Camille", level: 12, kills: 3, deaths: 2, assists: 2, cs: 195, ward_score: 0.5, items: [] },
-      { summoner: "EnemyJungle", champion: "Lee Sin", level: 11, kills: 2, deaths: 3, assists: 4, cs: 128, ward_score: 0.9, items: [] },
-      { summoner: "EnemyMid", champion: "Ahri", level: 11, kills: 2, deaths: 4, assists: 3, cs: 187, ward_score: 0.7, items: [] },
-      { summoner: "EnemyADC", champion: "Ashe", level: 11, kills: 1, deaths: 5, assists: 2, cs: 201, ward_score: 0.3, items: [] },
-      { summoner: "EnemySupport", champion: "Thresh", level: 10, kills: 0, deaths: 4, assists: 8, cs: 28, ward_score: 2.1, items: [] },
+      { summoner: "FixturePlayer06", champion: "Camille", level: 12, kills: 3, deaths: 2, assists: 2, cs: 195, ward_score: 0.5, items: [] },
+      { summoner: "FixturePlayer07", champion: "Lee Sin", level: 11, kills: 2, deaths: 3, assists: 4, cs: 128, ward_score: 0.9, items: [] },
+      { summoner: "FixturePlayer08", champion: "Ahri", level: 11, kills: 2, deaths: 4, assists: 3, cs: 187, ward_score: 0.7, items: [] },
+      { summoner: "FixturePlayer09", champion: "Ashe", level: 11, kills: 1, deaths: 5, assists: 2, cs: 201, ward_score: 0.3, items: [] },
+      { summoner: "FixturePlayer10", champion: "Thresh", level: 10, kills: 0, deaths: 4, assists: 8, cs: 28, ward_score: 2.1, items: [] },
     ],
   },
   events: [
@@ -89,7 +89,7 @@ export const ingameSnapshot: InGameSnapshot = {
     { name: "MinionsSpawning", t_s: 15.2, actor: null, victim: null, detail: null },
     { name: "FirstBrick", t_s: 310.48, actor: null, victim: null, detail: null },
     { name: "DragonKill", t_s: 612.9, actor: "Order", victim: null, detail: "Infernal" },
-    { name: "ChampionKill", t_s: 700.14, actor: "SacredButtholio", victim: "EnemyADC", detail: null },
+    { name: "ChampionKill", t_s: 700.14, actor: "FixturePlayer03", victim: "FixturePlayer09", detail: null },
     { name: "TurretKilled", t_s: 721.4, actor: "Order", victim: null, detail: null },
   ],
 };
@@ -110,7 +110,7 @@ export const ingameActive: LiveStatus = {
  * Enemy summoner names have no data path into the UI (LiveStatus carries no
  * roster). This string exists purely to assert nothing resembling it renders.
  */
-export const forbiddenEnemyName = "Gankruptcy-DADDY";
+export const forbiddenEnemyName = "FixturePlayer03-BL03";
 
 export function makePack(overrides: Partial<FindingsPack> = {}): FindingsPack {
   return {

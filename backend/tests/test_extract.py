@@ -4,7 +4,7 @@ from pathlib import Path
 from bhayanak_legends.extract import parse_checkpoints, parse_match
 
 FIXTURES = Path(__file__).parent / "fixtures"
-PUUID = "Pi3CECbTWk32o-z4uYe4fr1gH6OEVeex3PHDFcZj3L5tIjrCq3-lqccb0p6oyrUQ0kFJRO349UK9IQ"
+PUUID = "fixture-puuid-03"
 VALID_ROLES = {"TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"}
 
 

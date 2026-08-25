@@ -144,7 +144,7 @@ describe("LiveMatchPage — active game", () => {
   it("renders REAL player rows with summoner, champion, level, K/D/A, CS and ward score", async () => {
     renderPage();
     const localRow = await screen.findByTestId("player-row-local"); // highlighted
-    expect(localRow).toHaveTextContent("SacredButtholio");
+    expect(localRow).toHaveTextContent("FixturePlayer03");
     expect(localRow).toHaveTextContent("Viktor");
     expect(localRow).toHaveTextContent("12");
     expect(localRow).toHaveTextContent("4/2/7");
@@ -169,14 +169,14 @@ describe("LiveMatchPage — active game", () => {
     const feed = screen.getByTestId("event-feed");
     expect(feed).toHaveTextContent("6 events");
     expect(feed).toHaveTextContent("DragonKill · Infernal");
-    expect(feed).toHaveTextContent("SacredButtholio → EnemyADC");
+    expect(feed).toHaveTextContent("FixturePlayer03 → FixturePlayer09");
     expect(feed).toHaveTextContent("FirstBrick");
   });
 
   it("binds the active player panel to the local player's stats", async () => {
     renderPage();
     await screen.findByTestId("player-row-local");
-    expect(screen.getByTestId("active-player-sub")).toHaveTextContent("SacredButtholio · Viktor");
+    expect(screen.getByTestId("active-player-sub")).toHaveTextContent("FixturePlayer03 · Viktor");
     expect(screen.getByTestId("active-kda")).toHaveTextContent("4 / 2 / 7");
     expect(screen.getByTestId("active-stat-cs")).toHaveTextContent("213");
     expect(screen.getByTestId("active-stat-level")).toHaveTextContent("12");

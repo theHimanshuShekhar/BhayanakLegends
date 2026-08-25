@@ -430,7 +430,7 @@ def test_build_champ_select_snapshot_strips_enemy_names_and_maps_bans():
 
     local = next(cell for cell in snapshot.ally if cell.is_local)
     assert (local.cell_id, local.champion_id, local.champion, local.name, local.state) == (
-        2, 1, "Annie", "SacredButtholio", "picked",
+        2, 1, "Annie", "FixturePlayer03", "picked",
     )
     assert [cell.state for cell in snapshot.ally] == ["picked", "intent", "picked", "none", "picked"]
 
@@ -444,7 +444,7 @@ def test_build_champ_select_snapshot_strips_enemy_names_and_maps_bans():
         (22, "Lucian"),
     ]
     assert [cell.state for cell in snapshot.enemy] == ["picked", "picked", "intent", "none", "picked"]
-    assert "HiddenEnemy" not in json.dumps(snapshot.model_dump())
+    assert "FixturePlayer06" not in json.dumps(snapshot.model_dump())
 
 def test_champ_select_ban_rejects_obsolete_name_field():
     with pytest.raises(ValidationError):
@@ -466,13 +466,13 @@ def test_build_ingame_snapshot_maps_players_scores_items_events():
     assert snapshot.active is True
     assert snapshot.clock_s == pytest.approx(754.32)
     assert snapshot.mode == "CLASSIC"
-    assert snapshot.local_summoner == "SacredButtholio"
+    assert snapshot.local_summoner == "FixturePlayer03"
     assert snapshot.local_champion == "Viktor"
 
     order, chaos = snapshot.teams["order"], snapshot.teams["chaos"]
     assert len(order) == 5 and len(chaos) == 5
 
-    me = next(p for p in order if p.summoner == "SacredButtholio")
+    me = next(p for p in order if p.summoner == "FixturePlayer03")
     assert (me.champion, me.level, me.kills, me.deaths, me.assists) == ("Viktor", 12, 4, 2, 7)
     assert me.cs == 213  # scores.creepScore
     assert me.ward_score == pytest.approx(1.42)  # scores.wardScore
@@ -484,7 +484,7 @@ def test_build_ingame_snapshot_maps_players_scores_items_events():
     assert dragon[0].t_s == pytest.approx(612.9)
 
     kill = next(e for e in snapshot.events if e.name == "ChampionKill")
-    assert (kill.actor, kill.victim) == ("SacredButtholio", "EnemyADC")
+    assert (kill.actor, kill.victim) == ("FixturePlayer03", "FixturePlayer09")
 
     assert [e.name for e in snapshot.events][0] == "GameStart"  # newest last
     assert [e.t_s for e in snapshot.events] == sorted(e.t_s for e in snapshot.events)
@@ -564,8 +564,8 @@ async def test_idle_then_champ_select_then_in_game_transitions():
     snap = champ_frame["data"]
     assert snap["phase"] == "ChampSelect"
     assert snap["timer_sec"] == 23
-    assert any(c["is_local"] and c["name"] == "SacredButtholio" for c in snap["ally"])
-    assert "HiddenEnemy" not in json.dumps(snap)
+    assert any(c["is_local"] and c["name"] == "FixturePlayer03" for c in snap["ally"])
+    assert "FixturePlayer06" not in json.dumps(snap)
     assert status_frame["data"]["champ_select"]["active"] is True
     assert lcu.session_calls == 1
     assert ingame.calls == 0  # :2999 untouched while drafting
@@ -593,7 +593,7 @@ async def test_in_game_window_polls_allgamedata_and_publishes_rich_state():
     live_state = next(f["data"] for f in frames if f["type"] == "live.state")
     assert live_state["active"] is True
     assert live_state["mode"] == "CLASSIC"
-    assert live_state["local_summoner"] == "SacredButtholio"
+    assert live_state["local_summoner"] == "FixturePlayer03"
     assert live_state["local_champion"] == "Viktor"
     assert len(live_state["teams"]["order"]) == 5
     assert any(e["name"] == "DragonKill" and e["detail"] == "Infernal" for e in live_state["events"])
@@ -665,7 +665,7 @@ class StubLiveService:
             "active": True,
             "clock_s": 754.32,
             "mode": "CLASSIC",
-            "local_summoner": "SacredButtholio",
+            "local_summoner": "FixturePlayer03",
             "local_champion": "Viktor",
             "teams": {"order": [], "chaos": []},
             "events": [],

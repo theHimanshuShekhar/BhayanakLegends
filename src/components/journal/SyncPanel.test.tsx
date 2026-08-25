@@ -42,7 +42,7 @@ function renderPanel() {
   );
 }
 
-const settings = { riot_id: "SacredButtholio#OOF", region_route: "sea", has_key: false, auto_sync: true } as const;
+const settings = { riot_id: "FixturePlayer03#BL03", region_route: "sea", has_key: false, auto_sync: true } as const;
 const idle = {
   state: "idle" as const,
   mode: "era_first" as const,
@@ -106,7 +106,7 @@ describe("SyncPanel", () => {
 
     await waitFor(() => expect(api.updateSettings).toHaveBeenCalledTimes(1));
     expect(api.updateSettings).toHaveBeenCalledWith({
-      riot_id: "SacredButtholio#OOF",
+      riot_id: "FixturePlayer03#BL03",
       region_route: "sea",
       auto_sync: true,
       riot_key: "RGAPI-test",
