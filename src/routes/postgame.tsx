@@ -8,6 +8,7 @@ import {
   SurrenderReadCard,
   VerdictHeader,
 } from "../components/postgame";
+import { PageHeader } from "../components/Layout";
 
 export function PostGamePage() {
   const query = usePostgameLatest();
@@ -25,9 +26,7 @@ export function PostGamePage() {
         background: "radial-gradient(120% 80% at 20% 0%,#2a1520,var(--color-bg) 55%)",
       }}
     >
-      <div className="kicker" style={{ marginBottom: 10 }}>
-        post-game review · the 30 seconds after the game
-      </div>
+      <PageHeader kicker="post-game review · the 30 seconds after the game" title="Post-game Review" />
       {query.isError && (
         <div style={{ marginBottom: 10, fontSize: 11, color: "var(--color-amber)" }}>
           {actionableErrorMessage(query.error)}

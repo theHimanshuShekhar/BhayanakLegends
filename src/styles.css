@@ -108,7 +108,7 @@ body {
 /* Motion: one authored entrance per route change, live-dot pulse, bar easing.
    Everything below is skipped when the user prefers reduced motion. */
 @media (prefers-reduced-motion: no-preference) {
-  .rc-screen {
+  .rc-route {
     animation: bl-screen-enter 0.18s ease-out;
   }
 
@@ -118,6 +118,12 @@ body {
 
   .bl-width {
     transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bl-check {
+    transition: none;
   }
 }
 

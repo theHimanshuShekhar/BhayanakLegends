@@ -1,4 +1,4 @@
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useRef } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useEvents } from "../api/sse";
 import { LiveCompanion } from "./LiveCompanion";
@@ -46,26 +46,40 @@ export function ConnectionStatus({ connected }: { connected: boolean }) {
 export function Layout({ children }: { children: ReactNode }) {
   const connected = useEvents();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const initialPathname = useRef(pathname);
+  const screenRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (pathname === initialPathname.current) return;
+    const screen = screenRef.current;
+    if (!screen) return;
+
+    screen.scrollTop = 0;
+    screen.querySelector<HTMLElement>("h1")?.focus({ preventScroll: true });
+  }, [pathname]);
 
   return (
     <div className="rc">
       <header className="rc-topbar">
-        <div
-          style={{
-            width: 14,
-            height: 14,
-            borderRadius: 5,
-            background: "linear-gradient(140deg,var(--color-accent),var(--color-accent-low))",
-            boxShadow: "0 2px 6px rgba(145,132,217,.5)",
-          }}
-        />
-        <span style={{ font: "700 11.5px var(--font-mono)", letterSpacing: ".06em" }}>
-          BHAYANAK LEGENDS
-        </span>
-        <span style={{ fontSize: 10.5, color: "var(--color-dimmer)" }}>
-          friends-first · 26k games
-        </span>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+        <div className="rc-topbar-brand">
+          <div
+            aria-hidden="true"
+            style={{
+              width: 14,
+              height: 14,
+              borderRadius: 5,
+              background: "linear-gradient(140deg,var(--color-accent),var(--color-accent-low))",
+              boxShadow: "0 2px 6px rgba(145,132,217,.5)",
+            }}
+          />
+          <span style={{ font: "700 11.5px var(--font-mono)", letterSpacing: ".06em" }}>
+            BHAYANAK LEGENDS
+          </span>
+          <span className="rc-topbar-tagline" style={{ fontSize: 10.5, color: "var(--color-dimmer)" }}>
+            friends-first · 26k games
+          </span>
+        </div>
+        <div className="rc-topbar-status">
           <span
             data-testid="sidecar-dot"
             title={connected ? "sidecar connected" : "sidecar offline"}
@@ -82,35 +96,37 @@ export function Layout({ children }: { children: ReactNode }) {
       </header>
 
       <nav className="rc-navbar" aria-label="Primary">
-        {NAV.map((item) => {
-          const active = pathname === item.to || (item.to === "/live" && pathname === "/");
-          return (
-            <Link
-              key={item.to}
-              to={item.to}
-              data-testid={`nav-${item.to.slice(1)}`}
-              className="pill"
-              aria-current={active ? "page" : undefined}
-              style={
-                active
-                  ? {
-                      background: "var(--color-accent)",
-                      color: "#0e1020",
-                      boxShadow:
-                        "0 3px 0 var(--color-accent-low),0 8px 16px -6px rgba(145,132,217,.6)",
-                    }
-                  : {
-                      background: "var(--color-surface-2)",
-                      color: "var(--color-dim)",
-                      boxShadow: "var(--shadow-z1)",
-                    }
-              }
-            >
-              {item.label}
-            </Link>
-          );
-        })}
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 7 }}>
+        <div className="rc-nav-links">
+          {NAV.map((item) => {
+            const active = pathname === item.to || (item.to === "/live" && pathname === "/");
+            return (
+              <Link
+                key={item.to}
+                to={item.to}
+                data-testid={`nav-${item.to.slice(1)}`}
+                className="pill"
+                aria-current={active ? "page" : undefined}
+                style={
+                  active
+                    ? {
+                        background: "var(--color-accent)",
+                        color: "#0e1020",
+                        boxShadow:
+                          "0 3px 0 var(--color-accent-low),0 8px 16px -6px rgba(145,132,217,.6)",
+                      }
+                    : {
+                        background: "var(--color-surface-2)",
+                        color: "var(--color-dim)",
+                        boxShadow: "var(--shadow-z1)",
+                      }
+                }
+              >
+                {item.label}
+              </Link>
+            );
+          })}
+        </div>
+        <div className="rc-nav-status">
           <ConnectionStatus connected={connected} />
           <UpdaterStatus />
           <div
@@ -131,8 +147,10 @@ export function Layout({ children }: { children: ReactNode }) {
       </nav>
 
       <LiveCompanion />
-      <main className="rc-screen" key={pathname}>
-        {children}
+      <main className="rc-screen" ref={screenRef}>
+        <div className="rc-route" key={pathname}>
+          {children}
+        </div>
       </main>
     </div>
   );
@@ -142,7 +160,9 @@ export function PageHeader({ kicker, title }: { kicker?: string; title: string }
   return (
     <header className="mb-5">
       {kicker && <div className="kicker">{kicker}</div>}
-      <h1 className="mt-1 text-lg font-medium">{title}</h1>
+      <h1 className="mt-1 text-lg font-medium" tabIndex={-1}>
+        {title}
+      </h1>
     </header>
   );
 }

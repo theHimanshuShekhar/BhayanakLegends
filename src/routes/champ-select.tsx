@@ -14,6 +14,7 @@ import { LoadoutCard } from "../components/champ-select/LoadoutCard";
 import { BanAdvisorCard } from "../components/champ-select/BanAdvisorCard";
 import { YourSideCard } from "../components/champ-select/YourSideCard";
 import { MatchStartCard } from "../components/champ-select/MatchStartCard";
+import { PageHeader } from "../components/Layout";
 
 function mmss(totalSeconds: number): string {
   const s = Math.max(0, Math.floor(totalSeconds));
@@ -84,6 +85,7 @@ export function ChampSelectPage() {
       style={{ fontFamily: "var(--font-mono)", letterSpacing: "-.01em", minWidth: 0 }}
       data-testid="champ-select-page"
     >
+      <PageHeader title="Live Companion: Champ Select" />
       <BanStrip
         snapshot={session}
         timerLabel={timerLabel}

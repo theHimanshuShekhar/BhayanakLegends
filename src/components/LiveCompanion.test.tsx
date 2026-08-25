@@ -52,17 +52,25 @@ describe("LiveCompanion", () => {
     pushSse!({ type: "live.state", ts: "1", data: ingameSnapshot });
 
     const toggle = await screen.findByRole("button", { name: "Expand Live Companion" });
+    toggle.focus();
+    fireEvent.keyDown(toggle, { key: "Enter", code: "Enter" });
     fireEvent.click(toggle);
     expect(invoke).toHaveBeenLastCalledWith("set_live_companion_mode", {
       mode: "in-game",
       expanded: true,
     });
     expect(toggle).toHaveAccessibleName("Collapse Live Companion");
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(toggle).toHaveFocus();
 
+    fireEvent.keyDown(toggle, { key: " ", code: "Space" });
     fireEvent.click(toggle);
     expect(invoke).toHaveBeenLastCalledWith("set_live_companion_mode", {
       mode: "in-game",
       expanded: false,
     });
+    expect(toggle).toHaveAccessibleName("Expand Live Companion");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveFocus();
   });
 });

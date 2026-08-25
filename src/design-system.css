@@ -3,11 +3,12 @@
 .rc {
   width: 100%;
   height: 100%;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   background: var(--color-bg);
   color: var(--color-text);
-  overflow: hidden;
+  overflow: visible;
 }
 
 .rc :where(a, button, input, select, textarea):focus-visible {
@@ -28,29 +29,74 @@
   min-width: 24px;
   min-height: 24px;
 }
-
 .rc-topbar {
   flex: none;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 9px;
+  min-width: 0;
   padding: 10px 16px 8px;
+}
+
+.rc-topbar-brand {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: min-content;
+  gap: 9px;
+}
+
+.rc-topbar-tagline {
+  white-space: nowrap;
+}
+
+.rc-topbar-status {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-width: 24px;
 }
 
 .rc-navbar {
   flex: none;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  flex-wrap: wrap;
   gap: 7px;
+  min-width: 0;
   padding: 2px 16px 10px;
 }
 
+.rc-nav-links,
+.rc-nav-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-width: 0;
+}
+
+.rc-nav-links {
+  flex: 1 1 auto;
+}
+
+.rc-nav-status {
+  flex: 0 1 auto;
+  margin-left: auto;
+}
+
 .rc-screen {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: auto;
   padding: 0 14px 14px;
+}
+
+.rc-route {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .card3 {
@@ -78,6 +124,7 @@
   font: 600 10px var(--font-mono);
   letter-spacing: 0.04em;
   cursor: default;
+  white-space: nowrap;
 }
 
 .kicker {
@@ -132,6 +179,30 @@ html[data-live-companion="widget"] .rc {
 .live-companion[data-phase="idle"] {
   display: none;
 }
+@media (max-width: 980px) {
+  .rc-topbar {
+    align-items: flex-start;
+  }
+
+  .rc-topbar-brand {
+    flex-basis: calc(100% - 33px);
+  }
+
+  .rc-navbar {
+    align-items: flex-start;
+  }
+
+  .rc-nav-links,
+  .rc-nav-status {
+    flex: 1 1 100%;
+    margin-left: 0;
+  }
+
+  .rc-nav-status {
+    align-items: flex-start;
+  }
+}
+
 @media (max-width: 1100px) {
   .champ-select-layout {
     grid-template-columns: minmax(0, 1fr) !important;
