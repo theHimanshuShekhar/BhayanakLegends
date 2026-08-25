@@ -54,7 +54,7 @@
 }
 
 .card3 {
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   background: var(--color-surface);
   box-shadow: var(--shadow-z1);
 }
@@ -73,7 +73,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 5px 11px;
   font: 600 10px var(--font-mono);
   letter-spacing: 0.04em;
@@ -81,8 +81,8 @@
 }
 
 .kicker {
-  font: 700 9.5px var(--font-mono);
-  letter-spacing: 0.13em;
+  font: var(--type-label);
+  letter-spacing: var(--tracking-label);
   color: var(--color-dim);
   text-transform: uppercase;
 }
@@ -99,7 +99,7 @@
   max-width: min(440px, calc(100vw - 28px));
   padding: 8px 10px;
   border: 1px solid var(--color-line);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: rgba(24, 27, 46, 0.94);
   color: var(--color-dim);
   font: 600 10px var(--font-mono);
@@ -111,7 +111,7 @@
   min-height: 32px;
   padding: 5px 9px;
   border: 1px solid var(--color-line);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--color-surface-2);
   color: var(--color-text);
   cursor: pointer;

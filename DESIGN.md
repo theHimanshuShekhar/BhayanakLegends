@@ -59,6 +59,20 @@ spacing:
   sm: "8px"
   md: "12px"
   lg: "16px"
+motion:
+  route-enter: "180ms ease-out"
+  live-dot-pulse: "2.4s opacity breath"
+  bar-easing: "450ms exponential ease-out"
+  urgent-timer: "≤30s amber live-dot pulse"
+interactionStates:
+  loading: "Loading…"
+  waiting: "Waiting for {source}"
+  unavailable: "Unavailable: {reason}"
+namedRules:
+  two-data-worlds: "Teal describes the player's Personal History and live confirmation; blue describes Findings Pack population evidence. Do not blur the two."
+  readout-hierarchy: "Use scale, weight, and monospace contrast to make the next decision obvious; do not solve hierarchy with oversized marketing headlines."
+  layer-before-shadow: "Establish hierarchy with surface color first; use shadow to reinforce it, not to rescue a flat or ambiguous layout."
+
 components:
   button-primary:
     backgroundColor: "{colors.accent}"
@@ -217,6 +231,10 @@ A fixed, floating status surface at the lower-right corner keeps live guidance p
 
 ### Checkboxes
 Custom dark control (`.bl-check`): deep track, hairline border, `6px` corners; checked state fills Instrument Lavender with a deep check mark. The wrapping label carries the `24px` minimum hit area.
+
+## Interaction States
+
+State copy is explicit and descriptive: use `Loading…` while a request is in flight, `Waiting for {source}` when a required upstream source has not answered, and `Unavailable: {reason}` when the app cannot provide a value. Focus uses the amber outline; disabled controls preserve their surface role at reduced opacity; hover and pressed states adjust the existing semantic fill without adding decorative motion.
 
 ## Motion
 
