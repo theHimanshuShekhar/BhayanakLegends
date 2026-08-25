@@ -18,8 +18,6 @@ export function HabitsCard({ digest }: { digest: PostGameDigest | null }) {
       className="card3b"
       style={{
         padding: 14,
-        flex: 1,
-        minHeight: 0,
         display: "flex",
         flexDirection: "column",
         gap: 9,
@@ -78,7 +76,8 @@ export function HabitsCard({ digest }: { digest: PostGameDigest | null }) {
             textAlign: "center",
           }}
         >
-          No habit outcomes available: this game has no contracted extractor and threshold.
+          No habit outcomes available for this game — verdicts arrive as tracked habits ship in the
+          pack.
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }} data-testid="habit-outcomes">

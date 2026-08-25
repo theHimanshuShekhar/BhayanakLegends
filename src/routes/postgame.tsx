@@ -26,7 +26,7 @@ export function PostGamePage() {
       }}
     >
       <div className="kicker" style={{ marginBottom: 10 }}>
-        post-game review · the 30 seconds after a loss
+        post-game review · the 30 seconds after the game
       </div>
       {query.isError && (
         <div style={{ marginBottom: 10, fontSize: 11, color: "var(--color-amber)" }}>

@@ -39,7 +39,7 @@ export function LeakPanel() {
         }}
         data-testid="deaths-idle-caption"
       >
-        Deaths-by-minute lands with the loltrends wheel timeline features — sync games from the
+        Deaths-by-minute lands when the timeline features ship — sync games from the
         History tab and the leak chart fills this panel.
       </p>
     </div>

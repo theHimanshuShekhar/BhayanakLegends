@@ -58,7 +58,7 @@ export function VerdictHeader({ digest }: { digest: PostGameDigest | null }) {
         <div className="mono-n" data-testid="verdict-sub" style={{ fontSize: 10, color: subColor }}>
           {digest
             ? `${digest.champion} · ${digest.role} · ${fmtDuration(digest.duration_s)}`
-            : "play a game with the app running"}
+            : "play a game with the app running, or Backfill from History"}
         </div>
       </div>
     </section>

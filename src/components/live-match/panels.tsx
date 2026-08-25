@@ -171,6 +171,9 @@ export function TeamVsTeamCard({ pack }: { pack: FindingsPack | undefined }) {
           {lanesAhead.statement}
         </p>
       )}
+      <p style={{ margin: 0, fontSize: 9.5, color: "var(--color-dimmer)" }}>
+        Team totals land with the LCU bridge.
+      </p>
     </section>
   );
 }

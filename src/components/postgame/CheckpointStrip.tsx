@@ -55,7 +55,7 @@ export function CheckpointStrip({ digest }: { digest: PostGameDigest | null }) {
                       : "var(--color-danger)",
               }}
             >
-              {signed(cell.value)}
+              {signed(cell.value == null ? null : Math.round(cell.value))}
             </div>
           </div>
         ))}

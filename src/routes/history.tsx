@@ -1,4 +1,5 @@
 import { useHistorySummary } from "../api/hooks";
+import { classifyApiError } from "../api/client";
 import { CaveatFooter } from "../components/journal/CaveatFooter";
 import { SyncPanel } from "../components/journal/SyncPanel";
 import { pct } from "../components/ui";
@@ -65,8 +66,19 @@ export function HistoryPage() {
           <div style={{ fontSize: 10.5, color: "var(--color-dim)" }}>loading…</div>
         )}
         {summary.isError && (
-          <div style={{ fontSize: 10.5, color: "var(--color-danger)" }}>
-            No local shards found — start a Backfill below or import a folder.
+          <div
+            data-testid="summary-error"
+            style={{
+              fontSize: 10.5,
+              color:
+                classifyApiError(summary.error) === "offline"
+                  ? "var(--color-danger)"
+                  : "var(--color-amber)",
+            }}
+          >
+            {classifyApiError(summary.error) === "offline"
+              ? "The sidecar is offline. Reopen the app and try again."
+              : "No local shards found — start a Backfill below or import a folder."}
           </div>
         )}
 

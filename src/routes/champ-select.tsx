@@ -21,6 +21,8 @@ function mmss(totalSeconds: number): string {
   return `${String(m).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 
+const TIMER_URGENT_S = 30;
+
 /** Ticks the champ-select countdown down locally between SSE frames. */
 function useCountdown(active: boolean, serverSeconds: number | null) {
   const base = useRef({ v: serverSeconds ?? 0, at: Date.now() });
@@ -64,6 +66,9 @@ export function ChampSelectPage() {
   const status = statusQuery.data;
   const active = !!session?.active;
   const timerSec = useCountdown(active, active ? (session?.timer_sec ?? null) : null);
+  const timerKnown = active && session?.timer_sec != null;
+  const timerLabel = timerKnown ? mmss(timerSec) : "--:--";
+  const timerUrgent = timerKnown && timerSec <= TIMER_URGENT_S;
   const hero = pickHero(packQuery.data);
 
   const localCell = session?.ally.find((cell) => cell.is_local);
@@ -81,7 +86,8 @@ export function ChampSelectPage() {
     >
       <BanStrip
         snapshot={session}
-        timerLabel={mmss(timerSec)}
+        timerLabel={timerLabel}
+        timerUrgent={timerUrgent}
         lastError={status?.last_error ?? null}
       />
       {packQuery.isError && (

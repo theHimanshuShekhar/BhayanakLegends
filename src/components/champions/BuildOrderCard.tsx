@@ -17,17 +17,7 @@ export function BuildOrderCard() {
       <KickerRow label="BUILD ORDER · BETA-BINOMIAL SHRUNK" />
       <p style={{ margin: 0, fontSize: 10, lineHeight: 1.5, color: "var(--color-dim)" }}>
         Build analytics land after the Data-Dragon item refresh — the pack carries no item
-        sequences yet.
-      </p>
-      <p
-        style={{
-          margin: "auto 0 0",
-          fontSize: 9,
-          lineHeight: 1.5,
-          color: "var(--color-dimmer)",
-        }}
-      >
-        Pending Data Dragon item-id refresh — treat as approximate v1.
+        sequences yet, so treat as approximate v1.
       </p>
     </div>
   );

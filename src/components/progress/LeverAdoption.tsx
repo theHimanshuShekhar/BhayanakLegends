@@ -55,7 +55,7 @@ export function LeverAdoption({ habits }: { habits: HabitDef[] }) {
       ))}
       <p style={{ margin: 0, fontSize: 8.5, lineHeight: 1.4, color: "var(--color-dimmer)" }}>
         These four survive full statistical controls. Personal trend bars stay neutral until
-        timeline features land with the loltrends wheel.
+        timeline features land in the Findings Pack.
       </p>
     </div>
   );

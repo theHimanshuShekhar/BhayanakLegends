@@ -149,7 +149,7 @@ export function SyncPanel() {
             className="rounded-[10px] border border-line bg-deep px-2.5 py-1.5 font-mono text-[11px] outline-none focus:border-accent"
           />
           {!riotIdValid && (
-            <span data-testid="riot-id-error" className="text-[10px] text-danger">
+            <span data-testid="riot-id-error" className="text-[10px] text-amber">
               Enter a valid GameName#TAG before starting Backfill.
             </span>
           )}
@@ -195,7 +195,7 @@ export function SyncPanel() {
             Save a Riot API key to enable auto-sync when the app opens.
           </span>
         )}
-        <label className="mt-4 flex items-center gap-2 text-xs text-dim">
+        <label className="mt-4 flex min-h-[24px] items-center gap-2 text-xs text-dim">
           <input
             type="checkbox"
             checked={autoSync}
@@ -204,7 +204,7 @@ export function SyncPanel() {
               setDirty(true);
             }}
             data-testid="input-auto-sync"
-            className="size-3.5 accent-[#9184d9]"
+            className="bl-check"
           />
           Auto-sync when the app opens
         </label>
@@ -289,7 +289,7 @@ export function SyncPanel() {
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-3">
               <div
                 data-testid="sync-progress-bar"
-                className={`h-full rounded-full ${isTerminal(status.state) ? "bg-teal" : "bg-accent"}`}
+                className={`bl-width h-full rounded-full ${isTerminal(status.state) ? "bg-teal" : "bg-accent"}`}
                 style={{ width: `${progressPct}%` }}
               />
             </div>

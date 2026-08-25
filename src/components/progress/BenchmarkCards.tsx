@@ -77,6 +77,7 @@ export function BenchmarkCards({ rows }: { rows: RoleBenchmark[] }) {
                 }}
               >
                 <div
+                  className="bl-width"
                   style={{
                     width: fill,
                     height: "100%",

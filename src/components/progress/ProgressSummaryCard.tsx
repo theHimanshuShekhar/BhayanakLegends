@@ -68,6 +68,7 @@ export function ProgressSummaryCard({ summary }: { summary: HistorySummary }) {
         }}
       >
         <div
+          className="bl-width"
           style={{
             width: `${Math.round(summary.win_rate * 100)}%`,
             height: "100%",
