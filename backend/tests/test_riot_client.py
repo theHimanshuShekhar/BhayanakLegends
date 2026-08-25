@@ -7,6 +7,8 @@ from bhayanak_legends.riot_client import (
     RiotClient,
     RiotForbidden,
     RiotNotFound,
+    RiotRateLimited,
+    RiotRecoverableError,
     USER_AGENT,
 )
 
@@ -106,6 +108,150 @@ async def test_429_sleeps_retry_then_succeeds():
     assert calls["n"] == 2
     assert 7 in sleeper.spans
 
+
+async def test_retries_transport_5xx_and_429_with_bounded_budget():
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.ConnectError("offline", request=request)
+        if calls["n"] == 2:
+            return httpx.Response(503)
+        if calls["n"] == 3:
+            return httpx.Response(429, headers={"Retry-After": "7"})
+        return httpx.Response(200, json=["SG2_1", "SG2_2"])
+
+    client, sleeper = make_client(handler)
+    ids = await client.match_ids("puuid-1", total=2)
+    await client.aclose()
+
+    assert ids == ["SG2_1", "SG2_2"]
+    assert calls["n"] == 4
+    assert sleeper.spans == [1.0, 2.0, 7.0]
+
+
+
+async def test_retry_budget_exhaustion_does_not_sleep_after_final_attempt():
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(503)
+
+    client, sleeper = make_client(handler)
+    with pytest.raises(RiotRecoverableError) as caught:
+        await client.match("SG2_1")
+    await client.aclose()
+
+    assert calls["n"] == 4
+    assert sleeper.spans == [1.0, 2.0, 4.0]
+    assert caught.value.status_code == 503
+
+
+async def test_transport_exhaustion_is_recoverable():
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        raise httpx.ReadTimeout("offline", request=request)
+
+    client, sleeper = make_client(handler)
+    with pytest.raises(RiotRecoverableError):
+        await client.match("SG2_1")
+    await client.aclose()
+
+    assert calls["n"] == 4
+    assert sleeper.spans == [1.0, 2.0, 4.0]
+
+
+async def test_rate_limit_exhaustion_preserves_recoverable_category():
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(429, headers={"Retry-After": "5"})
+
+    client, sleeper = make_client(handler)
+    with pytest.raises(RiotRateLimited) as caught:
+        await client.match("SG2_1")
+    await client.aclose()
+
+    assert calls["n"] == 4
+    assert sleeper.spans == [5.0, 5.0, 5.0]
+    assert caught.value.retry_after_s == 5.0
+
+
+@pytest.mark.parametrize(
+    ("status", "exception"),
+    [
+        (400, httpx.HTTPStatusError),
+        (401, httpx.HTTPStatusError),
+        (403, RiotForbidden),
+        (404, RiotNotFound),
+        (409, httpx.HTTPStatusError),
+    ],
+)
+async def test_non_retryable_4xx_is_single_attempt(status: int, exception: type[Exception]):
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(status)
+
+    client, sleeper = make_client(handler)
+    with pytest.raises(exception):
+        await client.match("SG2_1")
+    await client.aclose()
+
+    assert calls["n"] == 1
+    assert sleeper.spans == []
+
+
+@pytest.mark.parametrize(
+    ("retry_after", "expected_delay"),
+    [
+        (None, 1.0),
+        ("invalid", 1.0),
+        ("-1", 1.0),
+        ("10", 10.0),
+        ("999", 120.0),
+    ],
+)
+async def test_retry_after_is_defensive_and_capped(retry_after: str | None, expected_delay: float):
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            headers = {} if retry_after is None else {"Retry-After": retry_after}
+            return httpx.Response(429, headers=headers)
+        return httpx.Response(200, json={"ok": True})
+
+    client, sleeper = make_client(handler)
+    payload = await client.match("SG2_1")
+    await client.aclose()
+
+    assert payload == {"ok": True}
+    assert calls["n"] == 2
+    assert sleeper.spans == [expected_delay]
+
+
+@pytest.mark.parametrize("status", [500, 501, 550, 599])
+async def test_every_5xx_status_is_retried(status: int):
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(status) if calls["n"] == 1 else httpx.Response(200, json={"ok": True})
+
+    client, sleeper = make_client(handler)
+    payload = await client.match("SG2_1")
+    await client.aclose()
+
+    assert payload == {"ok": True}
+    assert calls["n"] == 2
+    assert sleeper.spans == [1.0]
 
 async def test_match_ids_paginates_until_short_page():
     pages = {
