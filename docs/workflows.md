@@ -2,9 +2,10 @@
 
 `.github/workflows/verify.yml` is the reusable required-check workflow. It runs
 backend pytest, frontend Vitest, the production frontend build, Playwright
-against a sidecar on `127.0.0.1:23110`, and dependency audits. The sidecar uses
-`BHAYANAK_TOKEN=dev`; `backend/tools/ci_seed.py` creates deterministic Personal
-History only when `data/dev-import/` is absent.
+against a sidecar on `127.0.0.1:23110`, and dependency audits. The CI sidecar
+uses `BHAYANAK_TOKEN=dev`, `BHAYANAK_ALLOW_IMPORT=true`, and a JSON-array
+`BHAYANAK_IMPORT_ROOTS` rooted at `data/dev-import`; `backend/tools/ci_seed.py`
+creates deterministic Personal History only when `data/dev-import` is absent.
 
 ## Packaged Windows smoke
 

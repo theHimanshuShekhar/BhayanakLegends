@@ -241,7 +241,7 @@ missing tables → omit key, never invent (dashboard convention).
 
 ## Dev data
 
-`data/dev-import/Gankruptcy-DADDY/*.json` holds real downloaded matches (LoLTrends layout). Backend `POST /dev/import {dir}` (debug builds only) ingests that folder into Personal History through the same extractor as Riot sync, tagged `mode:"import"`.
+`data/dev-import/Gankruptcy-DADDY/*.json` holds real downloaded matches (LoLTrends layout). Backend `POST /dev/import {dir}` is available only to non-frozen debug sidecars when `BHAYANAK_ALLOW_IMPORT=true` and `BHAYANAK_IMPORT_ROOTS` is a non-empty JSON array of existing, canonical approved directory roots. The requested directory must already exist beneath one of those roots; symlink escapes and traversal outside the roots are rejected. The endpoint ingests an approved folder into Personal History through the same extractor as Riot sync, tagged `mode:"import"`.
 
 ## Frontend conventions
 

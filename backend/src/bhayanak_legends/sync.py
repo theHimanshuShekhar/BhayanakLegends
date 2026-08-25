@@ -13,11 +13,12 @@ import json
 import logging
 import threading
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from pathlib import Path
 from typing import Any
 
 from .extract import parse_checkpoints, parse_match
+from .import_paths import canonical_import_directory
 
 try:
     from .riot_client import RiotClient, RiotNotFound
@@ -48,11 +49,13 @@ class SyncService:
         hub,
         get_settings_fn: Callable[[], dict[str, Any]],
         *,
+        import_roots: Iterable[Path] = (),
         client_factory: Callable[[str, str], Any] | None = None,
     ) -> None:
         self.store = store
         self.hub = hub
         self._get_settings = get_settings_fn
+        self._import_roots = tuple(Path(root) for root in import_roots)
         self._client_factory = client_factory or self._default_client_factory
         self._cancel = threading.Event()
         self._thread: threading.Thread | None = None
@@ -128,6 +131,7 @@ class SyncService:
         JSON (newest first) tagged ``mode:"import"``, then drains the queue to
         completion in the calling thread. Blocking.
         """
+        canonical_dir = canonical_import_directory(dir, self._import_roots)
         if loop is None:
             try:
                 loop = asyncio.get_running_loop()
@@ -135,16 +139,16 @@ class SyncService:
                 pass
         if loop is not None:
             self.attach_loop(loop)
-        fetch_state_path = Path(dir) / "fetch_state.json"
+        fetch_state_path = canonical_dir / "fetch_state.json"
         state = json.loads(fetch_state_path.read_text(encoding="utf-8"))
         puuid = str(state["puuid"])
         self.store.set_setting("sync_mode", "import")
-        self.store.set_setting("import_dir", str(dir))
+        self.store.set_setting("import_dir", str(canonical_dir))
         self.store.set_setting("puuid", puuid)
 
         detail_paths = [
             p
-            for p in sorted(Path(dir).glob("*.json"), reverse=True)
+            for p in sorted(canonical_dir.glob("*.json"), reverse=True)
             if not p.name.endswith("_timeline.json") and p.name != "fetch_state.json"
         ]
         self.store.reset_running_items()
@@ -154,8 +158,8 @@ class SyncService:
             added += self.store.enqueue([path.stem], priority=priority)
         with self._lock:
             self._status["total_queued"] = added
-        log.info("import queued %d matches from %s", added, dir)
-        asyncio.run(self._process(self._file_fetcher(Path(dir)), puuid))
+        log.info("import queued %d matches from %s", added, canonical_dir)
+        asyncio.run(self._process(self._file_fetcher(canonical_dir), puuid))
         return self.status()
 
     # -- internals ------------------------------------------------------

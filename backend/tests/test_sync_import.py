@@ -52,6 +52,8 @@ def build_app(tmp_path: Path):
         token="dev",
         data_dir=tmp_path / "data",
         pack_dir=REPO / "pack" if (REPO / "pack").exists() else None,
+        allow_import=True,
+        import_roots=[tmp_path],
     )
     app = create_app(config)
     return app, TestClient(app)
@@ -111,16 +113,15 @@ async def test_import_is_idempotent_on_rerun(tmp_path: Path):
     assert app.state.store.match_count() == 5
     assert second["total_queued"] == 0
     assert second["downloaded"] == 0
-
-
 @requires_dev_import
 def test_dev_import_endpoint_guarded(tmp_path: Path):
     app, client = build_app(tmp_path)
-    app.state.config.token = "prod-secret"
+    app.state.config.allow_import = False
     body = {"dir": str(make_import_dir(tmp_path))}
     with client:
         res = client.post("/dev/import", json=body, headers={"X-BL-Token": "dev"})
     assert res.status_code == 403
+    assert res.json()["detail"] == "dev import disabled"
 
 
 class FakeRiotClient:
