@@ -16,7 +16,10 @@ from bhayanak_legends.store import Store
 from bhayanak_legends.sync import SyncService
 
 
-AUTH = {"X-BL-Token": "dev"}
+AUTH = {
+    "X-BL-Token": "local-sidecar-development-token-32chars",
+    "Host": "127.0.0.1:23110",
+}
 STATUS = {
     "state": "idle",
     "mode": "import",
@@ -36,7 +39,8 @@ def make_app(
     import_roots: list[Path] | None = None,
 ):
     config = SidecarConfig(
-        token="dev",
+        port=23110,
+        token="local-sidecar-development-token-32chars",
         data_dir=tmp_path / "data",
         pack_dir=Path(__file__).resolve().parents[2] / "pack",
         allow_import=allow_import,
@@ -49,6 +53,7 @@ def test_import_settings_parse_explicit_environment_values(tmp_path: Path, monke
     root = tmp_path / "approved"
     monkeypatch.setenv("BHAYANAK_ALLOW_IMPORT", "true")
     monkeypatch.setenv("BHAYANAK_IMPORT_ROOTS", json.dumps([str(root)]))
+    monkeypatch.setenv("BHAYANAK_TOKEN", "local-sidecar-development-token-32chars")
 
     config = SidecarConfig()
 
