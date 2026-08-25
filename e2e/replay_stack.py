@@ -123,6 +123,8 @@ def main() -> int:
             "BHAYANAK_DATA_DIR": str(temp_dir),
             "BHAYANAK_LCU_LOCKFILE": str(lockfile),
             "BHAYANAK_LIVE_CLIENT_DATA_URL": f"http://127.0.0.1:{LIVE_PORT}/liveclientdata/allgamedata",
+            "BHAYANAK_ALLOW_IMPORT": "1",
+            "BHAYANAK_IMPORT_ROOTS": json.dumps([str(temp_dir / "replay-import")]),
             "PYTHONUNBUFFERED": "1",
         }
     )
