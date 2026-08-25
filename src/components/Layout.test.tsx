@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { Layout } from "./Layout";
 
+const routerState = vi.hoisted(() => ({ pathname: "/progress" }));
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, to, ...props }: { children: ReactNode; to: string }) => (
@@ -10,7 +11,7 @@ vi.mock("@tanstack/react-router", () => ({
       {children}
     </a>
   ),
-  useRouterState: () => "/progress",
+  useRouterState: () => routerState.pathname,
 }));
 
 vi.mock("../api/sse", () => ({
@@ -32,4 +33,48 @@ describe("Layout accessibility", () => {
     expect(screen.getByText(/sidecar · offline/)).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("sidecar · offline");
   });
+
+  it("moves focus to a destination heading and resets the route scroll position", () => {
+    const { rerender } = render(
+      <Layout>
+        <h1 tabIndex={-1}>Progress</h1>
+      </Layout>,
+    );
+
+    expect(document.activeElement).not.toBe(screen.getByRole("heading", { level: 1 }));
+
+    const screenRegion = screen.getByRole("main");
+    Object.defineProperty(screenRegion, "scrollTop", { configurable: true, value: 144, writable: true });
+
+    routerState.pathname = "/history";
+    rerender(
+      <Layout>
+        <h1 tabIndex={-1}>Improvement Journal</h1>
+      </Layout>,
+    );
+
+    expect(screenRegion.scrollTop).toBe(0);
+    expect(screen.getByRole("heading", { level: 1 })).toHaveFocus();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveAttribute("tabindex", "-1");
+  });
+  it("keeps the six route links and shell statuses in stable keyboard order", () => {
+    render(
+      <Layout>
+        <h1 tabIndex={-1}>Trajectory</h1>
+      </Layout>,
+    );
+
+    expect(screen.getAllByRole("link").map((link) => link.textContent)).toEqual([
+      "Live match",
+      "Champ select",
+      "Post-game",
+      "Progress",
+      "Champions",
+      "History",
+    ]);
+    expect(screen.getByRole("navigation", { name: "Primary" })).toHaveClass("rc-navbar");
+    expect(screen.getByTestId("connection-status")).toBeVisible();
+    expect(screen.getByText("Findings Pack · 26k games")).toBeVisible();
+  });
+
 });

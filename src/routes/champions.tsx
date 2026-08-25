@@ -9,6 +9,7 @@ import { RoleTierList, sortTierRows } from "../components/champions/RoleTierList
 import { BuildOrderCard } from "../components/champions/BuildOrderCard";
 import { TrajectoryCard } from "../components/champions/TrajectoryCard";
 import { CompCard, DamageFitCard, GoldWasteCard } from "../components/champions/CompFitCards";
+import { PageHeader } from "../components/Layout";
 
 const COMP_RE = /comp/i;
 const DAMAGE_FIT_RE = /damage[-_]?fit/i;
@@ -93,6 +94,7 @@ export function ChampionsPage() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, paddingTop: 14 }}>
+      <PageHeader title="Champion Evidence" />
       {roles.length > 0 && (
         <RoleChips roles={roles} active={activeRole} onSelect={selectRole} />
       )}

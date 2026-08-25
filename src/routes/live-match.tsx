@@ -19,6 +19,7 @@ import {
   TeamVsTeamCard,
   WinProbabilityCard,
 } from "../components/live-match";
+import { PageHeader } from "../components/Layout";
 
 function GameClockSource({ active, serverClock }: { active: boolean; serverClock: number }) {
   useGameClockSource(active, serverClock);
@@ -109,6 +110,7 @@ export function LiveMatchPage() {
         background: "radial-gradient(120% 80% at 20% 0%,#151831,var(--color-bg) 60%)",
       }}
     >
+      <PageHeader title="Live Companion: In Game" />
       <GameClockSource active={active} serverClock={ingame?.clock_s ?? 0} />
       <div style={{ flex: "none", display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}>
         <span

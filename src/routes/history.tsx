@@ -3,6 +3,7 @@ import { classifyApiError } from "../api/client";
 import { CaveatFooter } from "../components/journal/CaveatFooter";
 import { SyncPanel } from "../components/journal/SyncPanel";
 import { pct } from "../components/ui";
+import { PageHeader } from "../components/Layout";
 
 function StatCell({
   label,
@@ -49,6 +50,7 @@ export function HistoryPage() {
         maxWidth: 860,
       }}
     >
+      <PageHeader title="Improvement Journal" />
       <div
         className="card3b"
         style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}

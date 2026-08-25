@@ -8,6 +8,7 @@ import { LeakPanel } from "../components/progress/LeakPanel";
 import { WhatIfPanel } from "../components/progress/WhatIfPanel";
 import { LeverAdoption } from "../components/progress/LeverAdoption";
 import { LaneConversion } from "../components/progress/LaneConversion";
+import { PageHeader } from "../components/Layout";
 
 const LANE_CONVERSION_RE = /lane.*conversion|conversion.*lane/i;
 
@@ -32,6 +33,7 @@ export function ProgressPage() {
         alignItems: "start",
       }}
     >
+      <PageHeader title="Trajectory" />
       <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
         <div style={{ display: "grid", gridTemplateColumns: "270px 1fr", gap: 14 }}>
           {summary.data && <ProgressSummaryCard summary={summary.data} />}

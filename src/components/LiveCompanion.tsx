@@ -86,6 +86,7 @@ export function LiveCompanion() {
           <button
             type="button"
             onClick={toggleExpanded}
+            aria-expanded={expanded}
             aria-label={`${expanded ? "Collapse" : "Expand"} Live Companion`}
           >
             {expanded ? "Collapse" : "Expand"}
