@@ -42,7 +42,7 @@ export function WhatIfPanel() {
             }}
           >
             <span style={{ color: "var(--color-dim)" }}>{s.label}</span>
-            <span className="mono-n">Unavailable</span>
+            <span className="mono-n" style={{ color: "var(--color-dimmer)" }}>—</span>
           </div>
           <div
             aria-label={`${s.label} unavailable until the Honest Model ships`}
@@ -81,7 +81,7 @@ export function WhatIfPanel() {
         style={{ margin: 0, fontSize: 8.5, lineHeight: 1.4, color: "var(--color-dimmer)" }}
         data-testid="what-if-caption"
       >
-        Honest Model unavailable; personal estimates withheld until it ships (ADR-0003).
+        Personal what-if estimates stay unavailable until the Honest Model ships.
       </p>
     </div>
   );

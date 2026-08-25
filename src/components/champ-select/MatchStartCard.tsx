@@ -6,7 +6,14 @@ export function MatchStartCard({ active, pick }: { active: boolean; pick?: strin
       style={{ padding: 12, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 8 }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ width: 6, height: 6, borderRadius: 999, background: "#3f4459" }} />
+        <span
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: 999,
+            background: active ? "var(--color-teal)" : "#3f4459",
+          }}
+        />
         <span style={{ font: "700 9.5px var(--font-mono)", letterSpacing: ".11em", color: "var(--color-dim)" }}>
           AT MATCH START
         </span>
@@ -22,7 +29,16 @@ export function MatchStartCard({ active, pick }: { active: boolean; pick?: strin
           boxShadow: "var(--shadow-z1)",
         }}
       >
-        <span style={{ width: 8, height: 8, borderRadius: 999, background: "#3f4459", flex: "none" }} />
+        <span
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: 999,
+            background: active ? "var(--color-teal)" : "#3f4459",
+            boxShadow: active ? "0 0 8px var(--color-teal)" : "none",
+            flex: "none",
+          }}
+        />
         <div style={{ fontSize: 10, lineHeight: 1.4, color: "var(--color-dim)" }}>
           <b style={{ color: "#cfd3e5" }}>:2999 comes online.</b> Live loadout, event feed and win probability start
           updating.
@@ -47,23 +63,21 @@ export function MatchStartCard({ active, pick }: { active: boolean; pick?: strin
       <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 7 }}>
         <button
           type="button"
-          disabled={!active}
+          disabled
           data-testid="cs-lock-button"
-          title={active ? undefined : "Locking arrives with the live client link"}
+          title="Locking happens in the League client — this panel mirrors the session."
           style={{
             padding: "10px 12px",
             borderRadius: 999,
             border: "none",
-            background: "var(--color-accent)",
-            color: "#0e1020",
-            font: "700 12px var(--font-mono)",
+            background: "var(--color-surface-3)",
+            color: "var(--color-dim)",
+            font: "700 11px var(--font-mono)",
             textAlign: "center",
-            boxShadow: "0 4px 0 var(--color-accent-low),0 14px 24px -8px rgba(145,132,217,.6)",
-            opacity: active ? undefined : 0.55,
-            cursor: active ? "pointer" : "not-allowed",
+            cursor: "not-allowed",
           }}
         >
-          Lock {pick ?? "your pick"}
+          Lock {pick ?? "your pick"} in the client
         </button>
       </div>
     </div>

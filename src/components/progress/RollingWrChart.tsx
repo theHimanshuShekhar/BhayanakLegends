@@ -3,15 +3,20 @@ import type { PatchAggregate } from "../../api/types";
 
 export type WrPoint = PatchAggregate;
 
-function chartPath(points: WrPoint[]): { line: string; area: string; poly: string } {
-  if (points.length === 0) return { line: "", area: "", poly: "" };
+function chartPath(points: WrPoint[]): { line: string; area: string; poly: string; single: { x: number; y: number } | null } {
+  if (points.length === 0) return { line: "", area: "", poly: "", single: null };
   const n = points.length;
   const x = (i: number) => (n === 1 ? 310 : Math.round((i / (n - 1)) * 620));
   const y = (wr: number) => Math.round(96 - Math.max(0, Math.min(1, wr)) * 88);
   const coords = points.map((p, i) => `${x(i)},${y(p.win_rate)}`);
   const line = coords.map((c, i) => `${i === 0 ? "M" : "L"}${c}`).join(" ");
   const area = `${line} L620,100 L0,100 Z`;
-  return { line, area, poly: coords.join(" ") };
+  return {
+    line,
+    area,
+    poly: coords.join(" "),
+    single: n === 1 ? { x: x(0), y: y(points[0].win_rate) } : null,
+  };
 }
 
 function direction(points: WrPoint[]): { label: string; style: CSSProperties } | null {
@@ -26,7 +31,7 @@ function direction(points: WrPoint[]): { label: string; style: CSSProperties } |
 }
 
 export function RollingWrChart({ points }: { points: WrPoint[] }) {
-  const { area, poly } = chartPath(points);
+  const { area, poly, single } = chartPath(points);
   const dir = direction(points);
   const totalGames = points.reduce((acc, p) => acc + p.games, 0);
 
@@ -71,15 +76,21 @@ export function RollingWrChart({ points }: { points: WrPoint[] }) {
                 <stop offset="1" stopColor="#9184d9" stopOpacity="0" />
               </linearGradient>
             </defs>
-            <path d={area} fill="url(#bl-wr-fill)" />
-            <polyline
-              points={poly}
-              fill="none"
-              stroke="#9184d9"
-              strokeWidth="2.5"
-              strokeLinejoin="round"
-              strokeLinecap="round"
-            />
+            {single ? (
+              <circle cx={single.x} cy={single.y} r="5" fill="#9184d9" />
+            ) : (
+              <>
+                <path d={area} fill="url(#bl-wr-fill)" />
+                <polyline
+                  points={poly}
+                  fill="none"
+                  stroke="#9184d9"
+                  strokeWidth="2.5"
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                />
+              </>
+            )}
           </svg>
           <div
             className="mono-n"

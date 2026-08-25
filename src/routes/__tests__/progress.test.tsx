@@ -161,7 +161,7 @@ describe("ProgressPage", () => {
       expect(bar.parentElement).not.toHaveTextContent(/trending|regressing/i);
     }
     expect(screen.getByTestId("lever-adoption")).toHaveTextContent(
-      /timeline features land with the loltrends wheel/i,
+      /timeline features land in the Findings Pack/i,
     );
   });
 
@@ -170,7 +170,7 @@ describe("ProgressPage", () => {
 
     const panel = await screen.findByTestId("what-if-panel");
     expect(screen.getByTestId("what-if-caption")).toHaveTextContent(
-      "Honest Model unavailable; personal estimates withheld until it ships (ADR-0003).",
+      "Personal what-if estimates stay unavailable until the Honest Model ships.",
     );
     expect(panel).toHaveTextContent("Unavailable");
     expect(panel).not.toHaveTextContent("−280g");

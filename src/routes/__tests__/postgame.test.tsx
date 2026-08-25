@@ -54,7 +54,7 @@ describe("PostGamePage — no digest yet", () => {
       "No games analyzed yet — Backfill from History",
     );
     expect(screen.getByTestId("verdict")).toHaveTextContent("No game analyzed");
-    expect(screen.getByText(/post-game review · the 30 seconds after a loss/i)).toBeInTheDocument();
+    expect(screen.getByText(/post-game review · the 30 seconds after the game/i)).toBeInTheDocument();
   });
 });
 

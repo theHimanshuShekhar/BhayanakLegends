@@ -29,6 +29,7 @@ export function ConnectionStatus({ connected }: { connected: boolean }) {
     >
       <span
         aria-hidden="true"
+        className={connected ? "bl-pulse" : undefined}
         style={{
           width: 6,
           height: 6,
@@ -68,6 +69,7 @@ export function Layout({ children }: { children: ReactNode }) {
           <span
             data-testid="sidecar-dot"
             title={connected ? "sidecar connected" : "sidecar offline"}
+            className={connected ? "bl-pulse" : undefined}
             style={{
               width: 10,
               height: 10,
@@ -76,8 +78,6 @@ export function Layout({ children }: { children: ReactNode }) {
               boxShadow: connected ? "0 0 8px var(--color-teal)" : "none",
             }}
           />
-          <span style={{ width: 10, height: 10, borderRadius: 999, background: "#3a3f56" }} />
-          <span style={{ width: 10, height: 10, borderRadius: 999, background: "#4a3040" }} />
         </div>
       </header>
 
@@ -131,7 +131,9 @@ export function Layout({ children }: { children: ReactNode }) {
       </nav>
 
       <LiveCompanion />
-      <main className="rc-screen">{children}</main>
+      <main className="rc-screen" key={pathname}>
+        {children}
+      </main>
     </div>
   );
 }

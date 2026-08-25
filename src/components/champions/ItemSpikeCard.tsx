@@ -19,18 +19,22 @@ function perPatchWr(points: TrajectoryPoint[]): PatchWr[] {
     .map((point) => ({ patch: point.patch, wr: point.rolling_wr }));
 }
 
-function polylinePoints(rows: PatchWr[]): string {
-  if (rows.length === 0) return "";
+function polylinePoints(rows: PatchWr[]): { points: string; single: { x: number; y: number } | null } {
+  if (rows.length === 0) return { points: "", single: null };
   const n = rows.length;
   const y = (wr: number) => Math.round(66 - Math.max(0, Math.min(1, wr)) * 60);
-  if (n === 1) return `0,${y(rows[0].wr)} 300,${y(rows[0].wr)}`;
-  return rows
-    .map((p, i) => `${Math.round((i / (n - 1)) * 300)},${y(p.wr)}`)
-    .join(" ");
+  if (n === 1) return { points: "", single: { x: 150, y: y(rows[0].wr) } };
+  return {
+    points: rows
+      .map((p, i) => `${Math.round((i / (n - 1)) * 300)},${y(p.wr)}`)
+      .join(" "),
+    single: null,
+  };
 }
 
 export function ItemSpikeCard({ points }: { points: TrajectoryPoint[] }) {
   const rows = useMemo(() => perPatchWr(points), [points]);
+  const { points: poly, single } = useMemo(() => polylinePoints(rows), [rows]);
   const labels = useMemo(() => {
     if (rows.length <= 4) return rows.map((r) => r.patch);
     const idx = [0, 1, 2, rows.length - 1].map((i) =>
@@ -62,14 +66,18 @@ export function ItemSpikeCard({ points }: { points: TrajectoryPoint[] }) {
             preserveAspectRatio="none"
             data-testid="item-spike-svg"
           >
-            <polyline
-              points={polylinePoints(rows)}
-              fill="none"
-              stroke="#57cfb4"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
+            {single ? (
+              <circle cx={single.x} cy={single.y} r="4.5" fill="#57cfb4" />
+            ) : (
+              <polyline
+                points={poly}
+                fill="none"
+                stroke="#57cfb4"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            )}
           </svg>
           <div
             className="mono-n"

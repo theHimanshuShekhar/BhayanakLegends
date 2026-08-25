@@ -12,11 +12,11 @@ export function LoadoutCard() {
       <div style={{ display: "flex", gap: 6 }}>
         <div style={{ flex: 1, padding: "7px 9px", borderRadius: 11, background: "var(--color-surface-2)", boxShadow: "var(--shadow-z1)" }}>
           <div style={{ fontSize: 8.5, letterSpacing: ".1em", color: "var(--color-dimmer)" }}>KEYSTONE</div>
-          <div style={{ font: "600 11px var(--font-mono)" }}>Unavailable</div>
+          <div style={{ font: "600 11px var(--font-mono)" }}>—</div>
         </div>
         <div style={{ flex: 1, padding: "7px 9px", borderRadius: 11, background: "var(--color-surface-2)", boxShadow: "var(--shadow-z1)" }}>
           <div style={{ fontSize: 8.5, letterSpacing: ".1em", color: "var(--color-dimmer)" }}>SUMMS</div>
-          <div style={{ font: "600 11px var(--font-mono)" }}>Unavailable</div>
+          <div style={{ font: "600 11px var(--font-mono)" }}>—</div>
         </div>
       </div>
       <p

@@ -28,7 +28,12 @@ function MatchupRow({ m, color }: { m: MatchupExample; color: string }) {
         }}
       >
         <div
-          style={{ width: `${Math.round(m.wr * 100)}%`, height: "100%", background: color }}
+          className="bl-width"
+          style={{
+            width: `${Math.round(m.wr * 100)}%`,
+            height: "100%",
+            background: color,
+          }}
         />
       </div>
       <span

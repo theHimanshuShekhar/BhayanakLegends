@@ -1,0 +1,228 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-24T21:00:55Z",
+  "title": "Design System: Bhayanak Legends",
+  "extensions": {
+    "colorMeta": {
+      "deep": {
+        "role": "neutral",
+        "displayName": "Deep Midnight",
+        "canonical": "#0a0b16",
+        "tonalRamp": ["#0a0b16", "#111321", "#191b2d", "#25283c", "#35384e", "#50536a", "#76798e", "#b0b2bf"]
+      },
+      "bg": {
+        "role": "neutral",
+        "displayName": "Midnight Canvas",
+        "canonical": "#0e1020",
+        "tonalRamp": ["#0e1020", "#15172a", "#1d2033", "#292c40", "#393c51", "#55586e", "#7a7d91", "#b4b6c3"]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Instrument Surface",
+        "canonical": "#181b2e",
+        "tonalRamp": ["#181b2e", "#20233a", "#292d46", "#373b55", "#4b4f69", "#676b83", "#8b8e9f", "#bec0ca"]
+      },
+      "surface-2": {
+        "role": "neutral",
+        "displayName": "Raised Surface",
+        "canonical": "#20243a",
+        "tonalRamp": ["#20243a", "#282d46", "#333851", "#424760", "#585d75", "#74798f", "#9699aa", "#c6c8d1"]
+      },
+      "surface-3": {
+        "role": "neutral",
+        "displayName": "Inset Surface",
+        "canonical": "#2a2f49",
+        "tonalRamp": ["#2a2f49", "#343a54", "#404660", "#50566f", "#666c83", "#828799", "#a3a6b5", "#cdced6"]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Bright Text",
+        "canonical": "#e9e9ed",
+        "tonalRamp": ["#26262b", "#3f3f46", "#595961", "#74747c", "#92929a", "#b0b0b7", "#cdced2", "#e9e9ed"]
+      },
+      "dim": {
+        "role": "neutral",
+        "displayName": "Quiet Text",
+        "canonical": "#a8acbd",
+        "tonalRamp": ["#272a35", "#414450", "#5b5e6a", "#767985", "#9295a1", "#a8acbd", "#c5c7d0", "#e4e5e9"]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Instrument Lavender",
+        "canonical": "#9184d9",
+        "tonalRamp": ["#2b263f", "#403a61", "#554e82", "#6a62a2", "#7d74bd", "#9184d9", "#aaa0e7", "#cbc5f4"]
+      },
+      "accent-low": {
+        "role": "primary",
+        "displayName": "Lavender Low",
+        "canonical": "#5d5294",
+        "tonalRamp": ["#1f1a32", "#30294d", "#403863", "#4f477c", "#5d5294", "#766ab0", "#9489c7", "#b9b2df"]
+      },
+      "teal": {
+        "role": "secondary",
+        "displayName": "Signal Teal",
+        "canonical": "#57cfb4",
+        "tonalRamp": ["#123a35", "#1b5a50", "#247a6b", "#339987", "#43b39d", "#57cfb4", "#80dfc9", "#b1eee0"]
+      },
+      "danger": {
+        "role": "tertiary",
+        "displayName": "Danger Rose",
+        "canonical": "#e5738f",
+        "tonalRamp": ["#4b1e31", "#722844", "#983653", "#b94a68", "#d05f7b", "#e5738f", "#ef9aad", "#f7c0cb"]
+      },
+      "amber": {
+        "role": "tertiary",
+        "displayName": "Caution Amber",
+        "canonical": "#e8b96b",
+        "tonalRamp": ["#4a3517", "#70521f", "#986f2b", "#ba8b3d", "#d2a354", "#e8b96b", "#f0cc8c", "#f7dfb0"]
+      },
+      "info": {
+        "role": "secondary",
+        "displayName": "Field Blue",
+        "canonical": "#7bb0ef",
+        "tonalRamp": ["#1c3151", "#294a78", "#37649d", "#4c7fbe", "#6498d8", "#7bb0ef", "#a1c8f5", "#c9e0fb"]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Inter Headline",
+        "purpose": "Page orientation and screen titles; concise and readable rather than promotional."
+      },
+      "title": {
+        "displayName": "JetBrains Mono Title",
+        "purpose": "Champion names, metrics, and compact data anchors."
+      },
+      "body": {
+        "displayName": "Inter Body",
+        "purpose": "Findings, caveats, and explanatory guidance in dense cards."
+      },
+      "label": {
+        "displayName": "JetBrains Mono Label",
+        "purpose": "Uppercase kicker rows, status vocabulary, and provenance labels."
+      }
+    },
+    "shadows": [
+      {
+        "name": "low-card-lift",
+        "value": "0 2px 0 rgba(0, 0, 0, 0.5), 0 10px 22px -10px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.055)",
+        "purpose": "Standard cards, pills, and quiet status containers."
+      },
+      {
+        "name": "raised-panel-lift",
+        "value": "0 3px 0 rgba(0, 0, 0, 0.55), 0 20px 34px -14px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.075)",
+        "purpose": "Raised cards, floating companion surfaces, and high-priority panels."
+      },
+      {
+        "name": "active-control-lift",
+        "value": "0 3px 0 var(--color-accent-low), 0 8px 16px -6px rgba(145,132,217,.6)",
+        "purpose": "Selected navigation and primary actions."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-transition",
+        "value": "0.2s ease",
+        "purpose": "Use for compact control state changes without adding spectacle."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "champ-select-collapse",
+        "value": "1100px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "A tactile lavender action for saving settings or committing the next available step.",
+      "html": "<button class=\"ds-btn-primary\">Save settings</button>",
+      "css": ".ds-btn-primary { background: var(--color-accent); color: var(--color-deep); padding: 10px 12px; border: 0; border-radius: 999px; font: 600 10px var(--font-mono); cursor: pointer; box-shadow: 0 3px 0 var(--color-accent-low), 0 8px 16px -6px rgba(145,132,217,.6); transition: filter .2s ease, transform .2s ease; } .ds-btn-primary:hover { filter: brightness(1.08); transform: translateY(-1px); } .ds-btn-primary:focus-visible { outline: 2px solid var(--color-amber); outline-offset: 2px; } .ds-btn-primary:active { transform: translateY(1px); }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "A restrained surface control for secondary actions in dense panels.",
+      "html": "<button class=\"ds-btn-secondary\">Retry</button>",
+      "css": ".ds-btn-secondary { background: var(--color-surface-2); color: var(--color-text); padding: 5px 9px; border: 1px solid var(--color-line); border-radius: 6px; font: 600 10px var(--font-mono); cursor: pointer; box-shadow: var(--shadow-z1); transition: background .2s ease, border-color .2s ease; } .ds-btn-secondary:hover { background: var(--color-surface-3); border-color: var(--color-accent-low); } .ds-btn-secondary:focus-visible { outline: 2px solid var(--color-amber); outline-offset: 2px; }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card-surface",
+      "description": "The standard information container for findings, status, and compact lists.",
+      "html": "<section class=\"ds-card\"><div class=\"ds-card-kicker\">FINDINGS PACK</div><p class=\"ds-card-copy\">Population evidence stays distinct from your Personal History.</p></section>",
+      "css": ".ds-card { padding: 12px; border-radius: 16px; background: var(--color-surface); box-shadow: var(--shadow-z1); } .ds-card-kicker { color: var(--color-dim); font: 700 9.5px/1.2 var(--font-mono); letter-spacing: .11em; } .ds-card-copy { margin: 8px 0 0; color: var(--color-soft-text, #cfd3e5); font: 400 10.5px/1.5 var(--font-sans); }"
+    },
+    {
+      "name": "Status Chip",
+      "kind": "chip",
+      "refersTo": "chip-active",
+      "description": "A compact pill for selected context or short semantic state.",
+      "html": "<span class=\"ds-chip\"><span class=\"ds-chip-dot\"></span>Connected</span>",
+      "css": ".ds-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px; background: var(--color-accent-low); color: var(--color-chip-text); font: 600 10px var(--font-mono); letter-spacing: .04em; } .ds-chip-dot { width: 6px; height: 6px; border-radius: 999px; background: var(--color-accent); box-shadow: 0 0 8px var(--color-accent); }"
+    },
+    {
+      "name": "Navigation",
+      "kind": "nav",
+      "refersTo": "chip-active",
+      "description": "A compact route row that makes current context and system status scannable together.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Primary\"><a class=\"ds-nav-active\" href=\"#live\">Live match</a><a class=\"ds-nav-idle\" href=\"#history\">History</a></nav>",
+      "css": ".ds-nav { display: flex; align-items: center; gap: 7px; padding: 2px 16px 10px; } .ds-nav a { min-height: 24px; padding: 5px 11px; border-radius: 999px; font: 600 10px var(--font-mono); text-decoration: none; } .ds-nav-active { background: var(--color-accent); color: var(--color-deep); box-shadow: 0 3px 0 var(--color-accent-low), 0 8px 16px -6px rgba(145,132,217,.6); } .ds-nav-idle { background: var(--color-surface-2); color: var(--color-dim); box-shadow: var(--shadow-z1); } .ds-nav a:focus-visible { outline: 2px solid var(--color-amber); outline-offset: 2px; }"
+    },
+    {
+      "name": "Field",
+      "kind": "input",
+      "refersTo": "field",
+      "description": "A compact deep-field input for Riot identity and sync settings.",
+      "html": "<label class=\"ds-field\"><span>Riot ID</span><input value=\"Player#TAG\" /></label>",
+      "css": ".ds-field { display: flex; flex-direction: column; gap: 4px; color: var(--color-dimmer); font: 700 9px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; } .ds-field input { min-height: 24px; padding: 6px 10px; border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-deep); color: var(--color-text); font: 400 11px var(--font-mono); outline: none; } .ds-field input:focus-visible { border-color: var(--color-accent); outline: 2px solid var(--color-amber); outline-offset: 2px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Tactical Instrument Panel",
+    "overview": "Bhayanak Legends is a compact instrument panel for high-context decisions. Its visual language is dense but calm: dark tonal layers keep attention on Findings Pack evidence, Personal History, and live status rather than on decoration. Inter Variable carries readable explanatory copy; JetBrains Mono makes labels, champion names, metrics, and state changes feel precise and inspectable.\n\nThe system uses restrained gradients, rounded cards, pill-shaped status controls, and small luminous state markers. Elevation is tactile rather than theatrical: surfaces step from deep canvas to raised container, while shadows give active or important panels a measured lift. The intended voice is research-led and confident without pretending that population evidence is certainty.",
+    "keyCharacteristics": [
+      "Dark tonal layering with a lavender primary signal and disciplined semantic accents.",
+      "Compact monospace labels paired with short, readable explanatory copy.",
+      "Rounded cards and pills that make dense information feel touchable and organized.",
+      "Status colors communicate connection, evidence, caution, and personal trajectory.",
+      "Calm, research-led presentation; avoid glossy esports spectacle and noisy dashboard ornament."
+    ],
+    "rules": [
+      {
+        "name": "The Two-Data-Worlds Rule",
+        "body": "Teal describes the player's Personal History and live confirmation; blue describes Findings Pack population evidence. Do not blur the two.",
+        "section": "colors"
+      },
+      {
+        "name": "The Readout Hierarchy Rule",
+        "body": "Use scale, weight, and monospace contrast to make the next decision obvious; do not solve hierarchy with oversized marketing headlines.",
+        "section": "typography"
+      },
+      {
+        "name": "The Layer-Before-Shadow Rule",
+        "body": "Establish hierarchy with surface color first; use shadow to reinforce it, not to rescue a flat or ambiguous layout.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do keep the deep midnight canvas visible around tonal surface tiers.",
+      "Do use JetBrains Mono for compact labels, champion names, percentages, and state readouts.",
+      "Do reserve Instrument Lavender for the current route, selected role, and primary action.",
+      "Do keep Findings Pack provenance visible when showing population numbers.",
+      "Do use teal, blue, amber, and rose as semantic signals with restrained coverage.",
+      "Do preserve the amber focus outline and minimum interactive target sizes."
+    ],
+    "donts": [
+      "Don't use glossy esports spectacle, neon rainbow gradients, or decorative noise as a substitute for hierarchy.",
+      "Don't present Findings Pack population values as if they were the user's Personal History.",
+      "Don't turn every card into a raised or glowing surface; tonal layering is the default.",
+      "Don't use imperative copy for Diagnostic findings; phrasing discipline belongs to product behavior as well as presentation.",
+      "Don't render enemy summoner names in champ select UI or introduce enemy ability/ult timers."
+    ]
+  }
+}

@@ -54,7 +54,7 @@ export function ComebackOddsCard({
         </span>
         <span style={{ fontSize: 10, color: "var(--color-dimmer)" }}>
           {row && gold15 != null
-            ? `win rate down ${fmtK(Math.abs(gold15))} at 15`
+            ? `win rate down ${fmtK(Math.abs(gold15))} gold at 15`
             : "gold down at 15 → win chance"}
         </span>
       </div>

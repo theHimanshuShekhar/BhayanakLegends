@@ -134,6 +134,11 @@ export function LiveMatchPage() {
           {actionableErrorMessage(packQuery.error, "pack")}
         </div>
       )}
+      {ingameQuery.isError && (
+        <div data-testid="ingame-error" style={{ fontSize: 10.5, color: "var(--color-amber)" }}>
+          {actionableErrorMessage(ingameQuery.error)}
+        </div>
+      )}
 
       <PlayerList snapshot={ingame} />
 

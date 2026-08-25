@@ -45,6 +45,11 @@ export function ProgressPage() {
         {benchmarks.data && benchmarks.data.length > 0 && (
           <BenchmarkCards rows={benchmarks.data} />
         )}
+        {benchmarks.data && benchmarks.data.length === 0 && !benchmarks.isError && (
+          <div data-testid="benchmarks-empty" style={{ fontSize: 10.5, color: "var(--color-dimmer)" }}>
+            Benchmarks arrive once Backfill fills Personal History for a role.
+          </div>
+        )}
 
         <div
           style={{

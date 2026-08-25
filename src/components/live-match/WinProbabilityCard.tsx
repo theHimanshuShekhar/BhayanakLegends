@@ -19,6 +19,12 @@ function nearestBucket(pack: FindingsPack | undefined, clockS: number) {
   return best;
 }
 
+/** Bucket keys arrive in pack-specific shapes; give the quartile form a readable label. */
+function bucketLabel(bucket: string): string {
+  const quartile = /^(bottom|top)_quartile_@?(\d+)m$/.exec(bucket);
+  return quartile ? `${quartile[1]} quartile @${quartile[2]}m` : bucket;
+}
+
 /**
  * Win probability, honest edition (ADR-0003): the number is a nearest-bucket
  * lookup in pack.checkpoints, labeled Checkpoint estimate · Diagnostic. The
@@ -36,6 +42,8 @@ export function WinProbabilityCard({
   const bucket = nearestBucket(pack, clockS);
   const wr = active && bucket ? bucket.win_rate : null;
   const y = wr == null ? 54 : Math.round(106 - wr * 100);
+  // Semantic signal: teal when the estimate is favorable, rose when behind.
+  const signal = wr == null ? "var(--color-dimmer)" : wr >= 0.5 ? "var(--color-teal)" : "var(--color-danger)";
   return (
     <section
       className="card3b"
@@ -59,7 +67,7 @@ export function WinProbabilityCard({
           style={{
             marginLeft: "auto",
             font: "700 20px var(--font-mono)",
-            color: wr == null ? "var(--color-dimmer)" : "var(--color-teal)",
+            color: signal,
           }}
         >
           {wr == null ? "—" : pct(wr)}
@@ -84,7 +92,7 @@ export function WinProbabilityCard({
         </span>
         {bucket && (
           <span className="mono-n" style={{ marginLeft: "auto", fontSize: 9, color: "var(--color-dimmer)" }}>
-            {bucket.gold_diff_bucket}
+            {bucketLabel(bucket.gold_diff_bucket)}
           </span>
         )}
       </div>
@@ -97,6 +105,10 @@ export function WinProbabilityCard({
           <linearGradient id="wp-fill" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0" stopColor="#57cfb4" stopOpacity=".4" />
             <stop offset="1" stopColor="#57cfb4" stopOpacity="0" />
+          </linearGradient>
+          <linearGradient id="wp-fill-behind" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#e5738f" stopOpacity=".35" />
+            <stop offset="1" stopColor="#e5738f" stopOpacity="0" />
           </linearGradient>
         </defs>
         <line x1="0" y1="54" x2="640" y2="54" stroke="rgba(233,233,237,.16)" strokeWidth="1" />
@@ -113,17 +125,20 @@ export function WinProbabilityCard({
           />
         ) : (
           <>
-            <path d={`M0,${y} L640,${y} L640,108 L0,108 Z`} fill="url(#wp-fill)" />
+            <path
+              d={`M0,${y} L640,${y} L640,108 L0,108 Z`}
+              fill={wr >= 0.5 ? "url(#wp-fill)" : "url(#wp-fill-behind)"}
+            />
             <polyline
               points={`0,${y} 640,${y}`}
               fill="none"
-              stroke="#57cfb4"
+              stroke={signal}
               strokeWidth="2.5"
               strokeLinejoin="round"
               strokeLinecap="round"
             />
-            <circle cx="640" cy={y} r="5" fill="#57cfb4" />
-            <circle cx="640" cy={y} r="9" fill="#57cfb4" opacity=".25" />
+            <circle cx="640" cy={y} r="5" fill={signal} />
+            <circle cx="640" cy={y} r="9" fill={signal} opacity=".25" />
           </>
         )}
       </svg>

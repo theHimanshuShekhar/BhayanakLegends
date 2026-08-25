@@ -45,9 +45,7 @@ export function HowToPlayCard() {
           boxShadow: "var(--shadow-z1)",
         }}
       >
-        <span className="mono-n" style={{ font: "700 14px var(--font-mono)", color: "var(--color-dimmer)" }}>
-          v1
-        </span>
+        <span style={{ width: 6, height: 6, borderRadius: 999, background: "var(--color-dimmer)", flex: "none" }} />
         <div style={{ fontSize: 9.5, lineHeight: 1.4, color: "var(--color-dim)" }}>
           Gameplan guidance is champion-specific — it needs a locked pick, not pack averages.
         </div>

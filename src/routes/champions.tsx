@@ -69,7 +69,7 @@ export function ChampionsPage() {
   );
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12, paddingTop: 14, height: "100%" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 12, paddingTop: 14 }}>
       {roles.length > 0 && (
         <RoleChips roles={roles} active={activeRole} onSelect={setSelected} />
       )}
@@ -86,7 +86,6 @@ export function ChampionsPage() {
       {pack.data && activeRole && (
         <div
           style={{
-            flex: 1,
             minHeight: 0,
             display: "grid",
             gridTemplateColumns: "380px 1fr 360px",

@@ -317,10 +317,12 @@ function banCaption(bans: ChampSelectBan[]): string {
 export function BanStrip({
   snapshot,
   timerLabel,
+  timerUrgent = false,
   lastError,
 }: {
   snapshot: ChampSelectSnapshot | undefined;
   timerLabel: string;
+  timerUrgent?: boolean;
   lastError: string | null;
 }) {
   if (!snapshot?.active) return <IdleBanner lastError={lastError} />;
@@ -350,9 +352,13 @@ export function BanStrip({
         </div>
         <Divider />
         <div
-          className="pill mono-n"
+          className={`pill mono-n${timerUrgent ? " bl-pulse" : ""}`}
           data-testid="cs-timer-pill"
-          style={{ background: "var(--color-accent)", color: "#0e1020", whiteSpace: "nowrap" }}
+          style={
+            timerUrgent
+              ? { background: "var(--color-amber)", color: "#0e1020", whiteSpace: "nowrap" }
+              : { background: "var(--color-accent)", color: "#0e1020", whiteSpace: "nowrap" }
+          }
         >
           {snapshot.phase ?? "champ select"} · {timerLabel}
         </div>

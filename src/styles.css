@@ -44,3 +44,80 @@ body {
   font-family: var(--font-sans);
   font-weight: 400;
 }
+
+/* Motion: one authored entrance per route change, live-dot pulse, bar easing.
+   Everything below is skipped when the user prefers reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .rc-screen {
+    animation: bl-screen-enter 0.18s ease-out;
+  }
+
+  .bl-pulse {
+    animation: bl-dot-pulse 2.4s ease-in-out infinite;
+  }
+
+  .bl-width {
+    transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+
+@keyframes bl-screen-enter {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes bl-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* On-system checkbox: dark idle track, lavender checked state, 24px label hit area. */
+.bl-check {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  min-height: 16px;
+  flex: none;
+  margin: 0;
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  background: var(--color-deep);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.55);
+  cursor: pointer;
+  position: relative;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.bl-check:checked {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.bl-check:checked::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 9px;
+  height: 5px;
+  border-left: 2px solid var(--color-deep);
+  border-bottom: 2px solid var(--color-deep);
+  transform: rotate(-45deg);
+}
+
+.bl-check:focus-visible {
+  outline: 2px solid var(--color-amber);
+  outline-offset: 2px;
+}
