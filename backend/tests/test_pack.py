@@ -10,7 +10,7 @@ from pathlib import Path
 
 from pydantic import ValidationError as PydanticValidationError
 
-from bhayanak_legends.models import FindingsPack
+from bhayanak_legends.pack import PackError, PackStore
 import pytest
 from jsonschema import Draft202012Validator, ValidationError
 from pydantic import ValidationError as PydanticValidationError
@@ -72,6 +72,15 @@ def test_pack_matches_schema_and_strict_model():
 
     assert model.pack_version == "v1"
 
+
+
+def test_pack_store_wraps_unreadable_json_as_pack_error(tmp_path: Path):
+    pack_dir = tmp_path / "active"
+    pack_dir.mkdir()
+    (pack_dir / "findings-pack.v1.json").write_bytes(b"\xff")
+
+    with pytest.raises(PackError):
+        PackStore(pack_dir).load()
 
 def test_pack_declares_canonical_comeback_input():
     assert PACK["comeback_feature_contract"] == {

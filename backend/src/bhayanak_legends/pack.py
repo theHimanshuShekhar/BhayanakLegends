@@ -33,7 +33,7 @@ def validate_pack_directory(
         raise PackError(f"Findings Pack missing at {path}")
     try:
         pack = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, JSONDecodeError) as exc:
+    except (OSError, UnicodeDecodeError, JSONDecodeError) as exc:
         raise PackError(f"Findings Pack could not be read: {exc}") from exc
     if not isinstance(pack, dict):
         raise PackError("Findings Pack must be a JSON object")
@@ -43,7 +43,7 @@ def validate_pack_directory(
         try:
             schema = json.loads(selected_schema.read_text(encoding="utf-8"))
             jsonschema.validate(pack, schema)
-        except (OSError, JSONDecodeError, jsonschema.SchemaError) as exc:
+        except (OSError, UnicodeDecodeError, JSONDecodeError, jsonschema.SchemaError) as exc:
             raise PackError(f"Findings Pack schema could not be read: {exc}") from exc
         except jsonschema.ValidationError as exc:
             raise PackError(f"Findings Pack failed schema validation: {exc.message}") from exc
@@ -105,16 +105,16 @@ class PackStore:
         if not path.exists():
             raise PackError(f"Findings Pack missing at {path}")
         try:
-            pack = json.loads(path.read_text())
-        except (OSError, JSONDecodeError) as e:
+            pack = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, JSONDecodeError) as e:
             raise PackError(f"Findings Pack could not be read: {e}") from e
         if not isinstance(pack, dict):
             raise PackError("Findings Pack must be a JSON object")
         if schema_path.exists():
             try:
-                schema = json.loads(schema_path.read_text())
+                schema = json.loads(schema_path.read_text(encoding="utf-8"))
                 jsonschema.validate(pack, schema)
-            except (OSError, JSONDecodeError, jsonschema.SchemaError) as e:
+            except (OSError, UnicodeDecodeError, JSONDecodeError, jsonschema.SchemaError) as e:
                 raise PackError(f"Findings Pack schema could not be read: {e}") from e
             except jsonschema.ValidationError as e:
                 raise PackError(f"Findings Pack failed schema validation: {e.message}") from e

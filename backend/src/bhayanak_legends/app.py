@@ -43,6 +43,7 @@ APP_VERSION = "0.1.0"
 log = logging.getLogger("bhayanak_legends")
 
 PACK_VALIDATION_ERROR_DETAIL = "Findings Pack validation failed"
+PACK_UNAVAILABLE_DETAIL = "Findings Pack unavailable"
 
 
 class DevImportRequest(BaseModel):
@@ -211,10 +212,11 @@ def create_app(
     def get_pack() -> FindingsPack:
         try:
             return FindingsPack.model_validate(pack.load())
-        except (PackError, ValidationError):
+        except (PackError, ValidationError) as exc:
+            log.debug("Findings Pack request failed: %s", exc, exc_info=True)
             raise HTTPException(
                 status_code=503,
-                detail=PACK_VALIDATION_ERROR_DETAIL,
+                detail=PACK_UNAVAILABLE_DETAIL,
             ) from None
 
 

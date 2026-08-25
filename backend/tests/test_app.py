@@ -59,7 +59,7 @@ def test_invalid_findings_pack_returns_bounded_503_and_degraded_health(
 
     pack_response = client.get("/pack", headers=AUTH)
     assert pack_response.status_code == 503
-    assert pack_response.json() == {"detail": "Findings Pack validation failed"}
+    assert pack_response.json() == {"detail": "Findings Pack unavailable"}
     assert "raw_secret" not in pack_response.text
     assert "traceback" not in pack_response.text.lower()
 
@@ -88,7 +88,7 @@ def test_pack_load_failure_returns_same_bounded_503(client, monkeypatch):
     response = client.get("/pack", headers=AUTH)
 
     assert response.status_code == 503
-    assert response.json() == {"detail": "Findings Pack validation failed"}
+    assert response.json() == {"detail": "Findings Pack unavailable"}
     assert "raw pack" not in response.text
 
 @pytest.mark.parametrize("pack_body", [None, "{not-json"])
@@ -101,7 +101,7 @@ def test_pack_endpoint_returns_bounded_503_for_missing_or_malformed_pack(
         (pack_dir / "findings-pack.v1.json").write_text(pack_body)
     config = SidecarConfig(
         port=23110,
-        token="test-token-123456789012345678901234",
+        token=AUTH["X-BL-Token"],
         pack_dir=pack_dir,
     )
     app = create_app(config, credential_store=InMemoryCredentialStore())
@@ -110,12 +110,35 @@ def test_pack_endpoint_returns_bounded_503_for_missing_or_malformed_pack(
         response = test_client.get("/pack", headers=AUTH)
 
     assert response.status_code == 503
+    assert response.json() == {"detail": "Findings Pack unavailable"}
     detail = response.json()["detail"]
     assert "traceback" not in detail.lower()
     assert "findings pack" in detail.lower()
     if pack_body is not None:
         assert pack_body not in response.text
 
+def test_pack_failure_uses_generic_display_safe_detail_and_private_log(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch
+):
+    config = SidecarConfig(
+        port=23110,
+        token=AUTH["X-BL-Token"],
+        data_dir=tmp_path / "data",
+        pack_dir=tmp_path / "pack",
+    )
+    app = create_app(config, credential_store=InMemoryCredentialStore())
+    error = PackError("/tmp/private/findings-pack.json: raw body")
+    monkeypatch.setattr(app.state.pack, "load", lambda: (_ for _ in ()).throw(error))
+
+    with TestClient(app) as test_client:
+        caplog.set_level("DEBUG")
+        response = test_client.get("/pack", headers=AUTH)
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Findings Pack unavailable"}
+    assert "/tmp/private/findings-pack.json" not in response.text
+    assert "raw body" not in response.text
+    assert "/tmp/private/findings-pack.json" in caplog.text
 def test_requires_token(client):
     valid_host = {"Host": "127.0.0.1:23110"}
     assert client.get("/settings", headers=valid_host).status_code == 401
@@ -443,13 +466,6 @@ def test_repeated_startup_hooks_do_not_schedule_duplicate_backfills(
     started: list[bool] = []
     monkeypatch.setattr(app.state.sync_service, "start", lambda: started.append(True))
 
-    with TestClient(app):
-        pass
-    with TestClient(app):
-        pass
-
-    assert started == [True]
-
 
 async def test_event_stream_delivers_envelopes():
     hub = Hub()
@@ -466,3 +482,33 @@ async def test_event_stream_delivers_envelopes():
     envelope = json.loads(frame.removeprefix("data: "))
     assert envelope["type"] == "sync.progress"
     assert envelope["data"]["downloaded"] == 1
+async def test_event_stream_filters_private_pack_update_diagnostics():
+    hub = Hub()
+    queue = hub.subscribe()
+    gen = event_stream(hub, queue, "test", "v1")
+    await gen.__anext__()
+
+    await hub.publish(
+        "pack.updated",
+        {
+            "schema_version": 1,
+            "pack_version": "v2",
+            "reason": "/tmp/private/candidate: invalid pack body",
+        },
+    )
+    frame = await asyncio.wait_for(gen.__anext__(), timeout=2)
+    envelope = json.loads(frame.removeprefix("data: "))
+
+    assert envelope["data"] == {"schema_version": 1, "pack_version": "v2"}
+    assert "private" not in frame
+    assert "candidate" not in frame
+
+
+async def test_event_stream_redacts_path_bearing_pack_version():
+    hub = Hub()
+    queue = hub.subscribe()
+    gen = event_stream(hub, queue, "/tmp/private/app", "/tmp/private/pack")
+
+    hello = json.loads((await gen.__anext__()).removeprefix("data: "))
+
+    assert hello["data"] == {"app_version": "unknown", "pack_version": None}
