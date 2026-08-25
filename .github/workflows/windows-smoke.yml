@@ -45,15 +45,7 @@ jobs:
 
       - name: Build one-file Windows sidecar
         shell: bash
-        working-directory: backend
-        run: |
-          uv sync --locked
-          uv run pyinstaller --onefile --name bhayanak-legends-sidecar \
-            --add-data "../pack;pack" \
-            src/bhayanak_legends/sidecar.py
-          mkdir -p ../src-tauri/binaries
-          cp dist/bhayanak-legends-sidecar.exe \
-            ../src-tauri/binaries/bhayanak-legends-sidecar-x86_64-pc-windows-msvc.exe
+        run: uv run --project backend --locked python tools/build_windows_sidecar.py
 
       - name: Start loopback updater fixture
         shell: pwsh

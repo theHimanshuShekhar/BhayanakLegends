@@ -69,16 +69,7 @@ jobs:
 
       - name: Build Python sidecar binary
         shell: bash
-        working-directory: backend
-        run: |
-          uv sync --locked
-          uv run pyinstaller --onefile --name bhayanak-legends-sidecar \
-            --add-data "../pack;pack" \
-            --collect-submodules bhayanak_legends \
-            src/bhayanak_legends/sidecar.py
-          mkdir -p ../src-tauri/binaries
-          cp dist/bhayanak-legends-sidecar.exe \
-            ../src-tauri/binaries/bhayanak-legends-sidecar-x86_64-pc-windows-msvc.exe
+        run: uv run --project backend --locked python tools/build_windows_sidecar.py
 
       - name: Build and publish signed release
         uses: tauri-apps/tauri-action@564aea5a8075c7a54c167bb0cf5b3255314a7f9d # v0.5.22
