@@ -68,7 +68,7 @@ class ReleaseManifest:
     feature_contract_version: str
     download_url: str
     sha256: str
-    size: int
+    size: int | None
     required_model_artifacts: tuple[dict[str, str], ...]
     min_app_version: str | None
     max_app_version: str | None
@@ -177,12 +177,13 @@ def _manifest(raw: Any, base_url: str) -> ReleaseManifest:
     if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", sha):
         raise ReleaseChannelError("release manifest has no valid asset sha256")
     size = raw.get("size", asset.get("size"))
-    if isinstance(size, bool) or not isinstance(size, int) or size < 0:
-        raise ReleaseChannelError("release manifest requires a non-negative integer size")
-    if size > COMPRESSED_ASSET_MAX_BYTES:
-        raise ReleaseChannelError(
-            f"release manifest size exceeds {COMPRESSED_ASSET_MAX_BYTES} byte limit"
-        )
+    if size is not None:
+        if isinstance(size, bool) or not isinstance(size, int) or size < 0:
+            raise ReleaseChannelError("release manifest requires a non-negative integer size")
+        if size > COMPRESSED_ASSET_MAX_BYTES:
+            raise ReleaseChannelError(
+                f"release manifest size exceeds {COMPRESSED_ASSET_MAX_BYTES} byte limit"
+            )
     compatibility = raw.get("app_compatibility")
     if compatibility is not None and not isinstance(compatibility, dict):
         raise ReleaseChannelError("app_compatibility must be an object")
@@ -524,11 +525,13 @@ class ReleaseChannel:
         client: httpx.AsyncClient,
         url: str,
         target: Path,
-        expected_size: int,
+        expected_size: int | None,
         *,
         expected_origin: tuple[str, str, int | None],
     ) -> None:
-        if expected_size < 0 or expected_size > COMPRESSED_ASSET_MAX_BYTES:
+        if expected_size is not None and (
+            expected_size < 0 or expected_size > COMPRESSED_ASSET_MAX_BYTES
+        ):
             raise ReleaseChannelError("release asset size is outside the allowed limit")
         current = url
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -552,7 +555,7 @@ class ReleaseChannel:
                             declared_length = int(content_length)
                         except ValueError as exc:
                             raise ReleaseChannelError("release asset content length is invalid") from exc
-                        if declared_length != expected_size:
+                        if expected_size is not None and declared_length != expected_size:
                             raise ReleaseChannelError("release asset size does not match manifest")
                         if declared_length > COMPRESSED_ASSET_MAX_BYTES:
                             raise ReleaseChannelError("release asset exceeds size limit")
@@ -562,10 +565,12 @@ class ReleaseChannel:
                             if not chunk:
                                 continue
                             written += len(chunk)
-                            if written > expected_size or written > COMPRESSED_ASSET_MAX_BYTES:
+                            if written > COMPRESSED_ASSET_MAX_BYTES or (
+                                expected_size is not None and written > expected_size
+                            ):
                                 raise ReleaseChannelError("release asset exceeds declared size limit")
                             stream.write(chunk)
-                    if written != expected_size:
+                    if expected_size is not None and written != expected_size:
                         raise ReleaseChannelError("release asset was truncated")
                     self._validate_transport_url(
                         str(response.url),
