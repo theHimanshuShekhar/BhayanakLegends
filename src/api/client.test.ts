@@ -10,6 +10,16 @@ function response(body: unknown, status = 200): Response {
   });
 }
 
+const validChampSelect = {
+  active: false,
+  phase: null,
+  timer_sec: null,
+  bans_ally: [],
+  bans_enemy: [],
+  ally: [],
+  enemy: [],
+};
+
 describe("sidecar API boundary", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -23,7 +33,9 @@ describe("sidecar API boundary", () => {
 
   it("resolves a cold Tauri connection before REST and SSE URL construction", async () => {
     invoke.mockResolvedValue({ port: 24567, token: "cold-token" });
-    vi.mocked(fetch).mockImplementation(async () => response({ active: false }));
+    vi.mocked(fetch).mockImplementation(async (input) =>
+      response(String(input).endsWith("/live/session") ? validChampSelect : { active: false }),
+    );
     // Dynamic import resets the module-level cold-launch connection cache per test.
     const { api, eventsUrl } = await import("./client");
     const [session, ingame, url] = await Promise.all([
@@ -32,7 +44,7 @@ describe("sidecar API boundary", () => {
       eventsUrl(),
     ]);
 
-    expect(session).toEqual({ active: false });
+    expect(session).toEqual(validChampSelect);
     expect(ingame).toEqual({ active: false });
     expect(invoke).toHaveBeenCalledOnce();
     expect(vi.mocked(fetch)).toHaveBeenCalledWith(
@@ -42,6 +54,19 @@ describe("sidecar API boundary", () => {
       }),
     );
     expect(url).toBe("http://127.0.0.1:24567/events?token=cold-token");
+  });
+
+  it("rejects malformed live sessions before consumers receive data", async () => {
+    invoke.mockResolvedValue({ port: 24567, token: "cold-token" });
+    vi.mocked(fetch).mockResolvedValue(
+      response({
+        ...validChampSelect,
+        bans_ally: [{ champion_id: 25, name: "Miss Fortune" }],
+      }),
+    );
+    const { api } = await import("./client");
+
+    await expect(api.liveSession()).rejects.toThrow("Invalid /live/session response");
   });
   it("uses browser development defaults through the same async boundary", async () => {
     Reflect.deleteProperty(window, "__TAURI_INTERNALS__");

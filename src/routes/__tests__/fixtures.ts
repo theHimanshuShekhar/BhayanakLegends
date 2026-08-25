@@ -31,10 +31,10 @@ export const champSelectSession: ChampSelectSnapshot = {
   phase: "ChampSelect",
   timer_sec: 23,
   bans_ally: [
-    { champion_id: 25, name: "Miss Fortune" },
-    { champion_id: 1, name: "Annie" },
+    { champion_id: 25, champion: "Miss Fortune" },
+    { champion_id: 1, champion: "Annie" },
   ],
-  bans_enemy: [{ champion_id: 412, name: null }],
+  bans_enemy: [{ champion_id: 412, champion: null }],
   ally: [
     { cell_id: 0, champion_id: 22, champion: "Lucian", name: "AllyTop", is_local: false, state: "picked" },
     { cell_id: 1, champion_id: 121, champion: null, name: "AllyJungle", is_local: false, state: "intent" },

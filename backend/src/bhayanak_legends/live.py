@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 
 from .models import (
     CellState,
+    ChampSelectBan,
     ChampSelectStatus,
     GameMode,
     GameflowPhase,
@@ -46,9 +47,8 @@ _GAME_MODES = frozenset(get_args(GameMode))
 _LIVE_EVENT_NAMES = frozenset(get_args(LiveEventName))
 
 
-class CsBan(BaseModel):
-    champion_id: int = 0
-    name: str | None = None
+class CsBan(ChampSelectBan):
+    """Internal name retained for the live bridge's ban collection."""
 
 
 class AllyCell(BaseModel):
@@ -132,7 +132,7 @@ def _cs_bans(raw_bans: dict | None, key: str, names: dict[int, str]) -> list[CsB
         champion_id = int(entry.get("championId") or 0)
         if not champion_id:
             continue  # pick turn not used yet
-        bans.append(CsBan(champion_id=champion_id, name=names.get(champion_id)))
+        bans.append(CsBan(champion_id=champion_id, champion=names.get(champion_id)))
     return bans
 
 

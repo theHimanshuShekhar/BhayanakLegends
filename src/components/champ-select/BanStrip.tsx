@@ -64,17 +64,17 @@ function BanTile({
   side: "ally" | "enemy";
 }) {
   if (!ban || !ban.champion_id) return <SlashTile plain={side === "enemy"} />;
-  const label = ban.name ? initials(ban.name) : "?";
+  const label = ban.champion ? initials(ban.champion) : "?";
   return (
     <div
-      title={ban.name ?? `Champion ${ban.champion_id}`}
+      title={ban.champion ?? `Champion ${ban.champion_id}`}
       style={{
         width: 26,
         height: 26,
         borderRadius: 9,
         flex: "none",
         background:
-          side === "enemy" && !ban.name ? ENEMY_PICKED_TILE_BG : side === "enemy" ? ENEMY_TILE_BG : ALLY_TILE_BG,
+          side === "enemy" && !ban.champion ? ENEMY_PICKED_TILE_BG : side === "enemy" ? ENEMY_TILE_BG : ALLY_TILE_BG,
         display: "grid",
         placeItems: "center",
         font: "700 10px var(--font-mono)",
@@ -311,7 +311,7 @@ function IdleBanner({ lastError }: { lastError: string | null }) {
 
 function banCaption(bans: ChampSelectBan[]): string {
   if (!bans.length) return "none yet";
-  return bans.map((b) => b.name ?? `Champion ${b.champion_id}`).join(", ");
+  return bans.map((b) => b.champion ?? `Champion ${b.champion_id}`).join(", ");
 }
 
 export function BanStrip({

@@ -127,7 +127,7 @@ interface LiveStatus {
 // Rich LCU-bridge snapshots (GET /live/session + SSE "champselect.state").
 // COMPLIANCE: enemy summoner names are stripped at the service layer —
 // ChampSelectSnapshot.enemy[].name is always null.
-interface ChampSelectBan { champion_id: number; name: string|null }   // name null → UI shows "Champion {id}"
+interface ChampSelectBan { champion_id: number; champion: string|null }   // champion null → UI shows "Champion {id}"
 interface ChampSelectAllyCell {
   cell_id: number;
   champion_id: number;

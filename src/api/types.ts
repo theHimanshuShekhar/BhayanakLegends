@@ -243,7 +243,7 @@ export interface LiveStatus {
 // ChampSelectEnemyCell.name is always null.
 export interface ChampSelectBan {
   champion_id: number;
-  name: string | null; // null → UI renders "Champion {id}"
+  champion: string | null; // null → UI renders "Champion {id}"
 }
 
 export type CellState = "intent" | "picked" | "hover" | "none";

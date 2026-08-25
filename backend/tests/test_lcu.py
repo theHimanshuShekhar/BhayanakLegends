@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 from fastapi.testclient import TestClient
 
 from bhayanak_legends.app import create_app
@@ -310,12 +311,13 @@ def test_build_champ_select_snapshot_strips_enemy_names_and_maps_bans():
     assert snapshot.phase == "ChampSelect"
     assert snapshot.timer_sec == 23
 
-    assert [(b.champion_id, b.name) for b in snapshot.bans_ally] == [
+    assert [(b.champion_id, b.champion) for b in snapshot.bans_ally] == [
         (25, "Miss Fortune"),
         (1, "Annie"),
     ]
-    # unmapped champion ids keep name=None so the UI renders "Champion {id}"
-    assert [(b.champion_id, b.name) for b in snapshot.bans_enemy] == [(412, None), (60, None)]
+    # unmapped champion ids keep champion=None so the UI renders "Champion {id}"
+    assert [(b.champion_id, b.champion) for b in snapshot.bans_enemy] == [(412, None), (60, None)]
+    assert all("name" not in ban for ban in snapshot.model_dump()["bans_ally"] + snapshot.model_dump()["bans_enemy"])
 
     local = next(cell for cell in snapshot.ally if cell.is_local)
     assert (local.cell_id, local.champion_id, local.champion, local.name, local.state) == (
@@ -334,6 +336,18 @@ def test_build_champ_select_snapshot_strips_enemy_names_and_maps_bans():
     ]
     assert [cell.state for cell in snapshot.enemy] == ["picked", "picked", "intent", "none", "picked"]
     assert "HiddenEnemy" not in json.dumps(snapshot.model_dump())
+
+def test_champ_select_ban_rejects_obsolete_name_field():
+    with pytest.raises(ValidationError):
+        ChampSelectSnapshot(
+            active=True,
+            phase="ChampSelect",
+            timer_sec=0,
+            bans_ally=[{"champion_id": 25, "name": "Miss Fortune"}],
+            bans_enemy=[],
+            ally=[],
+            enemy=[],
+        )
 
 
 def test_build_ingame_snapshot_maps_players_scores_items_events():
@@ -530,11 +544,11 @@ class StubLiveService:
         return {
             "active": True,
             "phase": "ChampSelect",
-            "timer_sec": 23,
-            "bans_ally": [{"champion_id": 25, "name": "Miss Fortune"}],
-            "bans_enemy": [{"champion_id": 412, "name": None}],
             "ally": [],
             "enemy": [],
+            "timer_sec": 23,
+            "bans_ally": [{"champion_id": 25, "champion": "Miss Fortune"}],
+            "bans_enemy": [{"champion_id": 412, "champion": None}],
         }
 
     def ingame(self):
@@ -599,7 +613,8 @@ def test_live_endpoints_expose_service_snapshots(tmp_path, monkeypatch):
         status = client.get("/live/status", headers=AUTH).json()
 
     assert session["active"] is True and session["timer_sec"] == 23
-    assert session["bans_ally"][0]["name"] == "Miss Fortune"
+    assert session["bans_ally"][0]["champion"] == "Miss Fortune"
+    assert "name" not in session["bans_ally"][0]
     assert ingame["local_champion"] == "Viktor"
     assert status["ingame"]["game_id"] == 5123456789
 
