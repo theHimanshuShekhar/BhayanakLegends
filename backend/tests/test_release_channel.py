@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import io
 import json
@@ -10,8 +11,12 @@ from pathlib import Path
 
 import httpx
 import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from bhayanak_legends.release_channel import ReleaseChannel
+
+TEST_PRIVATE_KEY = Ed25519PrivateKey.generate()
+TEST_PUBLIC_KEY = TEST_PRIVATE_KEY.public_key().public_bytes_raw()
 
 ROOT = Path(__file__).resolve().parents[2]
 PACK = ROOT / "pack" / "findings-pack.v1.json"
@@ -28,8 +33,6 @@ def _asset(tmp_path: Path, *, pack_version: str = "v2", schema_version: int = 1)
         archive.writestr("pack.schema.json", SCHEMA.read_text())
         archive.writestr("models/honest-model.bin", b"model-v2")
     return output.getvalue()
-
-
 def _channel(tmp_path: Path, asset: bytes, *, manifest: dict | None = None) -> ReleaseChannel:
     pack_dir = tmp_path / "pack"
     pack_dir.mkdir(exist_ok=True)
@@ -38,7 +41,7 @@ def _channel(tmp_path: Path, asset: bytes, *, manifest: dict | None = None) -> R
         "pack_version": "v2",
         "schema_version": 1,
         "feature_contract_version": "loltrends-parity-v1",
-        "download_url": "http://release.test/asset.zip",
+        "download_url": "asset.zip",
         "sha256": hashlib.sha256(asset).hexdigest(),
         "size": len(asset),
         "required_model_artifacts": [
@@ -49,10 +52,14 @@ def _channel(tmp_path: Path, asset: bytes, *, manifest: dict | None = None) -> R
         ],
         **(manifest or {}),
     }
+    raw_manifest = json.dumps(manifest).encode()
+    signature = base64.b64encode(TEST_PRIVATE_KEY.sign(raw_manifest))
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/manifest.json":
-            return httpx.Response(200, json=manifest, request=request)
+            return httpx.Response(200, content=raw_manifest, request=request)
+        if request.url.path == "/manifest.json.sig":
+            return httpx.Response(200, content=signature, request=request)
         if request.url.path == "/asset.zip":
             return httpx.Response(200, content=asset, request=request)
         return httpx.Response(404, request=request)
@@ -61,9 +68,11 @@ def _channel(tmp_path: Path, asset: bytes, *, manifest: dict | None = None) -> R
     client = httpx.AsyncClient(transport=transport)
     return ReleaseChannel(
         tmp_path / "pack",
-        manifest_url="http://release.test/manifest.json",
+        manifest_url="http://127.0.0.1:8080/manifest.json",
         app_version="0.1.0",
         client=client,
+        allow_loopback_http=True,
+        manifest_public_key=TEST_PUBLIC_KEY,
     )
 
 
@@ -119,23 +128,24 @@ async def test_incompatible_contract_is_rejected(tmp_path: Path) -> None:
 async def test_corrupt_download_is_rejected(tmp_path: Path) -> None:
     asset = _asset(tmp_path)
     channel = _channel(tmp_path, asset)
-    channel.client = httpx.AsyncClient(
-        transport=httpx.MockTransport(
-            lambda request: httpx.Response(
-                200,
-                json={
-                    "pack_version": "v2",
-                    "schema_version": 1,
-                    "feature_contract_version": "loltrends-parity-v1",
-                    "download_url": "http://release.test/asset.zip",
-                    "sha256": hashlib.sha256(asset).hexdigest(),
-                },
-                request=request,
-            )
-            if request.url.path == "/manifest.json"
-            else httpx.Response(200, content=b"truncated", request=request)
-        )
-    )
+    manifest = {
+        "pack_version": "v2",
+        "schema_version": 1,
+        "feature_contract_version": "loltrends-parity-v1",
+        "download_url": "asset.zip",
+        "sha256": hashlib.sha256(asset).hexdigest(),
+    }
+    raw_manifest = json.dumps(manifest).encode()
+    signature = base64.b64encode(TEST_PRIVATE_KEY.sign(raw_manifest))
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/manifest.json":
+            return httpx.Response(200, content=raw_manifest, request=request)
+        if request.url.path == "/manifest.json.sig":
+            return httpx.Response(200, content=signature, request=request)
+        return httpx.Response(200, content=b"truncated", request=request)
+
+    channel.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     result = await channel.check_and_activate("v1")
     assert not result.activated
     assert "hash mismatch" in (result.reason or "")

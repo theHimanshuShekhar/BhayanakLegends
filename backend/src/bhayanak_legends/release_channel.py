@@ -25,6 +25,18 @@ import httpx
 
 from .pack import PackError, validate_pack_directory
 
+from .manifest_signing import (
+    PINNED_MANIFEST_PUBLIC_KEY,
+    ManifestSignatureError,
+    verify_manifest_signature,
+)
+
+MANIFEST_MAX_BYTES = 256 * 1024
+ASSET_MAX_BYTES = 512 * 1024 * 1024
+MAX_ARCHIVE_MEMBERS = 4096
+SIGNATURE_MAX_BYTES = 16 * 1024
+MAX_REDIRECTS = 8
+
 log = logging.getLogger(__name__)
 
 DEFAULT_MANIFEST_URL = (
@@ -88,6 +100,17 @@ def _read_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _effective_port(parsed: urllib.parse.ParseResult) -> int | None:
+    if parsed.port is not None:
+        return parsed.port
+    return {"http": 80, "https": 443}.get(parsed.scheme)
+
+
+def _origin(url: str) -> tuple[str, str, int | None]:
+    parsed = urllib.parse.urlparse(url)
+    return (parsed.scheme.lower(), (parsed.hostname or "").lower(), _effective_port(parsed))
+
+
 def _url_from_manifest(manifest: dict[str, Any], base_url: str) -> str:
     asset = manifest.get("asset")
     asset = asset if isinstance(asset, dict) else {}
@@ -100,7 +123,18 @@ def _url_from_manifest(manifest: dict[str, Any], base_url: str) -> str:
     )
     if not isinstance(value, str) or not value:
         raise ReleaseChannelError("release manifest has no download URL")
-    return urllib.parse.urljoin(base_url, value)
+    parsed = urllib.parse.urlparse(value)
+    if parsed.scheme or parsed.netloc:
+        raise ReleaseChannelError("release asset URL must be relative")
+    resolved = urllib.parse.urljoin(base_url, value)
+    if _origin(resolved) != _origin(base_url):
+        raise ReleaseChannelError("release asset URL must match manifest origin")
+    return resolved
+
+
+def _signature_url(manifest_url: str) -> str:
+    parsed = urllib.parse.urlparse(manifest_url)
+    return urllib.parse.urlunparse(parsed._replace(path=f"{parsed.path}.sig"))
 
 
 def _artifact_specs(value: Any) -> tuple[dict[str, str], ...]:
@@ -179,14 +213,23 @@ def _extract_candidate(download: Path, destination: Path) -> None:
     destination.mkdir(parents=True, exist_ok=True)
     if zipfile.is_zipfile(download):
         with zipfile.ZipFile(download) as archive:
+            total = 0
+            members = 0
             for info in archive.infolist():
+                members += 1
+                if members > MAX_ARCHIVE_MEMBERS:
+                    raise ReleaseChannelError("release archive has too many members")
                 path = _safe_member(info.filename)
                 if not path.parts or info.is_dir():
                     continue
                 target = destination.joinpath(*path.parts)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with archive.open(info) as source, target.open("wb") as sink:
-                    shutil.copyfileobj(source, sink)
+                    for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                        total += len(chunk)
+                        if total > ASSET_MAX_BYTES:
+                            raise ReleaseChannelError("release archive exceeds size limit")
+                        sink.write(chunk)
         return
     # A plain JSON asset is useful for a tiny release and for local/offline tests.
     target = destination / PACK_FILENAME
@@ -243,7 +286,6 @@ def _validate_candidate(
     except PackError as exc:
         raise ReleaseChannelError(f"release pack failed validation: {exc}") from exc
 
-
 class ReleaseChannel:
     """Download and activate a compatible Findings Pack release."""
 
@@ -255,27 +297,127 @@ class ReleaseChannel:
         app_version: str = "0.1.0",
         timeout: float = 15.0,
         client: httpx.AsyncClient | None = None,
+        allow_loopback_http: bool = False,
+        manifest_public_key: bytes | None = None,
     ) -> None:
         self.pack_dir = Path(pack_dir)
         self.manifest_url = manifest_url
         self.app_version = app_version
         self.timeout = timeout
         self.client = client
+        self.allow_loopback_http = allow_loopback_http
+        self.manifest_public_key = manifest_public_key
+
+    def _validate_transport_url(
+        self,
+        url: str,
+        *,
+        label: str,
+        expected_origin: tuple[str, str, int | None] | None = None,
+    ) -> urllib.parse.ParseResult:
+        try:
+            parsed = urllib.parse.urlparse(url)
+            host = (parsed.hostname or "").lower()
+            port = _effective_port(parsed)
+        except ValueError as exc:
+            raise ReleaseChannelError(f"{label} URL is invalid") from exc
+        if parsed.scheme not in {"http", "https"} or not host or parsed.username or parsed.password:
+            raise ReleaseChannelError(f"{label} URL is invalid")
+        loopback = host == "127.0.0.1"
+        if parsed.scheme != "https" and not (self.allow_loopback_http and loopback):
+            raise ReleaseChannelError(f"{label} must use HTTPS")
+        if expected_origin is not None:
+            expected_scheme, expected_host, expected_port = expected_origin
+            if host != expected_host:
+                raise ReleaseChannelError(f"{label} redirect changed host")
+            if port != expected_port:
+                raise ReleaseChannelError(f"{label} redirect changed origin")
+            if (
+                parsed.scheme != expected_scheme
+                and (expected_host != "127.0.0.1" or not self.allow_loopback_http)
+            ):
+                raise ReleaseChannelError(f"{label} redirect changed origin")
+        return parsed
+
+    async def _fetch_bytes(
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+        *,
+        limit: int,
+        label: str,
+    ) -> tuple[str, bytes]:
+        parsed = self._validate_transport_url(url, label=label)
+        expected_origin = _origin(url)
+        current = urllib.parse.urlunparse(parsed)
+        for _ in range(MAX_REDIRECTS + 1):
+            self._validate_transport_url(current, label=label, expected_origin=expected_origin)
+            async with client.stream("GET", current, follow_redirects=False) as response:
+                if response.is_redirect:
+                    location = response.headers.get("location")
+                    if not location:
+                        raise ReleaseChannelError(f"{label} redirect has no location")
+                    current = urllib.parse.urljoin(current, location)
+                    continue
+                try:
+                    response.raise_for_status()
+                except httpx.HTTPError as exc:
+                    raise ReleaseChannelError(f"{label} request failed") from exc
+                chunks: list[bytes] = []
+                total = 0
+                async for chunk in response.aiter_bytes(64 * 1024):
+                    if chunk:
+                        total += len(chunk)
+                        if total > limit:
+                            raise ReleaseChannelError(f"{label} exceeds {limit} byte limit")
+                        chunks.append(chunk)
+                final_url = str(response.url)
+                self._validate_transport_url(final_url, label=label, expected_origin=expected_origin)
+                return final_url, b"".join(chunks)
+        raise ReleaseChannelError(f"{label} has too many redirects")
 
     async def check_and_activate(self, current_version: str | None = None) -> ReleaseResult:
         """Check the public manifest and activate only a newer valid candidate."""
         try:
             async with self._client_context() as client:
-                response = await client.get(self.manifest_url)
-                response.raise_for_status()
-                raw_manifest = response.json()
-                release = _manifest(raw_manifest, str(response.url))
+                manifest_response_url, raw_manifest = await self._fetch_bytes(
+                    client,
+                    self.manifest_url,
+                    limit=MANIFEST_MAX_BYTES,
+                    label="release manifest",
+                )
+                signature_url = _signature_url(manifest_response_url)
+                _, raw_signature = await self._fetch_bytes(
+                    client,
+                    signature_url,
+                    limit=SIGNATURE_MAX_BYTES,
+                    label="release manifest signature",
+                )
+                try:
+                    verify_manifest_signature(
+                        raw_manifest,
+                        raw_signature,
+                        public_key=self.manifest_public_key or PINNED_MANIFEST_PUBLIC_KEY,
+                    )
+                except ManifestSignatureError as exc:
+                    raise ReleaseChannelError(str(exc)) from exc
+                try:
+                    raw_manifest_json = json.loads(raw_manifest.decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                    raise ReleaseChannelError(f"release manifest is not valid JSON: {exc}") from exc
+                release = _manifest(raw_manifest_json, manifest_response_url)
                 if not is_newer_version(release.pack_version, current_version):
                     return ReleaseResult(False, current_version, release.schema_version, "up-to-date")
                 with tempfile.TemporaryDirectory(prefix="bl-pack-", dir=self.pack_dir.parent) as temporary:
                     temp_root = Path(temporary)
                     download = temp_root / "download"
-                    await self._download(client, release.download_url, download, release.size)
+                    await self._download(
+                        client,
+                        release.download_url,
+                        download,
+                        release.size,
+                        expected_origin=_origin(manifest_response_url),
+                    )
                     if _read_sha256(download) != release.sha256:
                         raise ReleaseChannelError("release asset hash mismatch")
                     candidate = temp_root / "candidate"
@@ -295,22 +437,55 @@ class ReleaseChannel:
     def _client_context(self):
         if self.client is not None:
             return _ExistingClientContext(self.client)
-        return httpx.AsyncClient(timeout=httpx.Timeout(self.timeout), follow_redirects=True)
+        return httpx.AsyncClient(timeout=httpx.Timeout(self.timeout), follow_redirects=False)
 
-    async def _download(self, client: httpx.AsyncClient, url: str, target: Path, expected_size: int | None) -> None:
-        async with client.stream("GET", url) as response:
-            response.raise_for_status()
-            content_length = response.headers.get("content-length")
-            if expected_size is not None and content_length and int(content_length) != expected_size:
-                raise ReleaseChannelError("release asset size does not match manifest")
-            written = 0
-            with target.open("wb") as stream:
-                async for chunk in response.aiter_bytes(1024 * 1024):
-                    if chunk:
-                        stream.write(chunk)
-                        written += len(chunk)
-            if expected_size is not None and written != expected_size:
-                raise ReleaseChannelError("release asset was truncated")
+    async def _download(
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+        target: Path,
+        expected_size: int | None,
+        *,
+        expected_origin: tuple[str, str, int | None],
+    ) -> None:
+        current = url
+        for _ in range(MAX_REDIRECTS + 1):
+            self._validate_transport_url(current, label="release asset", expected_origin=expected_origin)
+            async with client.stream("GET", current, follow_redirects=False) as response:
+                if response.is_redirect:
+                    location = response.headers.get("location")
+                    if not location:
+                        raise ReleaseChannelError("release asset redirect has no location")
+                    current = urllib.parse.urljoin(current, location)
+                    continue
+                try:
+                    response.raise_for_status()
+                except httpx.HTTPError as exc:
+                    raise ReleaseChannelError("release asset request failed") from exc
+                content_length = response.headers.get("content-length")
+                if expected_size is not None and content_length:
+                    try:
+                        if int(content_length) != expected_size:
+                            raise ReleaseChannelError("release asset size does not match manifest")
+                    except ValueError as exc:
+                        raise ReleaseChannelError("release asset content length is invalid") from exc
+                written = 0
+                with target.open("wb") as stream:
+                    async for chunk in response.aiter_bytes(1024 * 1024):
+                        if chunk:
+                            stream.write(chunk)
+                            written += len(chunk)
+                            if written > ASSET_MAX_BYTES:
+                                raise ReleaseChannelError("release asset exceeds size limit")
+                if expected_size is not None and written != expected_size:
+                    raise ReleaseChannelError("release asset was truncated")
+                self._validate_transport_url(
+                    str(response.url),
+                    label="release asset",
+                    expected_origin=expected_origin,
+                )
+                return
+        raise ReleaseChannelError("release asset has too many redirects")
 
     def _activate(self, candidate: Path) -> None:
         self.pack_dir.mkdir(parents=True, exist_ok=True)

@@ -22,6 +22,9 @@ __pycache__/
 *.pyc
 .venv/
 *.egg-info/
+
+# local Findings Pack signing key; provision the same seed to CI explicitly
+backend/.signing/
 .pytest_cache/
 
 # local app data (Personal History dev imports etc.)

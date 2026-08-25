@@ -71,6 +71,15 @@ jobs:
         shell: bash
         run: uv run --project backend --locked python tools/build_windows_sidecar.py
 
+      - name: Sign Findings Pack manifest
+        if: ${{ hashFiles('pack/findings-pack-manifest.json') != '' }}
+        shell: bash
+        env:
+          FINDINGS_PACK_MANIFEST_SIGNING_KEY: ${{ secrets.FINDINGS_PACK_MANIFEST_SIGNING_KEY }}
+        run: |
+          uv run --project backend python tools/sign_findings_pack_manifest.py \
+            pack/findings-pack-manifest.json
+
       - name: Build and publish signed release
         uses: tauri-apps/tauri-action@564aea5a8075c7a54c167bb0cf5b3255314a7f9d # v0.5.22
         env:
