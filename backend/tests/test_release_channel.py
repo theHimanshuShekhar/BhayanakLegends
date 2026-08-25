@@ -148,7 +148,7 @@ async def test_corrupt_download_is_rejected(tmp_path: Path) -> None:
     channel.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     result = await channel.check_and_activate("v1")
     assert not result.activated
-    assert "requires" in (result.reason or "")
+    assert "hash mismatch" in (result.reason or "")
 
 
 @pytest.mark.asyncio
