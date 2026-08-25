@@ -4,7 +4,7 @@
   "title": "Findings Pack v1",
   "description": "Versioned export of population findings from the LoLTrends research. Every numeric-bearing table has a provenance block identifying its source document/section, Feature Store manifest, generator revision, and feature-contract version; findings retain per-finding source_ref.",
   "type": "object",
-  "additionalProperties": false,
+  "additionalProperties": { "type": "object" },
   "required": [
     "schema_version",
     "generated_at",
@@ -24,7 +24,7 @@
   "properties": {
     "provenance": {
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": ["dataset", "findings", "habits", "objectives", "comeback_odds", "ban_advisor", "trap_picks", "tier_list", "matchup_examples", "benchmarks", "checkpoints"],
       "properties": {
         "dataset": { "$ref": "#/$defs/provenance" },
@@ -45,7 +45,7 @@
     "generated_at": { "type": "string", "format": "date-time", "description": "UTC ISO-8601 build timestamp" },
     "dataset": {
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": ["matches", "player_games", "patches"],
       "properties": {
         "matches": { "type": "integer", "minimum": 1 },
@@ -64,7 +64,7 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "additionalProperties": false,
+        "additionalProperties": true,
         "required": ["key", "tier", "title", "statement", "value", "unit", "source_ref"],
         "properties": {
           "key": { "type": "string", "minLength": 1 },
@@ -85,7 +85,7 @@
       "description": "The four surviving coachable habits, fixed keys",
       "items": {
         "type": "object",
-        "additionalProperties": false,
+        "additionalProperties": true,
         "required": ["key", "label", "effect_per_sd"],
         "properties": {
           "key": { "enum": ["recall_safety", "fast_first_dragon", "spend_before_backing", "plates_by_14"] },
@@ -96,7 +96,7 @@
     },
     "objectives": {
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "baron_pre25_win_rate",
         "baron_comeback_lift_pp",
@@ -129,7 +129,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "additionalProperties": false,
+        "additionalProperties": true,
         "required": ["champion", "win_rate", "ban_rate", "recommendation"],
         "properties": {
           "champion": { "type": "string", "minLength": 1 },
@@ -143,7 +143,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "additionalProperties": false,
+        "additionalProperties": true,
         "required": ["champion", "win_rate"],
         "properties": {
           "champion": { "type": "string", "minLength": 1 },
@@ -155,7 +155,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "additionalProperties": false,
+        "additionalProperties": true,
         "required": ["champion", "role", "games", "pick_rate", "win_rate", "tier"],
         "properties": {
           "champion": { "type": "string", "minLength": 1 },
@@ -171,7 +171,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "additionalProperties": false,
+        "additionalProperties": true,
         "required": ["champion", "opponent", "role", "wr", "ci", "games"],
         "properties": {
           "champion": { "type": "string", "minLength": 1 },
@@ -187,7 +187,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "additionalProperties": false,
+        "additionalProperties": true,
         "required": ["role", "cs10_median", "level10_median", "gold_diff_10_median", "feature_contract", "sample"],
         "properties": {
           "role": { "enum": ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"] },
@@ -196,7 +196,7 @@
           "gold_diff_10_median": { "type": ["number", "null"] },
           "feature_contract": {
             "type": "object",
-            "additionalProperties": false,
+            "additionalProperties": true,
             "required": ["cs10_median", "level10_median", "gold_diff_10_median"],
             "properties": {
               "cs10_median": { "type": "string", "minLength": 1 },
@@ -225,7 +225,7 @@
   "$defs": {
     "provenance": {
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": ["source_document", "source_section", "feature_store_manifest_sha256", "generator_revision", "feature_contract_version"],
       "properties": {
         "source_document": { "type": "string", "minLength": 1 },

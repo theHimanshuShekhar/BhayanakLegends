@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from starlette.middleware.cors import CORSMiddleware
 
 from .auth import TokenAuthMiddleware
@@ -41,6 +41,8 @@ from .store import Store
 
 APP_VERSION = "0.1.0"
 log = logging.getLogger("bhayanak_legends")
+
+PACK_VALIDATION_ERROR_DETAIL = "Findings Pack validation failed"
 
 
 class DevImportRequest(BaseModel):
@@ -95,10 +97,10 @@ def create_app(
     pack = PackStore(config.resolved_pack_dir())
     pack_error: str | None = None
     try:
-        pack.load()
-    except PackError as e:
-        log.warning("pack load failed: %s", e)
-        pack_error = str(e)
+        FindingsPack.model_validate(pack.load())
+    except (PackError, ValidationError):
+        log.warning("%s", PACK_VALIDATION_ERROR_DETAIL)
+        pack_error = PACK_VALIDATION_ERROR_DETAIL
 
     try:
         from .live import LiveService
@@ -185,8 +187,10 @@ def create_app(
     def health() -> Health:
         if app.state.pack_error is None:
             try:
-                pack_version = app.state.pack.version()
-            except PackError:
+                pack_data = pack.load()
+                FindingsPack.model_validate(pack_data)
+                pack_version = pack.version()
+            except (PackError, ValidationError):
                 pack_version = None
         else:
             pack_version = None
@@ -200,8 +204,12 @@ def create_app(
     def get_pack() -> FindingsPack:
         try:
             return FindingsPack.model_validate(pack.load())
-        except PackError as e:
-            raise HTTPException(status_code=503, detail=str(e))
+        except (PackError, ValidationError):
+            raise HTTPException(
+                status_code=503,
+                detail=PACK_VALIDATION_ERROR_DETAIL,
+            ) from None
+
 
     @app.get("/settings", response_model=Settings)
     def get_settings() -> Settings:

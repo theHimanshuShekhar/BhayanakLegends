@@ -7,6 +7,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+from pydantic import ValidationError as PydanticValidationError
+
+from bhayanak_legends.models import FindingsPack
 import pytest
 from jsonschema import Draft202012Validator, ValidationError
 
@@ -31,6 +34,16 @@ IMPERATIVE = re.compile(
 )
 
 
+
+
+def test_schema_accepts_unknown_future_tables_only_as_objects():
+    future = copy.deepcopy(PACK)
+    future["future_table"] = {"new_metric": 1}
+    Draft202012Validator(SCHEMA).validate(future)
+
+    future["future_table"] = ["not", "a", "table"]
+    with pytest.raises(ValidationError):
+        Draft202012Validator(SCHEMA).validate(future)
 def test_pack_matches_schema():
     Draft202012Validator.check_schema(SCHEMA)
     Draft202012Validator(SCHEMA).validate(PACK)
@@ -130,6 +143,51 @@ def test_header_fields():
     assert PACK["dataset"]["matches"] > 0
     assert PACK["dataset"]["player_games"] >= PACK["dataset"]["matches"]
     assert len(PACK["dataset"]["patches"]) == 2
+
+
+def test_findings_pack_ignores_unknown_future_fields_and_tables():
+    future = copy.deepcopy(PACK)
+    future["pack_version"] = "v1"
+    future["benchmarks"][0]["future_metric"] = 1
+    future["benchmarks"][0]["feature_contract"]["future_feature"] = "future-v2"
+
+    validated = FindingsPack.model_validate(future)
+
+    assert validated.pack_version == "v1"
+    assert not hasattr(validated, "future_table")
+    assert not hasattr(validated.benchmarks[0], "future_metric")
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("pack_version", None),
+        ("pack_version", ""),
+        ("pack_version", 1),
+    ],
+)
+def test_findings_pack_requires_non_empty_string_pack_version(field, value):
+    broken = copy.deepcopy(PACK)
+    broken["pack_version"] = "v1"
+    if value is None:
+        broken.pop(field, None)
+    else:
+        broken[field] = value
+
+    with pytest.raises(PydanticValidationError):
+        FindingsPack.model_validate(broken)
+
+
+@pytest.mark.parametrize("value", [None, 1, ""])
+def test_pack_feature_contract_rejects_missing_null_non_string_and_empty(value):
+    broken = copy.deepcopy(PACK)
+    if value is None:
+        broken["benchmarks"][0]["feature_contract"].pop("cs10_median")
+    else:
+        broken["benchmarks"][0]["feature_contract"]["cs10_median"] = value
+
+    with pytest.raises(PydanticValidationError):
+        FindingsPack.model_validate(broken)
 
 
 def test_every_finding_has_nonempty_statement_and_source_ref():

@@ -198,7 +198,13 @@ class LiveStatus(ContractModel):
     last_error: str | None = None
 
 
-class TableProvenance(ContractModel):
+class PackModel(ContractModel):
+    """Forward-compatible model base for Findings Pack payloads."""
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class TableProvenance(PackModel):
     source_document: str
     source_section: str
     feature_store_manifest_sha256: str
@@ -206,7 +212,7 @@ class TableProvenance(ContractModel):
     feature_contract_version: Literal["loltrends-parity-v1"]
 
 
-class PackProvenance(ContractModel):
+class PackProvenance(PackModel):
     dataset: TableProvenance
     findings: TableProvenance
     habits: TableProvenance
@@ -220,7 +226,7 @@ class PackProvenance(ContractModel):
     checkpoints: TableProvenance
 
 
-class PackFinding(ContractModel):
+class PackFinding(PackModel):
     key: str
     tier: FindingTier
     title: str
@@ -230,25 +236,25 @@ class PackFinding(ContractModel):
     source_ref: str
 
 
-class HabitDefinition(ContractModel):
+class HabitDefinition(PackModel):
     key: str
     label: str
     effect_per_sd: float
 
 
-class BanAdvice(ContractModel):
+class BanAdvice(PackModel):
     champion: str
     win_rate: float
     ban_rate: float
     recommendation: Literal["real-threat", "fear-ban", "skip"]
 
 
-class TrapPick(ContractModel):
+class TrapPick(PackModel):
     champion: str
     win_rate: float
 
 
-class TierEntry(ContractModel):
+class TierEntry(PackModel):
     champion: str
     role: Role
     games: int = Field(ge=0)
@@ -257,7 +263,7 @@ class TierEntry(ContractModel):
     tier: Literal["S", "A", "B", "C"]
 
 
-class MatchupExample(ContractModel):
+class MatchupExample(PackModel):
     champion: str
     opponent: str
     role: Role
@@ -266,13 +272,12 @@ class MatchupExample(ContractModel):
     games: int = Field(ge=0)
 
 
-class PackFeatureContract(ContractModel):
-    cs10_median: Literal["cs10", "lane_minions_first_10m"]
-    level10_median: Literal["level10"]
-    gold_diff_10_median: Literal["gold_diff_10"]
+class PackFeatureContract(PackModel):
+    cs10_median: str = Field(min_length=1)
+    level10_median: str = Field(min_length=1)
+    gold_diff_10_median: str = Field(min_length=1)
 
-
-class PackBenchmark(ContractModel):
+class PackBenchmark(PackModel):
     role: Role
     cs10_median: float | None = None
     level10_median: float | None = None
@@ -281,23 +286,23 @@ class PackBenchmark(ContractModel):
     sample: int = Field(ge=0)
 
 
-class DatasetSummary(ContractModel):
+class DatasetSummary(PackModel):
     matches: int = Field(ge=0)
     player_games: int = Field(ge=0)
     patches: list[str]
 
 
-class ComebackOdds(ContractModel):
+class ComebackOdds(PackModel):
     gold_deficit_at_15: float
     win_rate: float
-class CheckpointBucket(ContractModel):
+class CheckpointBucket(PackModel):
     gold_diff_bucket: str
     win_rate: float
 
 
-class FindingsPack(ContractModel):
+class FindingsPack(PackModel):
     schema_version: Literal[1]
-    pack_version: str = "v1"
+    pack_version: str = Field(min_length=1)
     generated_at: str
     provenance: PackProvenance
     dataset: DatasetSummary
