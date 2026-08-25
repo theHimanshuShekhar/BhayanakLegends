@@ -18,7 +18,7 @@ export type SseMessage =
   | { type: "champselect.state"; ts: string; data: ChampSelectSnapshot }
   | { type: "live.state"; ts: string; data: InGameSnapshot }
   | { type: "live.status"; ts: string; data: LiveStatus }
-  | { type: "pack.updated"; ts: string; data: { schema_version: number } }
+  | { type: "pack.updated"; ts: string; data: { schema_version: number; pack_version: string } }
   | { type: "hello"; ts: string; data: { app_version: string; pack_version: string | null } };
 
 const GAME_MODES: readonly GameMode[] = [
@@ -60,6 +60,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function isNullableNonEmptyString(value: unknown): value is string | null {
+  return value === null || isNonEmptyString(value);
 }
 
 function isNullableString(value: unknown): value is string | null {
@@ -154,13 +161,16 @@ export function parseSseMessage(value: unknown): SseMessage | null {
     case "live.status":
       return isLiveStatus(data) ? { type, ts, data } : null;
     case "pack.updated":
-      return isRecord(data) && isFiniteNumber(data.schema_version)
-        ? { type, ts, data: { schema_version: data.schema_version } }
+      return isRecord(data) &&
+        typeof data.schema_version === "number" &&
+        Number.isInteger(data.schema_version) &&
+        isNonEmptyString(data.pack_version)
+        ? { type, ts, data: { schema_version: data.schema_version, pack_version: data.pack_version } }
         : null;
     case "hello":
       return isRecord(data) &&
         typeof data.app_version === "string" &&
-        isNullableString(data.pack_version)
+        isNullableNonEmptyString(data.pack_version)
         ? { type, ts, data: { app_version: data.app_version, pack_version: data.pack_version } }
         : null;
     default:

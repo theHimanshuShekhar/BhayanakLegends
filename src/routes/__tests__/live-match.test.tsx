@@ -1,7 +1,7 @@
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { InGameSnapshot } from "../../api/types";
+import type { FindingsPack, InGameSnapshot } from "../../api/types";
 import type { SseMessage } from "../../api/sse";
 import { LiveMatchPage } from "../live-match";
 import {
@@ -61,6 +61,7 @@ function renderPage() {
 beforeEach(() => {
   pushSse = null;
   liveState.ingame = idleIngame;
+  vi.mocked(api.pack).mockClear();
   vi.mocked(api.pack).mockResolvedValue(makePack());
 });
 
@@ -213,5 +214,76 @@ describe("LiveMatchPage — active game", () => {
     pushSse!({ type: "live.state", ts: "t", data: idleIngame });
     await screen.findByTestId("waiting-pill");
     expect(screen.queryByTestId("player-row-local")).toBeNull();
+  });
+});
+
+describe("LiveMatchPage — Findings Pack version parity", () => {
+  it("seeds both live labels from hello while the pack query is loading", async () => {
+    vi.mocked(api.pack).mockReturnValue(new Promise<FindingsPack>(() => {}));
+    renderPage();
+    await waitFor(() => expect(pushSse).toBeTruthy());
+    act(() => {
+      pushSse!({ type: "hello", ts: "now", data: { app_version: "dev", pack_version: "v2" } });
+    });
+    expect(await screen.findByText("Findings Pack v2")).toBeInTheDocument();
+    expect(screen.getByTestId("wp-band")).toHaveTextContent("WIN PROBABILITY · FINDINGS PACK v2");
+  });
+
+  it("clears version claims when hello has no active pack version", async () => {
+    vi.mocked(api.pack).mockReturnValue(new Promise<FindingsPack>(() => {}));
+    renderPage();
+    await waitFor(() => expect(pushSse).toBeTruthy());
+    act(() => {
+      pushSse!({ type: "hello", ts: "now", data: { app_version: "dev", pack_version: null } });
+    });
+    expect(await screen.findByText("Findings Pack", { exact: true })).toBeInTheDocument();
+    expect(screen.getByTestId("wp-band")).toHaveTextContent("WIN PROBABILITY · FINDINGS PACK");
+    expect(screen.getByTestId("wp-band")).not.toHaveTextContent(/v\d/);
+  });
+
+  it("shows a valid pack.updated version immediately and refreshes the pack query", async () => {
+    let resolveUpdated!: (pack: FindingsPack) => void;
+    vi.mocked(api.pack)
+      .mockResolvedValueOnce(makePack({ pack_version: "v1" }))
+      .mockReturnValueOnce(new Promise<FindingsPack>((resolve) => (resolveUpdated = resolve)));
+    renderPage();
+    expect(await screen.findByText("Findings Pack v1")).toBeInTheDocument();
+    act(() => {
+      pushSse!({ type: "pack.updated", ts: "now", data: { schema_version: 1, pack_version: "v2" } });
+    });
+    expect(await screen.findByText("Findings Pack v2")).toBeInTheDocument();
+    expect(screen.getByTestId("wp-band")).toHaveTextContent("WIN PROBABILITY · FINDINGS PACK v2");
+    await waitFor(() => expect(api.pack).toHaveBeenCalledTimes(2));
+    resolveUpdated(makePack({ pack_version: "v2" }));
+    await waitFor(() => expect(screen.getByTestId("wp-band")).toHaveTextContent("FINDINGS PACK v2"));
+  });
+
+  it("rejects malformed pack.updated frames without changing the active version or refreshing", async () => {
+    vi.mocked(api.pack).mockResolvedValue(makePack({ pack_version: "v1" }));
+    renderPage();
+    expect(await screen.findByText("Findings Pack v1")).toBeInTheDocument();
+    act(() => {
+      pushSse!({ type: "pack.updated", ts: "now", data: { schema_version: 1.5, pack_version: "v2" } } as never);
+      pushSse!({ type: "pack.updated", ts: "now", data: { schema_version: 1, pack_version: "" } } as never);
+    });
+    expect(screen.getByText("Findings Pack v1")).toBeInTheDocument();
+    expect(api.pack).toHaveBeenCalledTimes(1);
+  });
+
+  it("suppresses version claims when a successful pack response has no version", async () => {
+    vi.mocked(api.pack).mockResolvedValue({
+      ...makePack(),
+      pack_version: undefined,
+    } as unknown as FindingsPack);
+    renderPage();
+    expect(await screen.findByText("Findings Pack", { exact: true })).toBeInTheDocument();
+    expect(screen.getByTestId("wp-band")).not.toHaveTextContent(/v\d/);
+  });
+
+  it("keeps loading and error states version-claim-free", async () => {
+    vi.mocked(api.pack).mockReturnValueOnce(new Promise<FindingsPack>(() => {}));
+    renderPage();
+    expect(await screen.findByText("Findings Pack", { exact: true })).toBeInTheDocument();
+    expect(screen.getByTestId("wp-band")).not.toHaveTextContent(/v\d/);
   });
 });
