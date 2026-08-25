@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { isChampSelectSnapshot } from "./liveValidation";
 import type {
   ChampSelectSnapshot,
   FindingsPack,
@@ -110,6 +111,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) throw new ApiError(res.status, await responseDetail(res));
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }
+async function liveSession(): Promise<ChampSelectSnapshot> {
+  const value = await request<unknown>("/live/session");
+  if (!isChampSelectSnapshot(value)) throw new Error("Invalid /live/session response");
+  return value;
+}
 
 export const api = {
   health: () => request<Health>("/health"),
@@ -140,7 +146,7 @@ export const api = {
     request<PostGameDigest | null>("/postgame/latest"),
   benchmarks: () => request<RoleBenchmark[]>("/benchmarks"),
   liveStatus: () => request<LiveStatus>("/live/status"),
-  liveSession: () => request<ChampSelectSnapshot>("/live/session"),
+  liveSession,
   liveIngame: () => request<InGameSnapshot>("/live/ingame"),
 };
 

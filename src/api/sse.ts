@@ -1,9 +1,9 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { eventsUrl } from "./client";
+import { isChampSelectSnapshot, PHASES } from "./liveValidation";
 import type {
   ChampSelectSnapshot,
   GameMode,
-  GameflowPhase,
   InGameSnapshot,
   LiveEvent,
   LiveEventName,
@@ -39,17 +39,6 @@ const GAME_MODES: readonly GameMode[] = [
   "ULTBOOK",
   "CHERRY",
 ];
-const PHASES: readonly GameflowPhase[] = [
-  "None",
-  "Lobby",
-  "Matchmaking",
-  "RankedGame",
-  "ChampSelect",
-  "GameStart",
-  "InProgress",
-  "WaitingForStats",
-  "EndOfGame",
-];
 const LIVE_EVENT_NAMES: readonly LiveEventName[] = [
   "GameStart",
   "MinionsSpawning",
@@ -62,7 +51,6 @@ const LIVE_EVENT_NAMES: readonly LiveEventName[] = [
   "InhibKilled",
   "GameEnd",
 ];
-const CELL_STATES = ["intent", "picked", "hover", "none"] as const;
 const SYNC_STATES = ["idle", "running", "cancelled", "error"] as const;
 const SYNC_MODES = ["era_first", "import"] as const;
 
@@ -111,36 +99,6 @@ function isLiveStatus(value: unknown): value is LiveStatus {
   );
 }
 
-function isChampSelectSnapshot(value: unknown): value is ChampSelectSnapshot {
-  if (!isRecord(value) || !Array.isArray(value.bans_ally) || !Array.isArray(value.bans_enemy)) return false;
-  if (!Array.isArray(value.ally) || !Array.isArray(value.enemy)) return false;
-  const isBan = (ban: unknown): boolean =>
-    isRecord(ban) && Number.isInteger(ban.champion_id) && isNullableString(ban.name);
-  const isAlly = (cell: unknown): boolean =>
-    isRecord(cell) &&
-    Number.isInteger(cell.cell_id) &&
-    Number.isInteger(cell.champion_id) &&
-    isNullableString(cell.champion) &&
-    isNullableString(cell.name) &&
-    typeof cell.is_local === "boolean" &&
-    isEnum(CELL_STATES, cell.state);
-  const isEnemy = (cell: unknown): boolean =>
-    isRecord(cell) &&
-    Number.isInteger(cell.cell_id) &&
-    Number.isInteger(cell.champion_id) &&
-    isNullableString(cell.champion) &&
-    cell.name === null &&
-    isEnum(CELL_STATES, cell.state);
-  return (
-    typeof value.active === "boolean" &&
-    (value.phase === null || isEnum(PHASES, value.phase)) &&
-    (value.timer_sec === null || isFiniteNumber(value.timer_sec)) &&
-    value.bans_ally.every(isBan) &&
-    value.bans_enemy.every(isBan) &&
-    value.ally.every(isAlly) &&
-    value.enemy.every(isEnemy)
-  );
-}
 
 function isPlayerLive(value: unknown): value is PlayerLive {
   if (!isRecord(value) || typeof value.summoner !== "string" || !isNullableString(value.champion)) return false;

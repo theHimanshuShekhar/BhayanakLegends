@@ -58,6 +58,38 @@ const validSyncProgress = {
   },
 };
 
+const validChampSelect = {
+  type: "champselect.state",
+  ts: "2026-08-24T00:00:00Z",
+  data: {
+    active: true,
+    phase: "ChampSelect",
+    timer_sec: 23,
+    bans_ally: [{ champion_id: 25, champion: "Miss Fortune" }],
+    bans_enemy: [{ champion_id: 412, champion: null }],
+    ally: [
+      {
+        cell_id: 0,
+        champion_id: 1,
+        champion: "Annie",
+        name: "Local",
+        is_local: true,
+        state: "picked",
+      },
+    ],
+    enemy: [
+      {
+        cell_id: 5,
+        champion_id: 238,
+        champion: null,
+        name: null,
+        state: "none",
+      },
+    ],
+  },
+};
+
+
 describe("shared SSE owner", () => {
   beforeEach(() => {
     vi.stubGlobal("EventSource", FakeEventSource);
@@ -79,6 +111,25 @@ describe("shared SSE owner", () => {
     expect(parseSseMessage({ type: "live.state", ts: "now", data: { active: true } })).toBeNull();
     expect(parseSseMessage({ type: "unknown", ts: "now", data: {} })).toBeNull();
   });
+  it("shares strict champ-select validation with REST", () => {
+    expect(parseSseMessage(validChampSelect)?.type).toBe("champselect.state");
+    for (const data of [
+      { ...validChampSelect.data, phase: "InvalidPhase" },
+      { ...validChampSelect.data, enemy: [{ ...validChampSelect.data.enemy[0], name: "Enemy" }] },
+      { ...validChampSelect.data, ally: [{ ...validChampSelect.data.ally[0], cell_id: "0" }] },
+      { ...validChampSelect.data, bans_ally: [{ champion_id: 25, name: "Miss Fortune" }] },
+      { ...validChampSelect.data, bans_enemy: [{ champion_id: 25, champion: 42 }] },
+      { ...validChampSelect.data, bans_enemy: [{ champion_id: 25, champion: null, name: "obsolete" }] },
+    ]) {
+      expect(parseSseMessage({ ...validChampSelect, data })).toBeNull();
+    }
+    expect(
+      parseSseMessage({
+        ...validChampSelect,
+        data: { ...validChampSelect.data, bans_ally: [{ champion_id: 25, champion: null }] },
+      })?.type,
+    ).toBe("champselect.state");
+  });
 
   it("opens one source for multiple subscribers and fans out validated events", async () => {
     const received: SseMessage[] = [];
@@ -95,12 +146,17 @@ describe("shared SSE owner", () => {
     await act(async () => {
       source.open();
       source.message(validSyncProgress);
+      source.message(validChampSelect);
+      source.message({
+        ...validChampSelect,
+        data: { ...validChampSelect.data, bans_ally: [{ champion_id: 25, name: "obsolete" }] },
+      });
       source.message({ ...validSyncProgress, data: { invalid: true } });
     });
     expect(screen.getByTestId("status")).toHaveTextContent("connected");
     expect(screen.getByTestId("status-only")).toHaveTextContent("connected");
-    expect(received).toHaveLength(1);
-    expect(received[0].type).toBe("sync.progress");
+    expect(received).toHaveLength(2);
+    expect(received.map((message) => message.type)).toEqual(["sync.progress", "champselect.state"]);
   });
 
   it("closes the source and cancels reconnect when the final subscriber unmounts", async () => {

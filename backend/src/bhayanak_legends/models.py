@@ -197,6 +197,10 @@ class LiveStatus(ContractModel):
     ingame: InGameStatus
     last_error: str | None = None
 
+class ChampSelectBan(ContractModel):
+    champion_id: int = 0
+    champion: str | None = None
+
 
 class PackModel(ContractModel):
     """Forward-compatible model base for Findings Pack payloads."""
