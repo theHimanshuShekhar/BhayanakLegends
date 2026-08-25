@@ -20,6 +20,7 @@ import asyncio
 import contextlib
 import inspect
 import logging
+from typing import get_args
 
 from pydantic import BaseModel, Field
 
@@ -39,6 +40,10 @@ log = logging.getLogger("bhayanak_legends.live")
 CHAMP_SELECT_PHASE = "champselect"
 IN_GAME_PHASES = {"gamestart", "inprogress"}
 MAX_EVENTS = 40
+
+
+_GAME_MODES = frozenset(get_args(GameMode))
+_LIVE_EVENT_NAMES = frozenset(get_args(LiveEventName))
 
 
 class CsBan(BaseModel):
@@ -222,16 +227,23 @@ def build_ingame_snapshot(data: dict | None) -> tuple[InGameSnapshot, int | None
         if local_summoner is not None and row.summoner == local_summoner:
             local_champion = row.champion
     events = sorted(
-        (build_live_event(raw) for raw in ((data.get("events") or {}).get("Events") or [])),
+        (
+            build_live_event(raw)
+            for raw in ((data.get("events") or {}).get("Events") or [])
+            if isinstance(raw.get("EventName"), str)
+            and raw.get("EventName") in _LIVE_EVENT_NAMES
+        ),
         key=lambda e: e.t_s,
     )[-MAX_EVENTS:]
     clock = game_data.get("gameTime", game_data.get("gameClock")) or 0
+    raw_mode = game_data.get("gameMode")
+    mode = raw_mode if isinstance(raw_mode, str) and raw_mode in _GAME_MODES else None
     game_id = game_data.get("gameId")
     return (
         InGameSnapshot(
             active=True,
             clock_s=float(clock),
-            mode=game_data.get("gameMode"),
+            mode=mode,
             local_summoner=local_summoner,
             local_champion=local_champion or active_player.get("championName"),
             teams=teams,
