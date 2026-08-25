@@ -243,13 +243,7 @@ def test_benchmarks_all_roles_use_same_unit_total_cs_fixture(tmp_path: Path):
             {
                 "role": role,
                 "cs10_median": 60.0,
-                "level10_median": None,
-                "gold_diff_10_median": None,
-                "feature_contract": {
-                    "cs10_median": "cs10",
-                    "level10_median": "level10",
-                    "gold_diff_10_median": "gold_diff_10",
-                },
+                "feature_contract": {"cs10_median": "cs10"},
                 "sample": 100,
             }
             for role in roles

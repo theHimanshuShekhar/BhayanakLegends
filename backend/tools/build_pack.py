@@ -26,11 +26,14 @@ from pathlib import Path
 
 import pandas as pd
 
+from bhayanak_legends.pack_contract import _finite_number, validate_benchmarks, validate_matchup_examples
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCE_DOC = "companion-app-content.md"
 FEATURE_CONTRACT_VERSION = "loltrends-parity-v1"
 DECLARED_FEATURE_STORE_INPUTS = ("analysis_rows.parquet", "champion_bans.parquet")
 ROLES = ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"]
+
 
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
@@ -314,7 +317,8 @@ def build_trap_picks(rates: pd.DataFrame, cap: int = 5) -> list[dict]:
 
 
 def build_matchup_examples(df: pd.DataFrame, wanted: int = 8, min_games: int = 30) -> list[dict]:
-    paired = df.dropna(subset=["opponent_champion_name"])
+    paired = df.dropna(subset=["champion_name", "opponent_champion_name"])
+    paired = paired[paired["champion_name"] != paired["opponent_champion_name"]]
     matchups = (
         paired.groupby(["champion_name", "opponent_champion_name", "role"])
         .agg(games=("win", "size"), wr=("win", "mean"))
@@ -349,7 +353,7 @@ def build_matchup_examples(df: pd.DataFrame, wanted: int = 8, min_games: int = 3
             break
         rank += 1
 
-    return [
+    rows = [
         {
             "champion": row["champion_name"],
             "opponent": row["opponent_champion_name"],
@@ -360,29 +364,29 @@ def build_matchup_examples(df: pd.DataFrame, wanted: int = 8, min_games: int = 3
         }
         for row in picked
     ]
+    return validate_matchup_examples(rows)
 
 
 def build_benchmarks(df: pd.DataFrame) -> list[dict]:
     rows = []
+    cs_col = "lane_minions_first_10m"
     for role in ROLES:
         subset = df[df["role"] == role]
-        cs_col = "lane_minions_first_10m"  # not total cs10; route suppresses this mismatch
-        cs_median = float(subset[cs_col].median()) if cs_col in subset.columns else None
+        if cs_col not in subset.columns:
+            continue
+        values = pd.to_numeric(subset[cs_col], errors="coerce")
+        values = values[values.map(_finite_number)]
+        if values.empty:
+            continue
         rows.append(
             {
                 "role": role,
-                "cs10_median": round(cs_median, 1) if cs_median is not None else None,
-                "level10_median": None,
-                "gold_diff_10_median": None,
-                "feature_contract": {
-                    "cs10_median": cs_col,
-                    "level10_median": "level10",
-                    "gold_diff_10_median": "gold_diff_10",
-                },
-                "sample": int(len(subset)),
+                "cs10_median": round(float(values.median()), 1),
+                "feature_contract": {"cs10_median": cs_col},
+                "sample": int(len(values)),
             }
         )
-    return rows
+    return validate_benchmarks(rows)
 
 
 def main() -> None:

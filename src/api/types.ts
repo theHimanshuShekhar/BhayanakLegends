@@ -133,13 +133,13 @@ export interface MatchupExample {
 
 export interface BenchmarkRow {
   role: Role;
-  cs10_median: number | null;
-  level10_median: number | null;
-  gold_diff_10_median: number | null;
+  cs10_median?: number;
+  level10_median?: number;
+  gold_diff_10_median?: number;
   feature_contract: {
-    cs10_median: string;
-    level10_median: string;
-    gold_diff_10_median: string;
+    cs10_median?: string;
+    level10_median?: string;
+    gold_diff_10_median?: string;
   };
   sample: number;
 }

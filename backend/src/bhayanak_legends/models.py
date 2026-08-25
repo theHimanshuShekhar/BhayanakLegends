@@ -5,9 +5,10 @@ unvalidated ``dict`` from a route makes a contract drift invisible until a
 frontend crashes, so response models reject unknown states and shapes.
 """
 
-from typing import Literal
+from math import isfinite
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ContractModel(BaseModel):
@@ -276,10 +277,16 @@ class MatchupExample(PackModel):
     games: int = Field(ge=0)
 
 
-class PackFeatureContract(PackModel):
-    cs10_median: str = Field(min_length=1)
-    level10_median: str = Field(min_length=1)
-    gold_diff_10_median: str = Field(min_length=1)
+class PackFeatureContract(ContractModel):
+    cs10_median: Literal["cs10", "lane_minions_first_10m"] | None = None
+    level10_median: Literal["level10"] | None = None
+    gold_diff_10_median: Literal["gold_diff_10"] | None = None
+
+    @model_validator(mode="after")
+    def require_declaration(self) -> "PackFeatureContract":
+        if not any((self.cs10_median, self.level10_median, self.gold_diff_10_median)):
+            raise ValueError("feature_contract must declare at least one benchmark feature")
+        return self
 
 class PackBenchmark(PackModel):
     role: Role
@@ -287,7 +294,28 @@ class PackBenchmark(PackModel):
     level10_median: float | None = None
     gold_diff_10_median: float | None = None
     feature_contract: PackFeatureContract
-    sample: int = Field(ge=0)
+    sample: int = Field(gt=0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_explicit_nulls(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            for field in ("cs10_median", "level10_median", "gold_diff_10_median"):
+                if field in value and value[field] is None:
+                    raise ValueError(f"{field} must be omitted when unavailable")
+        return value
+
+    @model_validator(mode="after")
+    def require_matching_declarations(self) -> "PackBenchmark":
+        for field in ("cs10_median", "level10_median", "gold_diff_10_median"):
+            median = getattr(self, field)
+            declaration = getattr(self.feature_contract, field)
+            if (median is None) != (declaration is None):
+                raise ValueError(f"{field} median and declaration must be paired")
+            if median is not None and not isfinite(median):
+                raise ValueError(f"{field} median must be finite")
+        return self
+
 
 
 class DatasetSummary(PackModel):

@@ -6,77 +6,77 @@
       "source_document": "companion-app-content.md",
       "source_section": "6",
       "feature_store_manifest_sha256": "9cf56d414aab4c9ad1ebddfb68de08c706847624f386f6af369d26ed48d8a693",
-      "generator_revision": "sha256:f4f32ad9416387cde5beb464d52d21a8a284c7747e77430d0bf85ed38cc9d5ac",
+      "generator_revision": "sha256:289684352da0c39dfe843663764aea9c6e8323f61ca8ddd84e5a70a9f187afb8",
       "feature_contract_version": "loltrends-parity-v1"
     },
     "findings": {
       "source_document": "companion-app-content.md",
       "source_section": "1,2,3,7,12,14,24,30",
       "feature_store_manifest_sha256": "9cf56d414aab4c9ad1ebddfb68de08c706847624f386f6af369d26ed48d8a693",
-      "generator_revision": "sha256:f4f32ad9416387cde5beb464d52d21a8a284c7747e77430d0bf85ed38cc9d5ac",
+      "generator_revision": "sha256:289684352da0c39dfe843663764aea9c6e8323f61ca8ddd84e5a70a9f187afb8",
       "feature_contract_version": "loltrends-parity-v1"
     },
     "habits": {
       "source_document": "companion-app-content.md",
       "source_section": "2.11",
       "feature_store_manifest_sha256": "9cf56d414aab4c9ad1ebddfb68de08c706847624f386f6af369d26ed48d8a693",
-      "generator_revision": "sha256:f4f32ad9416387cde5beb464d52d21a8a284c7747e77430d0bf85ed38cc9d5ac",
+      "generator_revision": "sha256:289684352da0c39dfe843663764aea9c6e8323f61ca8ddd84e5a70a9f187afb8",
       "feature_contract_version": "loltrends-parity-v1"
     },
     "objectives": {
       "source_document": "companion-app-content.md",
       "source_section": "2.10",
       "feature_store_manifest_sha256": "9cf56d414aab4c9ad1ebddfb68de08c706847624f386f6af369d26ed48d8a693",
-      "generator_revision": "sha256:f4f32ad9416387cde5beb464d52d21a8a284c7747e77430d0bf85ed38cc9d5ac",
+      "generator_revision": "sha256:289684352da0c39dfe843663764aea9c6e8323f61ca8ddd84e5a70a9f187afb8",
       "feature_contract_version": "loltrends-parity-v1"
     },
     "comeback_odds": {
       "source_document": "companion-app-content.md",
       "source_section": "2.8",
       "feature_store_manifest_sha256": "9cf56d414aab4c9ad1ebddfb68de08c706847624f386f6af369d26ed48d8a693",
-      "generator_revision": "sha256:f4f32ad9416387cde5beb464d52d21a8a284c7747e77430d0bf85ed38cc9d5ac",
+      "generator_revision": "sha256:289684352da0c39dfe843663764aea9c6e8323f61ca8ddd84e5a70a9f187afb8",
       "feature_contract_version": "loltrends-parity-v1"
     },
     "ban_advisor": {
       "source_document": "companion-app-content.md",
       "source_section": "1.2",
       "feature_store_manifest_sha256": "9cf56d414aab4c9ad1ebddfb68de08c706847624f386f6af369d26ed48d8a693",
-      "generator_revision": "sha256:f4f32ad9416387cde5beb464d52d21a8a284c7747e77430d0bf85ed38cc9d5ac",
+      "generator_revision": "sha256:289684352da0c39dfe843663764aea9c6e8323f61ca8ddd84e5a70a9f187afb8",
       "feature_contract_version": "loltrends-parity-v1"
     },
     "trap_picks": {
       "source_document": "companion-app-content.md",
       "source_section": "1.4,2.14",
       "feature_store_manifest_sha256": "9cf56d414aab4c9ad1ebddfb68de08c706847624f386f6af369d26ed48d8a693",
-      "generator_revision": "sha256:f4f32ad9416387cde5beb464d52d21a8a284c7747e77430d0bf85ed38cc9d5ac",
+      "generator_revision": "sha256:289684352da0c39dfe843663764aea9c6e8323f61ca8ddd84e5a70a9f187afb8",
       "feature_contract_version": "loltrends-parity-v1"
     },
     "tier_list": {
       "source_document": "companion-app-content.md",
       "source_section": "1.4,3.15",
       "feature_store_manifest_sha256": "9cf56d414aab4c9ad1ebddfb68de08c706847624f386f6af369d26ed48d8a693",
-      "generator_revision": "sha256:f4f32ad9416387cde5beb464d52d21a8a284c7747e77430d0bf85ed38cc9d5ac",
+      "generator_revision": "sha256:289684352da0c39dfe843663764aea9c6e8323f61ca8ddd84e5a70a9f187afb8",
       "feature_contract_version": "loltrends-parity-v1"
     },
     "matchup_examples": {
       "source_document": "companion-app-content.md",
       "source_section": "1.3,3.16",
       "feature_store_manifest_sha256": "9cf56d414aab4c9ad1ebddfb68de08c706847624f386f6af369d26ed48d8a693",
-      "generator_revision": "sha256:f4f32ad9416387cde5beb464d52d21a8a284c7747e77430d0bf85ed38cc9d5ac",
+      "generator_revision": "sha256:289684352da0c39dfe843663764aea9c6e8323f61ca8ddd84e5a70a9f187afb8",
       "feature_contract_version": "loltrends-parity-v1"
     },
     "benchmarks": {
       "source_document": "companion-app-content.md",
       "source_section": "4.26",
       "feature_store_manifest_sha256": "9cf56d414aab4c9ad1ebddfb68de08c706847624f386f6af369d26ed48d8a693",
-      "generator_revision": "sha256:f4f32ad9416387cde5beb464d52d21a8a284c7747e77430d0bf85ed38cc9d5ac",
+      "generator_revision": "sha256:289684352da0c39dfe843663764aea9c6e8323f61ca8ddd84e5a70a9f187afb8",
       "feature_contract_version": "loltrends-parity-v1"
     },
     "checkpoints": {
       "source_document": "companion-app-content.md",
       "source_section": "2.6",
       "feature_store_manifest_sha256": "9cf56d414aab4c9ad1ebddfb68de08c706847624f386f6af369d26ed48d8a693",
-      "generator_revision": "sha256:f4f32ad9416387cde5beb464d52d21a8a284c7747e77430d0bf85ed38cc9d5ac",
+      "generator_revision": "sha256:289684352da0c39dfe843663764aea9c6e8323f61ca8ddd84e5a70a9f187afb8",
       "feature_contract_version": "loltrends-parity-v1"
     }
   },
@@ -669,60 +669,40 @@
     {
       "role": "TOP",
       "cs10_median": 61.0,
-      "level10_median": null,
-      "gold_diff_10_median": null,
       "feature_contract": {
-        "cs10_median": "lane_minions_first_10m",
-        "level10_median": "level10",
-        "gold_diff_10_median": "gold_diff_10"
+        "cs10_median": "lane_minions_first_10m"
       },
       "sample": 52048
     },
     {
       "role": "JUNGLE",
       "cs10_median": 1.0,
-      "level10_median": null,
-      "gold_diff_10_median": null,
       "feature_contract": {
-        "cs10_median": "lane_minions_first_10m",
-        "level10_median": "level10",
-        "gold_diff_10_median": "gold_diff_10"
+        "cs10_median": "lane_minions_first_10m"
       },
       "sample": 52039
     },
     {
       "role": "MIDDLE",
       "cs10_median": 64.0,
-      "level10_median": null,
-      "gold_diff_10_median": null,
       "feature_contract": {
-        "cs10_median": "lane_minions_first_10m",
-        "level10_median": "level10",
-        "gold_diff_10_median": "gold_diff_10"
+        "cs10_median": "lane_minions_first_10m"
       },
       "sample": 52048
     },
     {
       "role": "BOTTOM",
       "cs10_median": 55.0,
-      "level10_median": null,
-      "gold_diff_10_median": null,
       "feature_contract": {
-        "cs10_median": "lane_minions_first_10m",
-        "level10_median": "level10",
-        "gold_diff_10_median": "gold_diff_10"
+        "cs10_median": "lane_minions_first_10m"
       },
       "sample": 52049
     },
     {
       "role": "UTILITY",
       "cs10_median": 13.0,
-      "level10_median": null,
-      "gold_diff_10_median": null,
       "feature_contract": {
-        "cs10_median": "lane_minions_first_10m",
-        "level10_median": "level10",
-        "gold_diff_10_median": "gold_diff_10"
+        "cs10_median": "lane_minions_first_10m"
       },
       "sample": 52041
     }

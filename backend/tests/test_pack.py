@@ -1,6 +1,7 @@
 """Validate the shipped Findings Pack v1 against its schema and the research contract."""
 
 import copy
+import importlib.util
 import json
 import re
 import subprocess
@@ -12,6 +13,22 @@ from pydantic import ValidationError as PydanticValidationError
 from bhayanak_legends.models import FindingsPack
 import pytest
 from jsonschema import Draft202012Validator, ValidationError
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+PACK_DIR = REPO_ROOT / "pack"
+SCHEMA = json.loads((PACK_DIR / "pack.schema.json").read_text())
+PACK = json.loads((PACK_DIR / "findings-pack.v1.json").read_text())
+
+
+@pytest.fixture(scope="module")
+def generator():
+    spec = importlib.util.spec_from_file_location(
+        "build_pack", REPO_ROOT / "backend" / "tools" / "build_pack.py"
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PACK_DIR = REPO_ROOT / "pack"
@@ -311,6 +328,90 @@ def test_tier_list_minimum_sample():
     tiers = {"S", "A", "B", "C"}
     assert all(entry["tier"] in tiers for entry in PACK["tier_list"])
 
+def test_matchup_rows_keep_direction_and_reject_self_rows(generator):
+    pd = pytest.importorskip("pandas")
+    rows = [
+        {"champion_name": "Darius", "opponent_champion_name": "Darius", "role": "TOP", "win": True},
+        {"champion_name": "Darius", "opponent_champion_name": "Garen", "role": "TOP", "win": True},
+        {"champion_name": "Garen", "opponent_champion_name": "Darius", "role": "TOP", "win": False},
+    ]
+
+    matchups = generator.build_matchup_examples(pd.DataFrame(rows), wanted=10, min_games=1)
+
+    assert {(row["champion"], row["opponent"], row["role"]) for row in matchups} == {
+        ("Darius", "Garen", "TOP"),
+        ("Garen", "Darius", "TOP"),
+    }
+    assert {row["champion"]: row["wr"] for row in matchups} == {"Darius": 1.0, "Garen": 0.0}
+
+
+def test_matchup_validator_rejects_exact_duplicate_but_allows_reverse_and_role(generator):
+    rows = [
+        {"champion": "Darius", "opponent": "Garen", "role": "TOP"},
+        {"champion": "Garen", "opponent": "Darius", "role": "TOP"},
+        {"champion": "Darius", "opponent": "Garen", "role": "JUNGLE"},
+    ]
+
+    assert generator.validate_matchup_examples(rows) == rows
+    with pytest.raises(ValueError, match="duplicate matchup direction"):
+        generator.validate_matchup_examples([*rows, rows[0]])
+
+
+def test_shipped_darius_garen_rows_are_independently_oriented():
+    rows = {
+        (row["champion"], row["opponent"], row["role"]): row["wr"]
+        for row in PACK["matchup_examples"]
+        if {row["champion"], row["opponent"]} == {"Darius", "Garen"}
+    }
+    assert rows[("Darius", "Garen", "TOP")] == 0.4098
+    assert rows[("Garen", "Darius", "TOP")] == 0.5902
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        [{"role": "TOP", "sample": 1, "feature_contract": {"cs10_median": "cs10"}}],
+        [{"role": "TOP", "sample": 1, "cs10_median": 60.0, "feature_contract": {}}],
+        [{"role": "TOP", "sample": 1, "cs10_median": None, "feature_contract": {"cs10_median": "cs10"}}],
+        [{"role": "TOP", "sample": 1, "cs10_median": float("nan"), "feature_contract": {"cs10_median": "cs10"}}],
+    ],
+)
+def test_benchmark_validator_rejects_untruthful_sparse_pairs(generator, rows):
+    with pytest.raises(ValueError):
+        generator.validate_benchmarks(rows)
+
+
+def test_benchmark_builder_omits_uncomputed_features_truthfully(generator):
+    pd = pytest.importorskip("pandas")
+    frame = pd.DataFrame(
+        [
+            {"role": "TOP", "lane_minions_first_10m": 60.0},
+            {"role": "TOP", "lane_minions_first_10m": float("nan")},
+            {"role": "JUNGLE", "lane_minions_first_10m": float("nan")},
+        ]
+    )
+
+    benchmarks = generator.build_benchmarks(frame)
+
+    assert benchmarks == [
+        {
+            "role": "TOP",
+            "cs10_median": 60.0,
+            "feature_contract": {"cs10_median": "lane_minions_first_10m"},
+            "sample": 1,
+        }
+    ]
+
+
+def test_sparse_schema_accepts_truthful_pair_and_rejects_unpaired_median():
+    benchmark = {"role": "TOP", "cs10_median": 60.0, "feature_contract": {"cs10_median": "cs10"}, "sample": 1}
+    sparse = {**PACK, "benchmarks": [benchmark]}
+    Draft202012Validator(SCHEMA).validate(sparse)
+
+    broken = {**sparse, "benchmarks": [{**benchmark, "feature_contract": {}}]}
+    with pytest.raises(ValidationError):
+        Draft202012Validator(SCHEMA).validate(broken)
+
 
 def test_benchmarks_cover_all_roles_with_sample():
     roles = {b["role"]: b for b in PACK["benchmarks"]}
@@ -319,12 +420,9 @@ def test_benchmarks_cover_all_roles_with_sample():
         assert bench["sample"] > 0
 
 
-def test_benchmark_pack_fields_declare_exact_source_features():
+def test_benchmark_pack_fields_declare_only_computed_source_features():
     for bench in PACK["benchmarks"]:
-        assert "gold10_median" not in bench
-        assert bench["gold_diff_10_median"] is None
-        assert bench["feature_contract"] == {
-            "cs10_median": "lane_minions_first_10m",
-            "level10_median": "level10",
-            "gold_diff_10_median": "gold_diff_10",
-        }
+        assert "level10_median" not in bench
+        assert "gold_diff_10_median" not in bench
+        assert bench["feature_contract"] == {"cs10_median": "lane_minions_first_10m"}
+        assert isinstance(bench["cs10_median"], (int, float))
