@@ -13,6 +13,12 @@ from bhayanak_legends.config import SidecarConfig
 from bhayanak_legends.sse import Hub
 from bhayanak_legends.store import Store
 from bhayanak_legends.sync import SyncService
+from bhayanak_legends.riot_client import (
+    RiotForbidden,
+    RiotNotFound,
+    RiotRateLimited,
+    RiotRecoverableError,
+)
 
 REPO = Path(__file__).resolve().parents[2]
 DEV_DIR = REPO / "data" / "dev-import" / "FixturePlayer03-BL03"
@@ -387,3 +393,166 @@ def test_match_completion_rolls_back_match_and_queue_together(tmp_path: Path):
             "SELECT state FROM sync_queue WHERE match_id = 'match-1'"
         ).fetchone()["state"]
     assert state == "running"
+async def test_timeline_failure_never_completes_match(tmp_path: Path):
+    fixture_dir = Path(__file__).parent / "fixtures"
+    detail = json.loads((fixture_dir / "SG2_170114893.json").read_text())
+    store = Store(tmp_path / "queue.db")
+    store.enqueue(["match-timeline-failure"])
+    service = SyncService(store, Hub(), lambda: {})
+    service._begin_run("import")
+
+    async def fetch(_match_id: str) -> tuple[dict, dict]:
+        return detail, (_ for _ in ()).throw(ValueError("timeline parse failed"))
+
+    await service._process(fetch, PUUID)
+
+    assert store.match_count() == 0
+    assert store.queue_stats()["done"] == 0
+
+
+def queue_row(store: Store, match_id: str) -> dict:
+    with store._lock:
+        row = store._conn.execute(
+            "SELECT state, attempts FROM sync_queue WHERE match_id = ?", (match_id,)
+        ).fetchone()
+    return dict(row)
+
+
+@pytest.mark.parametrize(
+    ("error", "state", "skipped", "failed"),
+    [
+        (RiotNotFound(), "failed", 1, 0),
+        (RiotForbidden(), "failed", 0, 1),
+        (RiotRecoverableError("transport"), "pending", 0, 1),
+        (RiotRateLimited(), "pending", 0, 1),
+    ],
+)
+async def test_queue_failure_classes_have_distinct_outcomes(
+    tmp_path: Path,
+    error: Exception,
+    state: str,
+    skipped: int,
+    failed: int,
+):
+    match_id = "classified-failure"
+    store = Store(tmp_path / "queue.db")
+    store.enqueue([match_id])
+    service = SyncService(store, Hub(), lambda: {})
+    service._begin_run("import")
+
+    async def fetch(_match_id: str) -> tuple[dict, dict]:
+        raise error
+
+    await service._process(fetch, PUUID)
+
+    assert queue_row(store, match_id) == {"state": state, "attempts": 1}
+    status = service.status()
+    assert status["skipped"] == skipped
+    assert status["failed"] == failed
+    assert status["state"] == ("error" if state == "pending" else "idle")
+
+
+async def test_recoverable_failure_requeues_for_next_session(tmp_path: Path):
+    detail = json.loads((Path(__file__).parent / "fixtures" / "SG2_170114893.json").read_text())
+    timeline = json.loads(
+        (Path(__file__).parent / "fixtures" / "SG2_170114893_timeline.json").read_text()
+    )
+    match_id = str(detail["metadata"]["matchId"])
+    store = Store(tmp_path / "queue.db")
+    store.enqueue([match_id])
+    service = SyncService(store, Hub(), lambda: {})
+    service._begin_run("import")
+
+    async def fetch(_match_id: str) -> tuple[dict, dict]:
+        raise RiotRecoverableError("5xx for matches", status_code=503)
+
+    await service._process(fetch, PUUID)
+
+    row = queue_row(store, match_id)
+    assert row == {"state": "pending", "attempts": 1}
+    status = service.status()
+    assert status["failed"] == 1
+    assert status["state"] == "error"
+
+    # A later session can claim and complete the recovered item.
+    service2 = SyncService(store, Hub(), lambda: {})
+
+    async def fetch_ok(_match_id: str) -> tuple[dict, dict]:
+        return detail, timeline
+
+    await service2._process(fetch_ok, PUUID)
+
+    assert queue_row(store, match_id)["state"] == "done"
+    assert store.match_count() == 1
+
+
+@pytest.mark.parametrize("endpoint", ["detail", "timeline"])
+async def test_detail_or_timeline_404_is_terminal_skip(
+    tmp_path: Path, endpoint: str
+):
+    fixture_dir = Path(__file__).parent / "fixtures"
+    detail = json.loads((fixture_dir / "SG2_170114893.json").read_text())
+    match_id = f"404-{endpoint}"
+    store = Store(tmp_path / "queue.db")
+    store.enqueue([match_id])
+    service = SyncService(store, Hub(), lambda: {})
+    service._begin_run("import")
+
+    async def fetch(_match_id: str) -> tuple[dict, dict]:
+        if endpoint == "detail":
+            raise RiotNotFound()
+        return detail, (_ for _ in ()).throw(RiotNotFound())
+
+    await service._process(fetch, PUUID)
+
+    assert queue_row(store, match_id) == {"state": "failed", "attempts": 1}
+    assert store.match_count() == 0
+    assert service.status()["skipped"] == 1
+    assert service.status()["failed"] == 0
+
+
+async def test_missing_import_input_is_terminal_skip(tmp_path: Path):
+    match_id = "missing-input"
+    import_dir = tmp_path / "import"
+    import_dir.mkdir()
+    store = Store(tmp_path / "queue.db")
+    store.enqueue([match_id])
+    service = SyncService(store, Hub(), lambda: {})
+    service._begin_run("import")
+
+    await service._process(service._file_fetcher(import_dir), PUUID)
+
+    assert queue_row(store, match_id) == {"state": "failed", "attempts": 1}
+    assert service.status()["skipped"] == 1
+    assert service.status()["downloaded"] == 0
+
+
+async def test_recoverable_item_requeues_while_valid_item_completes(tmp_path: Path):
+    fixture_dir = Path(__file__).parent / "fixtures"
+    detail = json.loads((fixture_dir / "SG2_170114893.json").read_text())
+    timeline = json.loads(
+        (fixture_dir / "SG2_170114893_timeline.json").read_text()
+    )
+    retry_id = "recoverable-first"
+    valid_id = "valid-second"
+    store = Store(tmp_path / "queue.db")
+    store.enqueue([retry_id], priority=0)
+    store.enqueue([valid_id], priority=1)
+    service = SyncService(store, Hub(), lambda: {})
+    service._begin_run("import")
+
+    async def fetch(match_id: str) -> tuple[dict, dict]:
+        if match_id == retry_id:
+            raise RiotRecoverableError("temporary")
+        valid_detail = dict(detail)
+        valid_detail["metadata"] = dict(detail["metadata"], matchId=valid_id)
+        return valid_detail, timeline
+
+    await service._process(fetch, PUUID)
+
+    assert queue_row(store, retry_id) == {"state": "pending", "attempts": 1}
+    assert queue_row(store, valid_id) == {"state": "done", "attempts": 0}
+    assert store.match_count() == 1
+    assert service.status()["downloaded"] == 1
+    assert service.status()["failed"] == 1
+    assert service.status()["state"] == "error"
