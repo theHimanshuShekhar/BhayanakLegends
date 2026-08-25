@@ -67,6 +67,7 @@ jobs:
           if (-not (Test-Path $stateFile)) { throw "updater fixture did not start" }
           $fixtureInfo = Get-Content $stateFile | ConvertFrom-Json
           "FIXTURE_ENDPOINT=http://127.0.0.1:$($fixtureInfo.port)/latest.json" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "BHAYANAK_PACK_RELEASE_MANIFEST_URL=http://127.0.0.1:$($fixtureInfo.port)/findings-pack-manifest.json" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Point updater at local fixture only
         shell: pwsh

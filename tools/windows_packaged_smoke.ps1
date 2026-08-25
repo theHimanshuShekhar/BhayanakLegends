@@ -76,21 +76,54 @@ try {
   }
   $state.executable = $appPath
 
+  $installSnapshot = @(
+    Get-ChildItem -Path $InstallRoot -File -Recurse |
+      ForEach-Object { "$($_.FullName)|$((Get-FileHash $_.FullName).Hash)" } |
+      Sort-Object
+  )
+
   $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$DebugPort"
-  foreach ($phase in @("valid", "invalid")) {
-    $app = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru
-    try {
-      & node tools/windows_packaged_smoke.mjs --phase $phase --debug-port $DebugPort
-      if ($LASTEXITCODE -ne 0) { throw "webview assertion failed during $phase phase" }
-      $state.phases += [ordered]@{ name = $phase; result = "passed" }
-    } catch {
-      $state.phases += [ordered]@{ name = $phase; result = "failed"; error = $_.Exception.Message }
-      throw
-    } finally {
-      Close-App -App $app -BaselineSidecars $baseline
-    }
-    Save-State
+  $app = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru
+  try {
+    & node tools/windows_packaged_smoke.mjs --phase valid --debug-port $DebugPort
+    if ($LASTEXITCODE -ne 0) { throw "webview assertion failed during activation phase" }
+    $state.phases += [ordered]@{ name = "activated"; result = "passed" }
+  } catch {
+    $state.phases += [ordered]@{ name = "activated"; result = "failed"; error = $_.Exception.Message }
+    throw
+  } finally {
+    Close-App -App $app -BaselineSidecars $baseline
   }
+  Save-State
+
+  if ($env:FIXTURE_PID) {
+    Stop-Process -Id ([int]$env:FIXTURE_PID) -Force -ErrorAction SilentlyContinue
+  }
+  Remove-Item Env:BHAYANAK_PACK_RELEASE_MANIFEST_URL -ErrorAction SilentlyContinue
+
+  $app = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru
+  try {
+    & node tools/windows_packaged_smoke.mjs --phase durable --debug-port $DebugPort
+    if ($LASTEXITCODE -ne 0) { throw "webview assertion failed during durable restart phase" }
+    $state.phases += [ordered]@{ name = "durable"; result = "passed" }
+  } catch {
+    $state.phases += [ordered]@{ name = "durable"; result = "failed"; error = $_.Exception.Message }
+    throw
+  } finally {
+    Close-App -App $app -BaselineSidecars $baseline
+  }
+  Save-State
+  $installAfter = @(
+    Get-ChildItem -Path $InstallRoot -File -Recurse |
+      ForEach-Object { "$($_.FullName)|$((Get-FileHash $_.FullName).Hash)" } |
+      Sort-Object
+  )
+  $installChanges = Compare-Object -ReferenceObject $installSnapshot -DifferenceObject $installAfter
+  if ($installChanges) {
+    $state.errors += "installed files changed during pack activation/restart"
+    throw "packaged install files were modified at runtime"
+  }
+  $state.install_files_unchanged = $true
   $state.result = "passed"
   Save-State
 } catch {

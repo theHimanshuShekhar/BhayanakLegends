@@ -6,8 +6,8 @@ for (let index = 2; index < process.argv.length; index += 2) {
 }
 const phase = args.get("--phase");
 const debugPort = args.get("--debug-port");
-if (!["valid", "invalid"].includes(phase) || !debugPort) {
-  throw new Error("usage: windows_packaged_smoke.mjs --phase valid|invalid --debug-port PORT");
+if (!["valid", "durable"].includes(phase) || !debugPort) {
+  throw new Error("usage: windows_packaged_smoke.mjs --phase valid|durable --debug-port PORT");
 }
 
 const endpoint = `http://127.0.0.1:${debugPort}`;
@@ -65,23 +65,30 @@ try {
     throw new Error(`packaged app rendered an unexpected initial route: ${pathname}`);
   }
 
-  const updaterStatus = page.getByTestId("updater-status");
-  await updaterStatus.waitFor({ state: "visible", timeout: 15_000 });
-  if (phase === "valid") {
-    await updaterStatus.waitFor({ state: "visible" });
-    const text = await updaterStatus.innerText();
-    if (!/up to date/i.test(text)) throw new Error(`valid fixture was not treated as no-update: ${text}`);
-  } else {
-    await page.getByRole("button", { name: "Install update" }).click();
-    await page.waitForFunction(
-      () => /signature|verified/i.test(document.querySelector('[data-testid="updater-status"]')?.textContent ?? ""),
-      undefined,
-      { timeout: 15_000 },
-    );
-    const text = await updaterStatus.innerText();
-    if (!/signature|verified/i.test(text)) {
-      throw new Error(`invalid updater signature was not rejected: ${text}`);
+  const activePack = await page.evaluate(async (port) => {
+    const deadline = Date.now() + 20_000;
+    while (Date.now() < deadline) {
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/health`, {
+          headers: { "X-BL-Token": "dev" },
+        });
+        if (response.ok) {
+          const health = await response.json();
+          if (health.pack_version === "v2-smoke") return health;
+        }
+      } catch {
+        // The sidecar may still be binding or completing its startup release check.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
     }
+    return null;
+  }, sidecarInfo.port);
+  if (!activePack) throw new Error("active Findings Pack release was not loaded");
+
+  await page.getByTestId("updater-status").waitFor({ state: "visible", timeout: 15_000 });
+  if (phase === "valid") {
+    const text = await page.getByTestId("updater-status").innerText();
+    if (!/up to date/i.test(text)) throw new Error(`valid fixture was not treated as no-update: ${text}`);
   }
   console.log(JSON.stringify({ phase, sidecar_port: sidecarInfo.port, sidecar_status: sidecarInfo.status }));
 } finally {

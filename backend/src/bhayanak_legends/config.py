@@ -22,16 +22,25 @@ class SidecarConfig(BaseSettings):
 
     model_config = {"env_prefix": "BHAYANAK_"}
 
-    def resolved_pack_dir(self) -> Path:
+    def resolved_bundled_pack_dir(self) -> Path:
+        """Return the read-only Findings Pack seed shipped with the app."""
         if self.pack_dir:
             return self.pack_dir
         meipass = getattr(sys, "_MEIPASS", "")
         if meipass:
-            bundled = Path(meipass) / "pack"
-            if bundled.exists():
-                return bundled
+            return Path(meipass) / "pack"
         repo = Path(__file__).resolve().parents[3]
         return repo / "pack"
+
+    def resolved_active_pack_dir(self) -> Path:
+        """Return the durable Findings Pack activation directory."""
+        if self.pack_dir:
+            return self.pack_dir
+        return self.resolved_data_dir() / "findings-pack" / "active"
+
+    def resolved_pack_dir(self) -> Path:
+        """Return the pack directory used by the sidecar at runtime."""
+        return self.resolved_active_pack_dir()
 
     def resolved_data_dir(self) -> Path:
         self.data_dir.mkdir(parents=True, exist_ok=True)
