@@ -117,6 +117,10 @@ export function makePack(overrides: Partial<FindingsPack> = {}): FindingsPack {
     schema_version: 1,
     pack_version: "v1",
     generated_at: "2026-08-24T00:00:00Z",
+    comeback_feature_contract: {
+      feature: "gold_diff_15",
+      feature_contract_version: "loltrends-parity-v1",
+    },
     provenance: {} as FindingsPack["provenance"],
     dataset: { matches: 26036, player_games: 260360, patches: ["14.17", "16.16"] },
     findings: [
@@ -165,9 +169,9 @@ export function makePack(overrides: Partial<FindingsPack> = {}): FindingsPack {
       herald_pre20_win_rate: 0.666,
     },
     comeback_odds: [
-      { gold_deficit_at_15: -1000, win_rate: 0.276 },
-      { gold_deficit_at_15: -3000, win_rate: 0.152 },
-      { gold_deficit_at_15: -5000, win_rate: 0.076 },
+      { gold_deficit_at_15: -2000, win_rate: 0.42 },
+      { gold_deficit_at_15: -5000, win_rate: 0.21 },
+      { gold_deficit_at_15: -7000, win_rate: 0.11 },
     ],
     ban_advisor: [
       { champion: "Lillia", win_rate: 0.548, ban_rate: 0.017, recommendation: "real-threat" },
@@ -187,9 +191,8 @@ export function makePack(overrides: Partial<FindingsPack> = {}): FindingsPack {
     matchup_examples: [],
     benchmarks: [],
     checkpoints: [
-      { gold_diff_bucket: "-2000..-1000 @15m", win_rate: 0.198 },
-      { gold_diff_bucket: "-1000..0 @20m", win_rate: 0.282 },
-      { gold_diff_bucket: "0..+1000 @25m", win_rate: 0.618 },
+      { gold_diff_bucket: "bottom_quartile_@20m", win_rate: 0.282 },
+      { gold_diff_bucket: "top_quartile_@20m", win_rate: 0.718 },
     ],
     ...overrides,
   };

@@ -115,8 +115,8 @@ describe("PostGamePage — digest rendered into the design", () => {
 
     expect(await screen.findByText("denial 95.4%")).toBeInTheDocument();
     expect(screen.getByTestId("read-baron")).toHaveTextContent("+29.5pp lift");
-    // gold@15 -1,200 → nearest pack bucket -1000 → 27.6%
-    expect(await screen.findByText("27.6%")).toBeInTheDocument();
+    // gold@15 -1,200 → nearest shipped anchor -2,000g → 42% until #76 ships domain gating
+    expect(await screen.findByText("42.0%")).toBeInTheDocument();
     expect(screen.getByTestId("comeback-note")).toHaveTextContent("down 1,200g at 15");
     expect(screen.getByText("Backfill")).toBeInTheDocument();
   });

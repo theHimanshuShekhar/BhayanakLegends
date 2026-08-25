@@ -184,10 +184,11 @@ describe("LiveMatchPage — active game", () => {
 
   it("shows the nearest checkpoint bucket as the win probability estimate", async () => {
     renderPage();
-    // clock 1254 → nearest bucket "-1000..0 @20m"
+    // clock 1254 → first quartile cohort row (both share the 20m checkpoint) —
+    // nearest-time selection remains until #75 suppresses unsupported live probability
     expect(await screen.findByText("28.2%")).toBeInTheDocument();
     const band = screen.getByTestId("wp-band");
-    expect(band).toHaveTextContent("-1000..0 @20m");
+    expect(band).toHaveTextContent("bottom quartile @20m");
     expect(screen.getByTestId("wp-value")).toHaveTextContent("28.2%");
     expect(screen.getByTestId("bridge-status")).toHaveTextContent(":2999 · 1s poll");
   });

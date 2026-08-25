@@ -38,6 +38,10 @@ function renderPage(ui: ReactElement) {
 function makePack(overrides: Partial<FindingsPack> = {}): FindingsPack {
   return {
     schema_version: 1,
+    comeback_feature_contract: {
+      feature: "gold_diff_15",
+      feature_contract_version: "loltrends-parity-v1",
+    },
     pack_version: "v1",
     generated_at: "2026-08-01T00:00:00Z",
     provenance: {} as FindingsPack["provenance"],
