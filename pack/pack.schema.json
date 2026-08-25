@@ -187,17 +187,17 @@
       "type": "array",
       "items": {
         "type": "object",
-        "additionalProperties": true,
-        "required": ["role", "cs10_median", "level10_median", "gold_diff_10_median", "feature_contract", "sample"],
+        "additionalProperties": false,
+        "required": ["role", "feature_contract", "sample"],
         "properties": {
           "role": { "enum": ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"] },
-          "cs10_median": { "type": ["number", "null"] },
-          "level10_median": { "type": ["number", "null"] },
-          "gold_diff_10_median": { "type": ["number", "null"] },
+          "cs10_median": { "type": "number" },
+          "level10_median": { "type": "number" },
+          "gold_diff_10_median": { "type": "number" },
           "feature_contract": {
             "type": "object",
-            "additionalProperties": true,
-            "required": ["cs10_median", "level10_median", "gold_diff_10_median"],
+            "additionalProperties": false,
+            "minProperties": 1,
             "properties": {
               "cs10_median": { "type": "string", "minLength": 1 },
               "level10_median": { "type": "string", "minLength": 1 },
@@ -205,7 +205,33 @@
             }
           },
           "sample": { "type": "integer", "minimum": 1 }
-        }
+        },
+        "allOf": [
+          {
+            "if": { "required": ["cs10_median"] },
+            "then": { "properties": { "feature_contract": { "required": ["cs10_median"] } } }
+          },
+          {
+            "if": { "required": ["level10_median"] },
+            "then": { "properties": { "feature_contract": { "required": ["level10_median"] } } }
+          },
+          {
+            "if": { "required": ["gold_diff_10_median"] },
+            "then": { "properties": { "feature_contract": { "required": ["gold_diff_10_median"] } } }
+          },
+          {
+            "if": { "properties": { "feature_contract": { "required": ["cs10_median"] } } },
+            "then": { "required": ["cs10_median"] }
+          },
+          {
+            "if": { "properties": { "feature_contract": { "required": ["level10_median"] } } },
+            "then": { "required": ["level10_median"] }
+          },
+          {
+            "if": { "properties": { "feature_contract": { "required": ["gold_diff_10_median"] } } },
+            "then": { "required": ["gold_diff_10_median"] }
+          }
+        ]
       }
     },
     "checkpoints": {

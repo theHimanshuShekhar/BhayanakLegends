@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Iterable
 
 import jsonschema
+from .pack_contract import validate_pack_semantics
 
 from .models import FindingsPack
 
@@ -115,6 +116,10 @@ class PackStore:
                 raise PackError(f"Findings Pack schema could not be read: {e}") from e
             except jsonschema.ValidationError as e:
                 raise PackError(f"Findings Pack failed schema validation: {e.message}") from e
+        try:
+            validate_pack_semantics(pack)
+        except ValueError as e:
+            raise PackError(f"Findings Pack failed semantic validation: {e}") from e
         if pack.get("schema_version") != 1:
             raise PackError(f"unsupported pack schema_version {pack.get('schema_version')}")
         self._pack = pack
