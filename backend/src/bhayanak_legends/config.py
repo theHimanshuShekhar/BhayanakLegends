@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
@@ -14,6 +15,10 @@ class SidecarConfig(BaseSettings):
     # Optional local replay seams; production defaults retain normal discovery.
     lcu_lockfile: Path | None = None
     live_client_data_url: str = "https://127.0.0.1:2999/liveclientdata/allgamedata"
+    # Development-only local import capability. A non-empty approved-root list
+    # is required in addition to this flag before the endpoint is enabled.
+    allow_import: bool = False
+    import_roots: list[Path] = Field(default_factory=list)
 
     model_config = {"env_prefix": "BHAYANAK_"}
 

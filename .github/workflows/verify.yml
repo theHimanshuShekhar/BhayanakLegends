@@ -115,7 +115,11 @@ jobs:
         working-directory: backend
         run: |
           uv sync --locked
-          BHAYANAK_PORT=23110 BHAYANAK_TOKEN=dev nohup uv run python -m bhayanak_legends.sidecar > "$RUNNER_TEMP/sidecar.log" 2>&1 &
+          BHAYANAK_PORT=23110 \
+          BHAYANAK_TOKEN=dev \
+          BHAYANAK_ALLOW_IMPORT=true \
+          BHAYANAK_IMPORT_ROOTS='["${{ github.workspace }}/data/dev-import"]' \
+            nohup uv run python -m bhayanak_legends.sidecar > "$RUNNER_TEMP/sidecar.log" 2>&1 &
           for i in $(seq 1 60); do
             if curl --fail --silent -H "X-BL-Token: dev" http://127.0.0.1:23110/health; then
               exit 0

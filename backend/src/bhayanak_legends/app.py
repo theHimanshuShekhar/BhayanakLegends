@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import sys
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -12,6 +13,12 @@ from starlette.middleware.cors import CORSMiddleware
 from .auth import TokenAuthMiddleware
 from .config import SidecarConfig
 from .credentials import CredentialBackend, CredentialError, CredentialStore
+from .import_paths import (
+    ImportPathNotApprovedError,
+    InvalidImportDirectoryError,
+    canonical_import_directory,
+    canonical_import_roots,
+)
 from .live import ChampSelectSnapshot, InGameSnapshot
 from .models import (
     ChampSelectStatus,
@@ -137,7 +144,16 @@ def create_app(
     app.state.app_version = APP_VERSION
     app.state.pack_error = pack_error
     app.state.pack_version = None if pack_error else pack.version()
-    app.state.sync_service = None if SyncService is None else SyncService(store, hub, settings_for_sync)
+    app.state.sync_service = (
+        None
+        if SyncService is None
+        else SyncService(
+            store,
+            hub,
+            settings_for_sync,
+            import_roots=config.import_roots,
+        )
+    )
     if LiveService is None:
         app.state.live_service = None
     else:
@@ -251,14 +267,24 @@ def create_app(
 
     @app.post("/dev/import", response_model=SyncStatus)
     async def dev_import(body: DevImportRequest) -> SyncStatus:
-        allowed = config.token == "dev" or os.environ.get("BHAYANAK_ALLOW_IMPORT") == "1"
-        if not allowed:
+        if getattr(sys, "frozen", False) or not config.allow_import or not config.import_roots:
             raise HTTPException(status_code=403, detail="dev import disabled")
+        canonical_roots = canonical_import_roots(config.import_roots)
+        if not canonical_roots:
+            raise HTTPException(status_code=403, detail="dev import disabled")
+        try:
+            canonical_dir = canonical_import_directory(
+                Path(body.dir), canonical_roots
+            )
+        except InvalidImportDirectoryError as exc:
+            raise HTTPException(status_code=400, detail=exc.detail) from None
+        except ImportPathNotApprovedError as exc:
+            raise HTTPException(status_code=403, detail=exc.detail) from None
         svc = app.state.sync_service
         if svc is None:
             raise HTTPException(status_code=503, detail="sync service not wired yet")
         loop = asyncio.get_running_loop()
-        result = await asyncio.to_thread(svc.import_from_dir, Path(body.dir), loop)
+        result = await asyncio.to_thread(svc.import_from_dir, canonical_dir, loop)
         return SyncStatus.model_validate(result)
 
     @app.get("/live/status", response_model=LiveStatus)
