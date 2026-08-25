@@ -505,7 +505,7 @@ def test_build_ingame_snapshot_filters_unknown_events_and_normalizes_mode():
     assert snapshot.active is True
     assert snapshot.mode is None
     assert snapshot.clock_s == pytest.approx(754.32)
-    assert snapshot.local_summoner == "SacredButtholio"
+    assert snapshot.local_summoner == "FixturePlayer03"
     assert len(snapshot.teams["order"]) == 5
     assert [event.name for event in snapshot.events] == ["ChampionKill"] * 40
     assert [event.t_s for event in snapshot.events] == [float(index) for index in range(2, 42)]

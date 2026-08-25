@@ -13,6 +13,15 @@ TOOL = ROOT / "backend" / "tools" / "check_pii.py"
 PSEUDONYMIZER = ROOT / "backend" / "tools" / "pseudonymize_fixtures.py"
 
 
+def _raw_fixture_bytes(name: str) -> bytes:
+    """Return the pre-pseudonymization fixture blob from git history."""
+    path = f"backend/tests/fixtures/{name}"
+    first = subprocess.check_output(
+        ["git", "-C", str(ROOT), "log", "--format=%H", "--reverse", "--", path],
+        text=True,
+    ).splitlines()[0]
+    return subprocess.check_output(["git", "-C", str(ROOT), "show", f"{first}:{path}"])
+
 def load_tool(path: Path, name: str):
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec and spec.loader
@@ -40,7 +49,7 @@ def test_pseudonymization_is_deterministic_and_preserves_projection(tmp_path: Pa
     fixture_root = source / "backend" / "tests" / "fixtures"
     fixture_root.mkdir(parents=True)
     for name in ("SG2_170114893.json", "SG2_170114893_timeline.json"):
-        source_bytes = subprocess.check_output(["git", "show", f"HEAD:backend/tests/fixtures/{name}"])
+        source_bytes = _raw_fixture_bytes(name)
         (fixture_root / name).write_bytes(source_bytes)
 
     before = {path.name: path.read_bytes() for path in fixture_root.glob("*.json")}
@@ -78,15 +87,13 @@ def test_pseudonymization_is_deterministic_and_preserves_projection(tmp_path: Pa
 
 
 def test_guard_rejects_injected_identity_without_echoing_value(tmp_path: Path, capsys):
-    raw = json.loads(
-        subprocess.check_output(["git", "show", "HEAD:backend/tests/fixtures/SG2_170114893.json"])
-    )
-    guard = load_tool(TOOL, "check_pii")
+    raw = json.loads(_raw_fixture_bytes("SG2_170114893.json"))
     raw_value = raw["info"]["participants"][0]["puuid"]
     leak = tmp_path / "leak.json"
     leak.write_text(json.dumps({"puuid": raw_value}), encoding="utf-8")
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     subprocess.run(["git", "-C", str(tmp_path), "add", "leak.json"], check=True)
+    guard = load_tool(TOOL, "check_pii")
 
     assert guard.run(tmp_path, history=False) == 1
     output = capsys.readouterr().out
@@ -104,9 +111,7 @@ def test_guard_rejects_malformed_synthetic_ordinal(tmp_path: Path):
 
 def test_history_guard_rejects_denylisted_blob(tmp_path: Path, capsys):
     guard = load_tool(TOOL, "check_pii_history")
-    raw = json.loads(
-        subprocess.check_output(["git", "show", "HEAD:backend/tests/fixtures/SG2_170114893.json"])
-    )
+    raw = json.loads(_raw_fixture_bytes("SG2_170114893.json"))
     raw_value = raw["info"]["participants"][0]["puuid"]
     leak = tmp_path / "history.json"
     leak.write_text(json.dumps({"puuid": raw_value}), encoding="utf-8")
