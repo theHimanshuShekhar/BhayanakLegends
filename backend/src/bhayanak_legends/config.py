@@ -1,15 +1,27 @@
 import sys
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
+
+
+def _validate_sidecar_token(token: str) -> str:
+    normalized = token.strip()
+    if (
+        not normalized
+        or normalized != token
+        or len(normalized) < 32
+        or normalized.lower() == "dev"
+    ):
+        raise ValueError("BHAYANAK_TOKEN must be a non-blank token of at least 32 characters")
+    return token
 
 
 class SidecarConfig(BaseSettings):
     # Port zero asks the sidecar's own loopback listener to choose an ephemeral port.
     # Desktop clients learn the chosen port from the readiness handshake.
     port: int = 0
-    token: str = "dev"
+    token: str
     data_dir: Path = Path.home() / ".local" / "share" / "BhayanakLegends"
     pack_dir: Path | None = None
     # Optional local replay seams; production defaults retain normal discovery.
@@ -21,6 +33,11 @@ class SidecarConfig(BaseSettings):
     import_roots: list[Path] = Field(default_factory=list)
 
     model_config = {"env_prefix": "BHAYANAK_"}
+
+    @model_validator(mode="after")
+    def validate_startup(self) -> "SidecarConfig":
+        _validate_sidecar_token(self.token)
+        return self
 
     def resolved_bundled_pack_dir(self) -> Path:
         """Return the read-only Findings Pack seed shipped with the app."""

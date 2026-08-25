@@ -23,7 +23,10 @@ requires_dev_import = pytest.mark.skipif(
     not (DEV_DIR / "fetch_state.json").exists(),
     reason="requires gitignored data/dev-import real-match fixtures",
 )
-AUTH = {"X-BL-Token": "dev"}
+AUTH = {
+    "X-BL-Token": "local-sidecar-development-token-32chars",
+    "Host": "127.0.0.1:23110",
+}
 FIRST_FIVE = [
     "SG2_140646556",
     "SG2_140997685",
@@ -49,7 +52,7 @@ def make_import_dir(tmp_path: Path) -> Path:
 def build_app(tmp_path: Path):
     config = SidecarConfig(
         port=23110,
-        token="dev",
+        token="local-sidecar-development-token-32chars",
         data_dir=tmp_path / "data",
         pack_dir=REPO / "pack" if (REPO / "pack").exists() else None,
         allow_import=True,
@@ -119,7 +122,7 @@ def test_dev_import_endpoint_guarded(tmp_path: Path):
     app.state.config.allow_import = False
     body = {"dir": str(make_import_dir(tmp_path))}
     with client:
-        res = client.post("/dev/import", json=body, headers={"X-BL-Token": "dev"})
+        res = client.post("/dev/import", json=body, headers=AUTH)
     assert res.status_code == 403
     assert res.json()["detail"] == "dev import disabled"
 

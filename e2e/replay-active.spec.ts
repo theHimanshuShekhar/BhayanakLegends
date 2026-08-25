@@ -3,7 +3,10 @@ import { expect, test, type APIRequestContext } from "@playwright/test";
 const SIDECAR = "http://127.0.0.1:23122";
 const LCU = "http://127.0.0.1:23123";
 const LIVE = "http://127.0.0.1:23124";
-const AUTH = { "X-BL-Token": "dev" };
+const AUTH = {
+  "X-BL-Token": "local-sidecar-development-token-32chars",
+  Host: "127.0.0.1:23122",
+};
 
 async function setScenario(request: APIRequestContext, base: string, scenario: string) {
   const response = await request.post(`${base}/control`, { data: { scenario } });

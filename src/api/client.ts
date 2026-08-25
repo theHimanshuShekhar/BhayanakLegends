@@ -45,7 +45,9 @@ let connectionPromise: Promise<SidecarConnection> | null = null;
 function browserConnection(): SidecarConnection {
   return {
     base: `http://127.0.0.1:${import.meta.env.VITE_BL_PORT ?? 23110}`,
-    token: import.meta.env.VITE_BL_TOKEN ?? "dev",
+    token:
+      import.meta.env.VITE_BL_TOKEN ??
+      "local-sidecar-development-token-32chars",
     status: "ok",
   };
 }

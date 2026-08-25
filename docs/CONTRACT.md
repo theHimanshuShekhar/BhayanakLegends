@@ -4,11 +4,24 @@ Single source of truth for frontend↔backend↔pack interfaces. Change here, no
 
 ## Process model
 
-All HTTP endpoints require `X-BL-Token: <token>`; missing or invalid
-credentials return `401`. The only exception to header placement is
+The sidecar requires an explicit `BHAYANAK_TOKEN` of at least 32 characters.
+Missing, blank, short, and literal `dev` values fail startup before bind or
+readiness output. All HTTP endpoints require `X-BL-Token: <token>`; missing or
+invalid credentials return `401`. The only exception to header placement is
 `/events`, which also accepts `?token=` because EventSource cannot set headers.
 
-Frontend obtains `{port, token}` via Tauri command `sidecar_info`. In web-only dev (`pnpm dev` without Tauri), defaults: port from `VITE_BL_PORT` (default 23110), token from `VITE_BL_TOKEN` (default "dev").
+Every request must contain exactly one valid loopback `Host`: `localhost`,
+`127.0.0.1`, or `[::1]`, with an optional port matching the actual listener
+port. Missing, duplicate, malformed, userinfo-bearing, non-loopback, and
+wrong-port hosts return `400 {"detail":"invalid host"}` before token checks.
+The sidecar preserves CORS origins `http://localhost:1420` and
+`tauri://localhost`. Access logs are disabled; retained request logs contain
+only method and path and never query strings, headers, or credentials.
+
+Frontend obtains `{port, token}` via Tauri command `sidecar_info`. In web-only
+dev (`pnpm dev` without Tauri), defaults: port from `VITE_BL_PORT` (default
+23110), token from `VITE_BL_TOKEN` (default
+`local-sidecar-development-token-32chars`).
 
 ## REST API (v1)
 

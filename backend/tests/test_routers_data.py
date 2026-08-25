@@ -7,7 +7,10 @@ from fastapi.testclient import TestClient
 from bhayanak_legends.app import create_app
 from bhayanak_legends.config import SidecarConfig
 
-AUTH = {"X-BL-Token": "dev"}
+AUTH = {
+    "X-BL-Token": "local-sidecar-development-token-32chars",
+    "Host": "127.0.0.1:23110",
+}
 REPO = Path(__file__).resolve().parents[3]
 
 
@@ -18,7 +21,7 @@ def build_client(tmp_path: Path, pack: dict | None = None) -> TestClient:
         (pack_dir / "findings-pack.v1.json").write_text(json.dumps(pack))
     config = SidecarConfig(
         port=23110,
-        token="dev",
+        token="local-sidecar-development-token-32chars",
         data_dir=tmp_path / "data",
         pack_dir=pack_dir if pack is not None else tmp_path / "empty-pack",
     )

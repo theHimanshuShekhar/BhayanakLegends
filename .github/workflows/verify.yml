@@ -116,12 +116,12 @@ jobs:
         run: |
           uv sync --locked
           BHAYANAK_PORT=23110 \
-          BHAYANAK_TOKEN=dev \
+          BHAYANAK_TOKEN=local-sidecar-development-token-32chars \
           BHAYANAK_ALLOW_IMPORT=true \
           BHAYANAK_IMPORT_ROOTS='["${{ github.workspace }}/data/dev-import"]' \
             nohup uv run python -m bhayanak_legends.sidecar > "$RUNNER_TEMP/sidecar.log" 2>&1 &
           for i in $(seq 1 60); do
-            if curl --fail --silent -H "X-BL-Token: dev" http://127.0.0.1:23110/health; then
+            if curl --fail --silent -H "Host: 127.0.0.1:23110" -H "X-BL-Token: local-sidecar-development-token-32chars" http://127.0.0.1:23110/health; then
               exit 0
             fi
             sleep 1
@@ -136,7 +136,7 @@ jobs:
             (cd backend && uv run python tools/ci_seed.py)
           fi
       - name: Run Playwright
-        run: VITE_BL_PORT=23110 VITE_BL_TOKEN=dev pnpm exec playwright test
+        run: VITE_BL_PORT=23110 VITE_BL_TOKEN=local-sidecar-development-token-32chars pnpm exec playwright test
 
   dependency-audit-javascript:
     name: JavaScript dependency audit

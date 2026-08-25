@@ -871,7 +871,7 @@ fn health_request(port: u16, token: &str, timeout: Duration) -> Result<SidecarHe
         .map_err(|e| format!("sidecar health timeout setup failed: {e}"))?;
     write!(
         stream,
-        "GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nX-BL-Token: {token}\r\nConnection: close\r\n\r\n"
+        "GET /health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nX-BL-Token: {token}\r\nConnection: close\r\n\r\n"
     )
     .map_err(|e| format!("sidecar health request failed: {e}"))?;
     let mut response = Vec::new();
@@ -1049,6 +1049,7 @@ mod tests {
                 }
             }
             let request = String::from_utf8_lossy(&request).to_ascii_lowercase();
+            assert!(request.contains(&format!("host: 127.0.0.1:{port}")));
             assert!(request.contains("x-bl-token: unit-test-token"));
             stream
                 .write_all(

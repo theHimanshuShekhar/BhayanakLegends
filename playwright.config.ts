@@ -9,7 +9,7 @@ export default defineConfig({
   webServer: [
     {
       command: "python3 e2e/replay_stack.py",
-      url: "http://127.0.0.1:23122/events?token=dev",
+      url: "http://127.0.0.1:23122/events?token=local-sidecar-development-token-32chars",
       reuseExistingServer: false,
       timeout: 60_000,
     },
@@ -20,7 +20,7 @@ export default defineConfig({
       timeout: 60_000,
       env: {
         VITE_BL_PORT: "23122",
-        VITE_BL_TOKEN: "dev",
+        VITE_BL_TOKEN: "local-sidecar-development-token-32chars",
       },
     },
   ],

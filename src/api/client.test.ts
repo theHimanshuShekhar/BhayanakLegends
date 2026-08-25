@@ -78,10 +78,14 @@ describe("sidecar API boundary", () => {
     expect(vi.mocked(fetch)).toHaveBeenCalledWith(
       "http://127.0.0.1:23110/health",
       expect.objectContaining({
-        headers: expect.objectContaining({ "X-BL-Token": "dev" }),
+        headers: expect.objectContaining({
+          "X-BL-Token": "local-sidecar-development-token-32chars",
+        }),
       }),
     );
-    await expect(eventsUrl()).resolves.toBe("http://127.0.0.1:23110/events?token=dev");
+    await expect(eventsUrl()).resolves.toBe(
+      "http://127.0.0.1:23110/events?token=local-sidecar-development-token-32chars",
+    );
   });
 
   it("exposes bounded safe details from non-success JSON responses", async () => {

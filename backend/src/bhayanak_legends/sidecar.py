@@ -8,6 +8,7 @@ import sys
 from typing import TextIO
 
 import uvicorn
+from pydantic import ValidationError
 
 from bhayanak_legends.app import create_app
 from bhayanak_legends.config import SidecarConfig
@@ -40,15 +41,31 @@ class ReadinessServer(uvicorn.Server):
         listener = self.servers[0].sockets
         if not listener:
             raise RuntimeError("sidecar listener was not created")
-        emit_readiness(int(listener[0].getsockname()[1]), self._readiness_output)
+        port = int(listener[0].getsockname()[1])
+        app = self.config.app
+        if hasattr(app, "state"):
+            app.state.listener_port = port
+        emit_readiness(port, self._readiness_output)
         self._readiness_emitted = True
 
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    config = SidecarConfig()
+    try:
+        config = SidecarConfig()
+    except ValidationError:
+        logging.getLogger("bhayanak_legends.sidecar").error(
+            "invalid sidecar token configuration"
+        )
+        raise SystemExit(1) from None
     app = create_app(config)
-    server_config = uvicorn.Config(app, host="127.0.0.1", port=config.port, log_level="info")
+    server_config = uvicorn.Config(
+        app,
+        host="127.0.0.1",
+        port=config.port,
+        log_level="info",
+        access_log=False,
+    )
     ReadinessServer(server_config).run()
 
 
