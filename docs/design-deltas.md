@@ -48,7 +48,7 @@ Where the claude.design artifact ("Rift Coach" v0.1, `~/downloads/League of Lege
 | C2 | WHEN THE ENEMY TEAM HAS… comp rows | Omitted | No comp-fit findings in pack v1 (omit-don't-invent). |
 | C3 | DAMAGE-FIT SCORE 0.71 | Omitted | Same. |
 | C4 | BUILD ORDER rows (Everfrost → Shadowflame → Zhonya's 56.8%) | Structure + approximate-v1 caveat + "lands after Data-Dragon item refresh" | Build-order table not yet exported into the pack. |
-| C5 | ITEM SPIKE TIMING: win rate by completion-minute chart | Sparkline of rolling WR per patch (real trajectories) in the same slot | Spike-timing table not in pack v1; slot kept alive with real personal data instead. |
+| C5 | TRAJECTORY · PERSONAL HISTORY: rolling win-rate line plus patch summaries | Every chronological rolling point from `/progress/trajectories`, with wins/games/rate from `/progress/aggregates` | Personal History is separate from the Findings Pack. |
 | C6 | GOLD WASTE 340g vs 190g | Omitted | Finding absent from pack v1. |
 | C7 | Matchup label "57% ±2.1" (70px) | "57% ±2.1 · 41 games" (112px, wraps less) | Games count added for honesty; width tradeoff. |
 

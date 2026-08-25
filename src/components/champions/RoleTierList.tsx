@@ -22,10 +22,14 @@ export function RoleTierList({
   role,
   rows,
   trapPicks,
+  selectedChampion,
+  onSelect,
 }: {
   role: string;
   rows: TierEntry[];
   trapPicks: Set<string>;
+  selectedChampion: string | null;
+  onSelect: (champion: string) => void;
 }) {
   return (
     <div
@@ -41,23 +45,51 @@ export function RoleTierList({
     >
       <KickerRow label={`ROLE TIER LIST · ${role}`} dot="#7a8098" />
       <div data-testid="tier-list" style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-        {rows.map((t) => (
-          <div key={`${t.champion}-${t.role}`} style={{ display: "flex", alignItems: "center", gap: 9 }}>
-            <span
-              className="pill"
-              style={{ ...TIER_PILL[t.tier], width: 20, justifyContent: "center", padding: "3px 0", fontSize: 10 }}
+        {rows.map((t) => {
+          const selected = t.champion === selectedChampion;
+          return (
+            <button
+              key={`${t.champion}-${t.role}`}
+              type="button"
+              data-testid={`tier-row-${t.champion}`}
+              aria-pressed={selected}
+              aria-label={`${t.champion}, ${t.tier} tier, ${role}`}
+              onClick={() => onSelect(t.champion)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onSelect(t.champion);
+                }
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 9,
+                width: "100%",
+                border: 0,
+                borderRadius: 5,
+                textAlign: "left",
+                cursor: "pointer",
+                color: "inherit",
+                background: selected ? "var(--color-surface-3)" : "transparent",
+              }}
             >
-              {t.tier}
-            </span>
-            <span style={{ flex: 1, fontSize: 10.5 }}>{t.champion}</span>
-            <span className="mono-n" style={{ fontSize: 9.5, color: "var(--color-dim)" }}>
-              {pct(t.win_rate)}
-              {trapPicks.has(t.champion) && (
-                <span style={{ color: "var(--color-dimmer)" }}> · trap</span>
-              )}
-            </span>
-          </div>
-        ))}
+              <span
+                className="pill"
+                style={{ ...TIER_PILL[t.tier], width: 20, justifyContent: "center", padding: "3px 0", fontSize: 10 }}
+              >
+                {t.tier}
+              </span>
+              <span style={{ flex: 1, fontSize: 10.5 }}>{t.champion}</span>
+              <span className="mono-n" style={{ fontSize: 9.5, color: "var(--color-dim)" }}>
+                {pct(t.win_rate)}
+                {trapPicks.has(t.champion) && (
+                  <span style={{ color: "var(--color-dimmer)" }}> · trap</span>
+                )}
+              </span>
+            </button>
+          );
+        })}
         {rows.length === 0 && (
           <div style={{ fontSize: 9.5, color: "var(--color-dimmer)" }}>
             no ≥100-game champions for this role in the pack

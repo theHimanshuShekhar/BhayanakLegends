@@ -7,24 +7,24 @@ function MatchupRow({ m, color }: { m: MatchupExample; color: string }) {
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
       <span
         style={{
-          width: 52,
+          flex: 1,
           fontSize: 10.5,
           overflow: "hidden",
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",
-          flex: "none",
         }}
         title={`${m.champion} vs ${m.opponent}`}
       >
-        {m.opponent}
+        {m.champion} vs {m.opponent}
       </span>
       <div
         style={{
-          flex: 1,
+          width: 76,
           height: 7,
           borderRadius: 999,
           background: "var(--color-deep)",
           overflow: "hidden",
+          flex: "none",
         }}
       >
         <div
@@ -57,9 +57,16 @@ function EmptyLine({ text }: { text: string }) {
   return <div style={{ fontSize: 9.5, color: "var(--color-dimmer)" }}>{text}</div>;
 }
 
-export function MatchupsCard({ matchups }: { matchups: MatchupExample[] }) {
-  const youCounter = matchups.filter((m) => m.wr >= 0.5).sort((a, b) => b.wr - a.wr);
-  const countersYou = matchups.filter((m) => m.wr < 0.5).sort((a, b) => a.wr - b.wr);
+export function MatchupsCard({
+  champion,
+  matchups,
+}: {
+  champion: string | null;
+  matchups: MatchupExample[];
+}) {
+  const favorable = matchups.filter((m) => m.wr >= 0.5).sort((a, b) => b.wr - a.wr);
+  const difficult = matchups.filter((m) => m.wr < 0.5).sort((a, b) => a.wr - b.wr);
+  const empty = `The current Findings Pack has no directional example for ${champion ?? "this champion"}.`;
 
   return (
     <div
@@ -74,43 +81,48 @@ export function MatchupsCard({ matchups }: { matchups: MatchupExample[] }) {
         gap: 9,
       }}
     >
-      <KickerRow label="MATCHUPS · EB-SHRUNK" />
-      <div style={{ fontSize: 9.5, color: "var(--color-teal)", letterSpacing: ".08em" }}>
-        YOU COUNTER
-      </div>
-      <div data-testid="you-counter-list" style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-        {youCounter.map((m) => (
-          <MatchupRow key={`${m.champion}-${m.opponent}`} m={m} color="var(--color-teal)" />
-        ))}
-        {youCounter.length === 0 && <EmptyLine text="no clear edges in the pack" />}
-      </div>
-      <div
-        style={{
-          fontSize: 9.5,
-          color: "#f4c3ce",
-          letterSpacing: ".08em",
-          marginTop: 4,
-        }}
-      >
-        COUNTERS YOU
-      </div>
-      <div data-testid="counters-you-list" style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-        {countersYou.map((m) => (
-          <MatchupRow key={`${m.champion}-${m.opponent}`} m={m} color="var(--color-danger)" />
-        ))}
-        {countersYou.length === 0 && <EmptyLine text="no rough spots in the pack" />}
-      </div>
-      <p
-        style={{
-          margin: "auto 0 0",
-          fontSize: 9.5,
-          lineHeight: 1.5,
-          color: "var(--color-dimmer)",
-        }}
-      >
-        Total spread across every matchup ≈ ±2.5pp — the smallest lever in the game, not a
-        verdict.
-      </p>
+      <KickerRow label="MATCHUPS · FINDINGS PACK" />
+      {!champion ? (
+        <EmptyLine text="Select a champion to see directional examples." />
+      ) : (
+        <>
+          <div style={{ fontSize: 9.5, color: "var(--color-teal)", letterSpacing: ".08em" }}>
+            FAVORABLE EXAMPLES FOR {champion.toUpperCase()}
+          </div>
+          <div data-testid="favorable-list" style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            {favorable.map((m) => (
+              <MatchupRow key={`${m.champion}-${m.opponent}`} m={m} color="var(--color-teal)" />
+            ))}
+            {favorable.length === 0 && <EmptyLine text={empty} />}
+          </div>
+          <div
+            style={{
+              fontSize: 9.5,
+              color: "#f4c3ce",
+              letterSpacing: ".08em",
+              marginTop: 4,
+            }}
+          >
+            DIFFICULT EXAMPLES FOR {champion.toUpperCase()}
+          </div>
+          <div data-testid="difficult-list" style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            {difficult.map((m) => (
+              <MatchupRow key={`${m.champion}-${m.opponent}`} m={m} color="var(--color-danger)" />
+            ))}
+            {difficult.length === 0 && <EmptyLine text={empty} />}
+          </div>
+          <p
+            style={{
+              margin: "auto 0 0",
+              fontSize: 9.5,
+              lineHeight: 1.5,
+              color: "var(--color-dimmer)",
+            }}
+          >
+            Source: Findings Pack · matchup_examples
+          </p>
+        </>
+      )}
     </div>
   );
 }
