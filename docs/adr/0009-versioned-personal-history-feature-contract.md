@@ -16,11 +16,16 @@ version.
 ## Normative contract: `loltrends-parity-v1`
 
 The contract covers exactly these Personal History fields. Timeline snapshots
-use the latest frame at or before each checkpoint. Gold medians include every
-participant present in that frame (including the local participant), and
-non-numeric gold values are excluded from the median pool. Missing frames,
-participants, or non-numeric local gold produce a missing value rather than a
-proxy or an invented value.
+use the latest frame at or before each checkpoint. A populated frame with a
+timestamp at or after 600,000 ms is required to prove the timeline reached ten
+minutes before any `cs10`, `level10`, or `gold_diff_10` value may be emitted;
+without that proof, those values are missing even when earlier frames exist.
+After ten-minute reachability is proven, the latest frame at or before 600,000
+ms supplies the 10-minute values, while 15- and 20-minute lookups remain
+independent. Gold medians include every participant present in the selected
+frame (including the local participant), and non-numeric gold values are
+excluded from the median pool. Missing frames, participants, or non-numeric
+local gold produce a missing value rather than a proxy or an invented value.
 
 | App field | LoLTrends field | Unit | Definition |
 | --- | --- | --- | --- |
@@ -46,6 +51,11 @@ Each repository's enforcing test must fail if a field formula, unit, checkpoint
 lookup, missing-data rule, or field registration drifts. A definition change
 requires updating both fixture suites and bumping `loltrends-parity-vN` in one
 coordinated change.
+
+The ten-minute reachability condition above clarifies the existing
+missing-data rule; it does not change a field definition, formula, unit, or
+checkpoint lookup. The parity contract therefore remains
+`loltrends-parity-v1`, and the shared parity fixtures remain valid.
 
 The LoLTrends-side enforcement artifact is closed in
 [theHimanshuShekhar/lol-trends#29](https://github.com/theHimanshuShekhar/lol-trends/issues/29),

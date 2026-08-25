@@ -55,6 +55,237 @@ def test_parse_checkpoints_short_timeline_yields_nones():
     assert all(v is None for v in checkpoints.values())
 
 
+def test_parse_checkpoints_without_timeline_yields_nones():
+    checkpoints = parse_checkpoints(None, PUUID)
+
+    assert all(value is None for value in checkpoints.values())
+
+
+def test_parse_checkpoints_without_participant_yields_nones():
+    timeline = {
+        "metadata": {"participants": ["opponent"]},
+        "info": {
+            "frames": [
+                {
+                    "timestamp": 600_000,
+                    "participantFrames": {"1": {"totalGold": 1_000, "level": 8}},
+                }
+            ]
+        },
+    }
+
+    checkpoints = parse_checkpoints(timeline, PUUID)
+
+    assert all(value is None for value in checkpoints.values())
+
+
+def test_parse_checkpoints_remake_before_ten_minutes_is_missing():
+    timeline = {
+        "metadata": {"participants": [PUUID, "opponent"]},
+        "info": {
+            "frames": [
+                {
+                    "timestamp": 599_999,
+                    "participantFrames": {
+                        "1": {
+                            "totalGold": 1_200,
+                            "level": 8,
+                            "minionsKilled": 70,
+                            "jungleMinionsKilled": 5,
+                        },
+                        "2": {"totalGold": 1_000, "level": 8},
+                    },
+                }
+            ]
+        },
+    }
+
+    checkpoints = parse_checkpoints(timeline, PUUID)
+
+    assert checkpoints["cs10"] is None
+    assert checkpoints["level10"] is None
+    assert checkpoints["gold_diff_10"] is None
+
+
+def test_parse_checkpoints_uses_last_pre_ten_frame_when_timeline_reaches_ten():
+    timeline = {
+        "metadata": {"participants": [PUUID, "opponent"]},
+        "info": {
+            "frames": [
+                {
+                    "timestamp": 599_000,
+                    "participantFrames": {
+                        "1": {
+                            "totalGold": 1_200,
+                            "level": 8,
+                            "minionsKilled": 70,
+                            "jungleMinionsKilled": 5,
+                        },
+                        "2": {"totalGold": 1_000, "level": 8},
+                    },
+                },
+                {
+                    "timestamp": 601_000,
+                    "participantFrames": {"2": {"totalGold": 1_100, "level": 8}},
+                },
+            ]
+        },
+    }
+
+    checkpoints = parse_checkpoints(timeline, PUUID)
+
+    assert checkpoints["cs10"] == 75
+    assert checkpoints["level10"] == 8
+    assert checkpoints["gold_diff_10"] == 100.0
+
+
+def test_parse_checkpoints_exact_ten_minute_frame_is_valid():
+    timeline = {
+        "metadata": {"participants": [PUUID, "opponent"]},
+        "info": {
+            "frames": [
+                {
+                    "timestamp": 600_000,
+                    "participantFrames": {
+                        "1": {
+                            "totalGold": 1_200,
+                            "level": 8,
+                            "minionsKilled": 70,
+                            "jungleMinionsKilled": 5,
+                        },
+                        "2": {"totalGold": 1_000, "level": 8},
+                    },
+                }
+            ]
+        },
+    }
+
+    checkpoints = parse_checkpoints(timeline, PUUID)
+
+    assert checkpoints["cs10"] == 75
+    assert checkpoints["level10"] == 8
+    assert checkpoints["gold_diff_10"] == 100.0
+
+
+def test_parse_checkpoints_selected_ten_minute_frame_without_participant_is_missing():
+    timeline = {
+        "metadata": {"participants": [PUUID, "opponent"]},
+        "info": {
+            "frames": [
+                {
+                    "timestamp": 599_000,
+                    "participantFrames": {
+                        "1": {
+                            "totalGold": 1_200,
+                            "level": 8,
+                            "minionsKilled": 70,
+                            "jungleMinionsKilled": 5,
+                        },
+                        "2": {"totalGold": 1_000, "level": 8},
+                    },
+                },
+                {
+                    "timestamp": 600_000,
+                    "participantFrames": {"2": {"totalGold": 1_100, "level": 8}},
+                },
+            ]
+        },
+    }
+
+    checkpoints = parse_checkpoints(timeline, PUUID)
+
+    assert checkpoints["cs10"] is None
+    assert checkpoints["level10"] is None
+    assert checkpoints["gold_diff_10"] is None
+
+
+def test_parse_checkpoints_empty_late_frame_does_not_prove_ten_minutes():
+    timeline = {
+        "metadata": {"participants": [PUUID, "opponent"]},
+        "info": {
+            "frames": [
+                {
+                    "timestamp": 599_000,
+                    "participantFrames": {
+                        "1": {
+                            "totalGold": 1_200,
+                            "level": 8,
+                            "minionsKilled": 70,
+                            "jungleMinionsKilled": 5,
+                        },
+                        "2": {"totalGold": 1_000, "level": 8},
+                    },
+                },
+                {"timestamp": 601_000, "participantFrames": {}},
+            ]
+        },
+    }
+
+    checkpoints = parse_checkpoints(timeline, PUUID)
+
+    assert checkpoints["cs10"] is None
+    assert checkpoints["level10"] is None
+    assert checkpoints["gold_diff_10"] is None
+
+
+def test_parse_checkpoints_non_numeric_ten_minute_gold_is_missing():
+    timeline = {
+        "metadata": {"participants": [PUUID, "opponent"]},
+        "info": {
+            "frames": [
+                {
+                    "timestamp": 600_000,
+                    "participantFrames": {
+                        "1": {
+                            "totalGold": "unknown",
+                            "level": 8,
+                            "minionsKilled": 70,
+                            "jungleMinionsKilled": 5,
+                        },
+                        "2": {"totalGold": 1_000, "level": 8},
+                    },
+                }
+            ]
+        },
+    }
+
+    checkpoints = parse_checkpoints(timeline, PUUID)
+
+    assert checkpoints["cs10"] == 75
+    assert checkpoints["level10"] == 8
+    assert checkpoints["gold_diff_10"] is None
+
+
+def test_parse_checkpoints_ten_minute_guard_preserves_later_checkpoints():
+    timeline = {
+        "metadata": {"participants": [PUUID, "opponent"]},
+        "info": {
+            "frames": [
+                {
+                    "timestamp": 599_000,
+                    "participantFrames": {
+                        "1": {"totalGold": 1_200, "level": 8},
+                        "2": {"totalGold": 1_000, "level": 8},
+                    },
+                },
+                {
+                    "timestamp": 890_000,
+                    "participantFrames": {
+                        "1": {"totalGold": 1_800, "level": 10},
+                        "2": {"totalGold": 1_500, "level": 10},
+                    },
+                },
+            ]
+        },
+    }
+
+    checkpoints = parse_checkpoints(timeline, PUUID)
+
+    assert checkpoints["gold_diff_10"] == 100.0
+    assert checkpoints["gold_diff_15"] == 150.0
+    assert checkpoints["gold_diff_20"] == 150.0
+
+
 def test_parse_match_role_missing_becomes_none():
     detail = {
         "metadata": {"matchId": "SG2_1"},

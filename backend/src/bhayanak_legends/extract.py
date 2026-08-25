@@ -37,9 +37,11 @@ def parse_checkpoints(timeline: dict[str, Any] | None, puuid: str) -> dict[str, 
     ``cs10`` is total minions at 10m (lane plus jungle minions), ``level10``
     is champion level at 10m, and ``gold_diff_X`` is own totalGold minus the
     median totalGold of every participant present at X minutes. Each value
-    reads the latest snapshot at or before its checkpoint; missing snapshots
-    or non-numeric gold yield None. This is the complete app-owned extraction
-    boundary for the loltrends-parity-v1 Personal History subset.
+    reads the latest snapshot at or before its checkpoint; 10m values require
+    a populated timeline frame at or after 10m to prove the match reached that
+    checkpoint. Missing snapshots or non-numeric gold yield None. This is the
+    complete app-owned extraction boundary for the loltrends-parity-v1 Personal
+    History subset.
     """
 
     checkpoints: dict[str, float | int | None] = {}
@@ -56,8 +58,11 @@ def parse_checkpoints(timeline: dict[str, Any] | None, puuid: str) -> dict[str, 
         return checkpoints
     participant_id = puuids.index(puuid) + 1
     pid_key = str(participant_id)
+    ten_minute_proven = _has_populated_frame_at_or_after(timeline, 10)
 
     for minutes in CHECKPOINT_MINUTES:
+        if minutes == 10 and not ten_minute_proven:
+            continue
         frame = _frame_at(timeline, minutes)
         if frame is None:
             continue
@@ -100,6 +105,23 @@ def _frame_at(timeline: dict[str, Any], minutes: int) -> dict[str, Any] | None:
         if best is None or ts > best[0]:
             best = (int(ts), frame)
     return best[1] if best else None
+
+
+def _has_populated_frame_at_or_after(timeline: dict[str, Any], minutes: int) -> bool:
+    """Return whether a populated frame proves the timeline reached ``minutes``."""
+    target_ms = minutes * 60_000
+    for frame in timeline.get("info", {}).get("frames", []):
+        if not isinstance(frame, dict):
+            continue
+        ts = frame.get("timestamp")
+        if (
+            isinstance(ts, (int, float))
+            and ts >= target_ms
+            and isinstance(frame.get("participantFrames"), dict)
+            and frame["participantFrames"]
+        ):
+            return True
+    return False
 
 
 def _iso_utc(epoch_ms: int) -> str:

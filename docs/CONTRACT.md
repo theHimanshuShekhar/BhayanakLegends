@@ -80,6 +80,15 @@ interface PostGameDigest {
   habits: HabitOutcome[];         // only outcomes with an exact extractor + threshold; empty when unavailable
   headline: string;               // one-line takeaway, tier-respecting phrasing
 }
+
+Checkpoint missing-data rule: `cs10`, `level10`, and `gold_diff_10` are `null`
+unless the match timeline contains a populated frame with a timestamp at or
+after 600,000 ms, proving that the match reached ten minutes. Once proven,
+each value uses the latest timeline frame at or before 600,000 ms; it is never
+guessed or interpolated, and remains `null` when that selected frame lacks the
+participant. The independent 15- and 20-minute lookups retain their
+latest-at-or-before behavior.
+
 // The backend never emits a permanent value="n/a"/verdict="n/a" row. A
 // digest with no contracted habit outcome carries habits: [] and the UI says
 // that habit evaluation is unavailable.
@@ -105,9 +114,9 @@ declaration suppresses that comparison. In particular, the shipped pack's
 
 | canonical name | unit | population feature | personal extractor | eligible roles | missing-data rule | source_ref |
 |---|---|---|---|---|---|---|
-| `cs10` | minions | `cs10` (total minions at 10m) | `cs10` (total minions at 10m) | TOP, JUNGLE, MIDDLE, BOTTOM, UTILITY | omit when either value is null/non-numeric | `docs/CONTRACT.md#benchmark-feature-contract` |
-| `level10` | levels | `level10` (level at 10m) | `level10` (level at 10m) | TOP, JUNGLE, MIDDLE, BOTTOM, UTILITY | omit when either value is null/non-numeric | `docs/CONTRACT.md#benchmark-feature-contract` |
-| `gold_diff_10` | gold | `gold_diff_10` (difference from same-frame ten-player median at 10m) | `gold_diff_10` (difference from same-frame ten-player median at 10m) | TOP, JUNGLE, MIDDLE, BOTTOM, UTILITY | omit when either value is null/non-numeric | `docs/CONTRACT.md#benchmark-feature-contract` |
+| `cs10` | minions | `cs10` (total minions at 10m) | `cs10` (total minions at 10m) | TOP, JUNGLE, MIDDLE, BOTTOM, UTILITY | omit when either value is null/non-numeric, including when no populated frame proves ten-minute reachability | `docs/CONTRACT.md#benchmark-feature-contract` |
+| `level10` | levels | `level10` (level at 10m) | `level10` (level at 10m) | TOP, JUNGLE, MIDDLE, BOTTOM, UTILITY | omit when either value is null/non-numeric, including when no populated frame proves ten-minute reachability | `docs/CONTRACT.md#benchmark-feature-contract` |
+| `gold_diff_10` | gold | `gold_diff_10` (difference from same-frame ten-player median at 10m) | `gold_diff_10` (difference from same-frame ten-player median at 10m) | TOP, JUNGLE, MIDDLE, BOTTOM, UTILITY | omit when either value is null/non-numeric, including when no populated frame proves ten-minute reachability | `docs/CONTRACT.md#benchmark-feature-contract` |
 
 interface LiveStatus {
   champ_select: { active: boolean; phase: GameflowPhase|null };
