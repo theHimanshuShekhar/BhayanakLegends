@@ -49,7 +49,7 @@ class ReplayState:
                     "DragonType": None,
                 }
             )
-            player = next(p for p in self.game["allPlayers"] if p["summonerName"] == "FixturePlayer24")
+            player = next(p for p in self.game["allPlayers"] if p["summonerName"] == "FixturePlayer03")
             player["scores"]["kills"] = 5
         elif scenario in {"idle", "reconnect", "malformed"}:
             return

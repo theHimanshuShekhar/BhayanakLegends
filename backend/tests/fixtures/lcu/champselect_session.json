@@ -8,7 +8,7 @@
       "championPickIntent": 0,
       "spell1Id": 4,
       "spell2Id": 12,
-      "summonerName": "FixturePlayer09"
+      "summonerName": "FixturePlayer01"
     },
     {
       "cellId": 1,
@@ -16,7 +16,7 @@
       "championPickIntent": 117,
       "spell1Id": 0,
       "spell2Id": 0,
-      "summonerName": "FixturePlayer07"
+      "summonerName": "FixturePlayer02"
     },
     {
       "cellId": 2,
@@ -24,7 +24,7 @@
       "championPickIntent": 1,
       "spell1Id": 4,
       "spell2Id": 14,
-      "summonerName": "FixturePlayer24"
+      "summonerName": "FixturePlayer03"
     },
     {
       "cellId": 3,
@@ -32,7 +32,7 @@
       "championPickIntent": 0,
       "spell1Id": 0,
       "spell2Id": 0,
-      "summonerName": "FixturePlayer06"
+      "summonerName": "FixturePlayer04"
     },
     {
       "cellId": 4,
@@ -40,7 +40,7 @@
       "championPickIntent": 0,
       "spell1Id": 7,
       "spell2Id": 4,
-      "summonerName": "FixturePlayer08"
+      "summonerName": "FixturePlayer05"
     }
   ],
   "theirTeam": [
@@ -50,7 +50,7 @@
       "championPickIntent": 0,
       "spell1Id": 4,
       "spell2Id": 6,
-      "summonerName": "FixturePlayer14"
+      "summonerName": "FixturePlayer06"
     },
     {
       "cellId": 6,
@@ -58,7 +58,7 @@
       "championPickIntent": 0,
       "spell1Id": 4,
       "spell2Id": 11,
-      "summonerName": "FixturePlayer23"
+      "summonerName": "FixturePlayer07"
     },
     {
       "cellId": 7,
@@ -66,7 +66,7 @@
       "championPickIntent": 34,
       "spell1Id": 0,
       "spell2Id": 0,
-      "summonerName": "FixturePlayer22"
+      "summonerName": "FixturePlayer08"
     },
     {
       "cellId": 8,
@@ -74,7 +74,7 @@
       "championPickIntent": 0,
       "spell1Id": 0,
       "spell2Id": 0,
-      "summonerName": "FixturePlayer21"
+      "summonerName": "FixturePlayer09"
     },
     {
       "cellId": 9,
@@ -82,7 +82,7 @@
       "championPickIntent": 0,
       "spell1Id": 7,
       "spell2Id": 21,
-      "summonerName": "FixturePlayer15"
+      "summonerName": "FixturePlayer10"
     }
   ],
   "bans": {

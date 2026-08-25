@@ -252,11 +252,11 @@ def test_settings_roundtrip(client):
     res = client.put(
         "/settings",
         headers=AUTH,
-        json={"riot_id": "SacredButtholio#OOF", "riot_key": "RGAPI-test"},
+        json={"riot_id": "FixturePlayer03#BL03", "riot_key": "RGAPI-test"},
     )
     assert res.status_code == 200
     body = res.json()
-    assert body["riot_id"] == "SacredButtholio#OOF"
+    assert body["riot_id"] == "FixturePlayer03#BL03"
     assert body["has_key"] is True
     assert "riot_key" not in body
 

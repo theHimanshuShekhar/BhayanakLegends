@@ -133,7 +133,7 @@ The same endpoint also maps personal `gold10` from `gold_diff_10`, which is a di
 
 **Location:** `src/components/journal/SyncPanel.tsx:8-10, 56-65`
 
-The form defaults to `SacredButtholio#OOF` when no Riot ID is saved. If a user pastes a valid key and starts Backfill without replacing the field, the app attempts to sync that account rather than requiring the user's identity.
+The form defaults to `FixturePlayer03#OOF` when no Riot ID is saved. If a user pastes a valid key and starts Backfill without replacing the field, the app attempts to sync that account rather than requiring the user's identity.
 
 **Impact:** Wrong-account Personal History can be downloaded and shown as the user's own data. It also embeds a personal identifier in production UI and tests.
 

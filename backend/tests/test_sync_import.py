@@ -15,7 +15,7 @@ from bhayanak_legends.store import Store
 from bhayanak_legends.sync import SyncService
 
 REPO = Path(__file__).resolve().parents[2]
-DEV_DIR = REPO / "data" / "dev-import" / "Gankruptcy-DADDY"
+DEV_DIR = REPO / "data" / "dev-import" / "FixturePlayer03-BL03"
 # These tests exercise the real import path against gitignored, locally
 # downloaded matches. CI runs the same path deterministically through
 # tools/ci_seed.py + Playwright instead.
@@ -210,7 +210,7 @@ async def test_riot_backfill_resolves_and_persists_match(tmp_path: Path):
     queue = hub.subscribe()
     settings = {
         "riot_key": "test-key",
-        "riot_id": "fixture-identity-01",
+        "riot_id": "FixturePlayer03#BL03",
         "region_route": "sea",
     }
     service = SyncService(
@@ -227,7 +227,7 @@ async def test_riot_backfill_resolves_and_persists_match(tmp_path: Path):
     status = service.status()
 
     assert not service._thread.is_alive()
-    assert fake_client.account_requests == ["fixture-identity-01"]
+    assert fake_client.account_requests == ["FixturePlayer03#BL03"]
     assert fake_client.match_id_requests == [
         (
             PUUID,
