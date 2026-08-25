@@ -22,9 +22,8 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 import httpx
-import jsonschema
 
-from .models import FindingsPack
+from .pack import PackError, validate_pack_directory
 
 log = logging.getLogger(__name__)
 
@@ -228,22 +227,21 @@ def _validate_candidate(
     if release.max_app_version and _version_key(app_version) > _version_key(release.max_app_version):
         raise ReleaseChannelError("release is not compatible with this app")
     selected_schema = schema_path or (directory / SCHEMA_FILENAME)
-    if not selected_schema.exists():
-        raise ReleaseChannelError(f"release is missing {SCHEMA_FILENAME}")
+    artifact_specs = tuple(
+        (
+            directory / _safe_member(artifact["path"]),
+            artifact.get("sha256"),
+        )
+        for artifact in release.required_model_artifacts
+    )
     try:
-        schema = json.loads(selected_schema.read_text(encoding="utf-8"))
-        jsonschema.validate(pack, schema)
-        FindingsPack.model_validate(pack)
-    except (OSError, json.JSONDecodeError, jsonschema.SchemaError, jsonschema.ValidationError, ValueError) as exc:
+        return validate_pack_directory(
+            directory,
+            schema_path=selected_schema,
+            required_model_artifacts=artifact_specs,
+        )
+    except PackError as exc:
         raise ReleaseChannelError(f"release pack failed validation: {exc}") from exc
-    for artifact in release.required_model_artifacts:
-        artifact_path = directory / _safe_member(artifact["path"])
-        if not artifact_path.is_file():
-            raise ReleaseChannelError(f"release is missing model artifact {artifact['path']}")
-        expected = artifact.get("sha256")
-        if expected and _read_sha256(artifact_path) != expected:
-            raise ReleaseChannelError(f"model artifact hash mismatch: {artifact['path']}")
-    return pack
 
 
 class ReleaseChannel:

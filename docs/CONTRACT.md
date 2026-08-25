@@ -194,10 +194,15 @@ interface InGameSnapshot {
 | `pack.updated` | `{schema_version, pack_version}` |
 | `hello` | `{app_version, pack_version}` (sent on connect) |
 
-## Findings Pack schema v1 (`/pack/pack.schema.json` + `/pack/findings-pack.v1.json`)
-The pack response also includes `pack_version` (defaulting to `v1` for the
-bundled baseline). Health, `/pack`, and the `hello`/`pack.updated` events expose
-the active release version after a successful activation.
+## Findings Pack schema v1 (bundled seed and active pack)
+The packaged `/pack/pack.schema.json` and `/pack/findings-pack.v1.json` files
+are an immutable first-run seed. On startup, the sidecar validates and
+atomically copies that seed to the durable active directory
+`<data_dir>/findings-pack/active` when no active pack exists. Explicit release
+activation and all runtime reads use only that active directory; an existing
+active pack wins over a changed bundled seed. The pack response includes
+`pack_version` (defaulting to `v1` for the seed), and Health, `/pack`, and the
+`hello`/`pack.updated` events expose the active version.
 
 ### Table-level provenance
 

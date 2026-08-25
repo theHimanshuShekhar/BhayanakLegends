@@ -72,7 +72,7 @@ async def _run_release_channel_check(app: FastAPI, channel: ReleaseChannel) -> N
 def _startup_release_channel_check(app: FastAPI) -> None:
     manifest_url = os.environ.get("BHAYANAK_PACK_RELEASE_MANIFEST_URL", DEFAULT_MANIFEST_URL)
     channel = ReleaseChannel(
-        app.state.config.resolved_pack_dir(),
+        app.state.pack.pack_dir,
         manifest_url=manifest_url,
         app_version=app.state.app_version,
     )
@@ -94,9 +94,13 @@ def create_app(
 
     store = Store(data_dir / "app.db")
     credentials = credential_store or CredentialStore(store)
-    pack = PackStore(config.resolved_pack_dir())
+    pack = PackStore(
+        config.resolved_active_pack_dir(),
+        bundled_dir=config.resolved_bundled_pack_dir(),
+    )
     pack_error: str | None = None
     try:
+        pack.initialize()
         FindingsPack.model_validate(pack.load())
     except (PackError, ValidationError):
         log.warning("%s", PACK_VALIDATION_ERROR_DETAIL)
