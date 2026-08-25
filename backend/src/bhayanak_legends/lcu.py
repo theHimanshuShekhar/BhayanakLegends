@@ -169,8 +169,12 @@ class HttpxLcuConnection:
         self._client: httpx.AsyncClient | None = None
         self._key: tuple[int, str, str] | None = None
 
-    def _ensure_client(self) -> bool:
-        path = find_lockfile([self._lockfile_path]) if self._lockfile_path is not None else find_lockfile()
+    async def _ensure_client(self) -> bool:
+        path = (
+            find_lockfile([self._lockfile_path])
+            if self._lockfile_path is not None
+            else find_lockfile()
+        )
         if path is None:
             return False
         try:
@@ -179,7 +183,7 @@ class HttpxLcuConnection:
             return False
         key = (info.port, info.token, info.protocol)
         if self._client is not None and key != self._key:
-            self._drop()
+            await self._drop()
         if self._client is None:
             self._key = key
             self._client = httpx.AsyncClient(
@@ -190,31 +194,32 @@ class HttpxLcuConnection:
             )
         return True
 
-    def _drop(self) -> None:
+    async def _drop(self) -> None:
         if self._client is not None:
-            self._client = None
-            self._key = None
+            await self._client.aclose()
+        self._client = None
+        self._key = None
 
     async def _get_json(self, path: str) -> dict[str, Any] | None:
-        if not self._ensure_client():
+        if not await self._ensure_client():
             return None
         assert self._client is not None
         try:
             response = await self._client.get(path)
         except _UNREACHABLE:
-            self._drop()
+            await self._drop()
             return None
         response.raise_for_status()
         return response.json()
 
     async def gameflow_phase(self) -> str | None:
-        if not self._ensure_client():
+        if not await self._ensure_client():
             return None
         assert self._client is not None
         try:
             response = await self._client.get(GAMEFLOW_PHASE_PATH)
         except _UNREACHABLE:
-            self._drop()
+            await self._drop()
             return None
         response.raise_for_status()
         try:
@@ -230,9 +235,7 @@ class HttpxLcuConnection:
         return await self._get_json(CURRENT_SUMMONER_PATH)
 
     async def aclose(self) -> None:
-        if self._client is not None:
-            await self._client.aclose()
-        self._drop()
+        await self._drop()
 
 
 class HttpxIngameTransport:

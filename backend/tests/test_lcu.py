@@ -160,6 +160,115 @@ async def test_httpx_lcu_connection_uses_lockfile_fields_for_gameflow_request(
     assert client.kwargs["auth"] == ("riot", "secret")
     assert client.paths == ["/lol-gameflow/v1/gameflow-phase"]
 
+
+async def test_httpx_lcu_connection_closes_replaced_client(tmp_path, monkeypatch):
+    lockfile = tmp_path / "lockfile"
+    lockfile.write_text("LeagueClient:13268:63569:old-token:http", encoding="utf-8")
+    events: list[str] = []
+
+    class FakeResponse:
+        def json(self):
+            return "ChampSelect"
+
+        def raise_for_status(self):
+            return None
+
+    class FakeAsyncClient:
+        instances = []
+
+        def __init__(self, **kwargs):
+            self.index = len(self.__class__.instances)
+            self.close_calls = 0
+            self.closed = False
+            self.__class__.instances.append(self)
+            events.append(f"create:{self.index}")
+
+        async def get(self, path):
+            assert not self.closed
+            events.append(f"get:{self.index}")
+            return FakeResponse()
+
+        async def aclose(self):
+            assert not self.closed
+            self.close_calls += 1
+            self.closed = True
+            events.append(f"close:{self.index}")
+
+    monkeypatch.setattr(lcu_module.httpx, "AsyncClient", FakeAsyncClient)
+    connection = HttpxLcuConnection(lockfile_path=lockfile)
+    assert await connection.gameflow_phase() == "ChampSelect"
+
+    lockfile.write_text("LeagueClient:13268:63570:new-token:https", encoding="utf-8")
+    assert await connection.gameflow_phase() == "ChampSelect"
+    await connection.aclose()
+    await connection.aclose()
+
+    old_client, replacement = FakeAsyncClient.instances
+    assert old_client.close_calls == 1
+    assert replacement.close_calls == 1
+    assert events == ["create:0", "get:0", "close:0", "create:1", "get:1", "close:1"]
+
+
+async def test_httpx_lcu_connection_closes_dropped_client_before_reconnect(tmp_path, monkeypatch):
+    lockfile = tmp_path / "lockfile"
+    lockfile.write_text("LeagueClient:13268:63569:token:http", encoding="utf-8")
+    events: list[str] = []
+
+    class FakeResponse:
+        def json(self):
+            return {"phase": "Lobby"}
+
+        def raise_for_status(self):
+            return None
+
+    class FakeAsyncClient:
+        instances = []
+
+        def __init__(self, **kwargs):
+            self.index = len(self.__class__.instances)
+            self.close_calls = 0
+            self.closed = False
+            self.__class__.instances.append(self)
+            events.append(f"create:{self.index}")
+
+        async def get(self, path):
+            assert not self.closed
+            events.append(f"get:{self.index}")
+            if self.index in (0, 1):
+                raise lcu_module.httpx.ConnectError("unreachable")
+            return FakeResponse()
+
+        async def aclose(self):
+            assert not self.closed
+            self.close_calls += 1
+            self.closed = True
+            events.append(f"close:{self.index}")
+
+    monkeypatch.setattr(lcu_module.httpx, "AsyncClient", FakeAsyncClient)
+    connection = HttpxLcuConnection(lockfile_path=lockfile)
+    assert await connection.gameflow_phase() is None
+    assert await connection.champ_select_session() is None
+    assert await connection.champ_select_session() == {"phase": "Lobby"}
+    await connection.aclose()
+    await connection.aclose()
+
+    dropped_client, dropped_json_client, replacement = FakeAsyncClient.instances
+    assert dropped_client.close_calls == 1
+    assert dropped_json_client.close_calls == 1
+    assert replacement.close_calls == 1
+    assert events == [
+        "create:0",
+        "get:0",
+        "close:0",
+        "create:1",
+        "get:1",
+        "close:1",
+        "create:2",
+        "get:2",
+        "close:2",
+    ]
+
+
 async def test_httpx_lcu_connection_accepts_explicit_lockfile_path(tmp_path, monkeypatch):
     lockfile = tmp_path / "fake.lockfile"
     lockfile.write_text("Fake:123:23456:fake-token:http", encoding="utf-8")
