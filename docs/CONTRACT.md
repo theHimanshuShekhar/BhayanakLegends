@@ -40,6 +40,7 @@ Base URL: `http://127.0.0.1:{port}`
 | GET | /progress/trajectories | `TrajectoryPoint[]` | per-match rolling line; query: `patch?`, `role?`, `champion?` |
 | GET | /postgame/latest | `PostGameDigest \| null` | null = none yet |
 | GET | /benchmarks | `BenchmarkResponse` | stateful population/personal comparisons |
+| GET | /history/summary | `HistorySummary` | true Personal History summary; empty history → `{matches:0, patches:[], by_role:[], win_rate:0}` |
 | GET | /live/status | `LiveStatus` | coarse LCU + in-game health |
 | GET | /live/session | `ChampSelectSnapshot` | rich champ-select state; idle → `{active:false,...}` |
 | GET | /live/ingame | `InGameSnapshot` | rich in-game state; idle → `{active:false,...}` |

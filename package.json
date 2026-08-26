@@ -9,6 +9,8 @@
     "build": "pnpm typecheck && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "contract:check": "uv run --project backend python tools/contract_check.py check",
+    "contract:update": "uv run --project backend python tools/contract_check.py update",
     "design:sync": "node tools/design-sync.mjs",
     "design:check": "node tools/design-sync.mjs --check"
   },
