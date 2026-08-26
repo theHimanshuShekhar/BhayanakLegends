@@ -82,7 +82,7 @@ describe("LiveMatchPage — idle", () => {
     const list = screen.getByTestId("player-list");
     expect(list).toHaveTextContent("PLAYER ROSTER");
     expect(screen.getByTestId("score-strip")).toHaveTextContent("Unavailable kills · Unavailable turrets");
-    expect(screen.queryByTestId("waiting-pill")).not.toBeInTheDocument();
+    expect(screen.getByTestId("waiting-pill")).toHaveTextContent("waiting for :2999");
     // Skeleton rows carry no roster names — enemy or ally.
     expect(within(list).queryByText(/ornn|viego|taliyah|syndra/i)).not.toBeInTheDocument();
     expect(within(list).queryByText(forbiddenEnemyName)).not.toBeInTheDocument();
@@ -288,7 +288,7 @@ describe("LiveMatchPage — active game", () => {
     await waitFor(() => expect(pushSse).toBeTruthy());
     pushSse!({ type: "live.state", ts: "t", data: idleIngame });
     await screen.findByTestId("player-list");
-    expect(screen.queryByTestId("waiting-pill")).not.toBeInTheDocument();
+    expect(screen.getByTestId("waiting-pill")).toHaveTextContent("waiting for :2999");
     expect(screen.queryByTestId("player-row-local")).toBeNull();
   });
 });
