@@ -176,14 +176,20 @@ def _manifest(raw: Any, base_url: str) -> ReleaseManifest:
     sha = raw.get("sha256") or raw.get("sha") or asset.get("sha256") or asset.get("sha")
     if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", sha):
         raise ReleaseChannelError("release manifest has no valid asset sha256")
+    # Transport/URL policy is validated before size accounting so a
+    # policy-violating manifest is never reported as a size problem.
+    download_url = _url_from_manifest(raw, base_url)
     size = raw.get("size", asset.get("size"))
-    if size is not None:
-        if isinstance(size, bool) or not isinstance(size, int) or size < 0:
-            raise ReleaseChannelError("release manifest requires a non-negative integer size")
-        if size > COMPRESSED_ASSET_MAX_BYTES:
-            raise ReleaseChannelError(
-                f"release manifest size exceeds {COMPRESSED_ASSET_MAX_BYTES} byte limit"
-            )
+    # A missing declared size would let an unbounded body negotiate the cap
+    # away, so the manifest must declare a non-negative integer byte size.
+    if isinstance(size, bool) or not isinstance(size, int) or size < 0:
+        raise ReleaseChannelError(
+            "release manifest requires a declared non-negative integer asset size"
+        )
+    if size > COMPRESSED_ASSET_MAX_BYTES:
+        raise ReleaseChannelError(
+            f"release manifest size exceeds {COMPRESSED_ASSET_MAX_BYTES} byte limit"
+        )
     compatibility = raw.get("app_compatibility")
     if compatibility is not None and not isinstance(compatibility, dict):
         raise ReleaseChannelError("app_compatibility must be an object")
@@ -197,7 +203,7 @@ def _manifest(raw: Any, base_url: str) -> ReleaseManifest:
         pack_version=pack_version.strip(),
         schema_version=schema_version,
         feature_contract_version=contract,
-        download_url=_url_from_manifest(raw, base_url),
+        download_url=download_url,
         sha256=sha.lower(),
         size=size,
         required_model_artifacts=_artifact_specs(
@@ -498,7 +504,7 @@ class ReleaseChannel:
                         app_version=self.app_version,
                         schema_path=self.pack_dir / SCHEMA_FILENAME,
                     )
-                    transaction = self._activate(candidate, validated=True)
+                    transaction = self._activate(candidate)
                 if transaction is not None and not defer_finalize:
                     transaction.finalize()
                     transaction = None
@@ -509,7 +515,13 @@ class ReleaseChannel:
                     "activated",
                     transaction,
                 )
-        except (httpx.HTTPError, OSError, ReleaseChannelError, json.JSONDecodeError) as exc:
+        except (
+            httpx.HTTPError,
+            OSError,
+            zipfile.BadZipFile,
+            ReleaseChannelError,
+            json.JSONDecodeError,
+        ) as exc:
             if transaction is not None:
                 transaction.rollback()
             log.warning("Findings Pack release check failed: %s", exc)
@@ -525,13 +537,11 @@ class ReleaseChannel:
         client: httpx.AsyncClient,
         url: str,
         target: Path,
-        expected_size: int | None,
+        expected_size: int,
         *,
         expected_origin: tuple[str, str, int | None],
     ) -> None:
-        if expected_size is not None and (
-            expected_size < 0 or expected_size > COMPRESSED_ASSET_MAX_BYTES
-        ):
+        if expected_size < 0 or expected_size > COMPRESSED_ASSET_MAX_BYTES:
             raise ReleaseChannelError("release asset size is outside the allowed limit")
         current = url
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -555,7 +565,7 @@ class ReleaseChannel:
                             declared_length = int(content_length)
                         except ValueError as exc:
                             raise ReleaseChannelError("release asset content length is invalid") from exc
-                        if expected_size is not None and declared_length != expected_size:
+                        if declared_length != expected_size:
                             raise ReleaseChannelError("release asset size does not match manifest")
                         if declared_length > COMPRESSED_ASSET_MAX_BYTES:
                             raise ReleaseChannelError("release asset exceeds size limit")
@@ -565,12 +575,10 @@ class ReleaseChannel:
                             if not chunk:
                                 continue
                             written += len(chunk)
-                            if written > COMPRESSED_ASSET_MAX_BYTES or (
-                                expected_size is not None and written > expected_size
-                            ):
+                            if written > COMPRESSED_ASSET_MAX_BYTES or written > expected_size:
                                 raise ReleaseChannelError("release asset exceeds declared size limit")
                             stream.write(chunk)
-                    if expected_size is not None and written != expected_size:
+                    if written != expected_size:
                         raise ReleaseChannelError("release asset was truncated")
                     self._validate_transport_url(
                         str(response.url),
@@ -583,21 +591,14 @@ class ReleaseChannel:
             target.unlink(missing_ok=True)
             raise
 
-    def _activate(
-        self,
-        candidate: Path,
-        *,
-        validated: bool = False,
-    ) -> ActivationTransaction:
+    def _activate(self, candidate: Path) -> ActivationTransaction:
+        """Replace the active pack with an already-validated candidate.
+
+        Artifacts stage first; the pack JSON swap is the single commit point.
+        Backups live in a sibling rollback directory until the caller finalizes
+        the transaction after a successful reload.
+        """
         self.pack_dir.mkdir(parents=True, exist_ok=True)
-        if not validated:
-            schema_path = candidate / SCHEMA_FILENAME
-            if not schema_path.is_file():
-                schema_path = self.pack_dir / SCHEMA_FILENAME
-            try:
-                validate_pack_directory(candidate, schema_path=schema_path)
-            except PackError as exc:
-                raise ReleaseChannelError(f"release pack failed validation: {exc}") from exc
 
         rollback_dir = Path(
             tempfile.mkdtemp(prefix=f".{self.pack_dir.name}-rollback-", dir=self.pack_dir.parent)
