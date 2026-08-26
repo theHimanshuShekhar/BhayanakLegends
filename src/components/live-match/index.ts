@@ -8,7 +8,5 @@ export {
   CheatSheetCard,
   TeamVsTeamCard,
   EventFeedCard,
-  ItemValueCard,
-  DeadNowCard,
-  EnemySpellsCard,
+  ItemsByPlayerCard,
 } from "./panels";
