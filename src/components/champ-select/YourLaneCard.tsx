@@ -1,5 +1,5 @@
 import type { AssignedRole, CellState } from "../../api/types";
-import { initials } from "./shared";
+import { formatInitials } from "../format";
 
 // Lane-opponent intel stays out of scope (and enemy-name-free). This card
 // distinguishes a local intent from completed lock evidence.
@@ -39,14 +39,15 @@ export function YourLaneCard({
       }}
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-        <span className="pill" style={{ background: locked ? "var(--color-teal-low)" : "var(--color-danger-low)", color: locked ? "var(--color-teal)" : "#f4c3ce" }}>
+        <span className="pill" style={{ background: locked ? "var(--color-teal-low)" : "var(--color-danger-low)", color: locked ? "var(--color-teal)" : "var(--color-soft-rose)" }}>
           <span style={{ width: 6, height: 6, borderRadius: 999, background: locked ? "var(--color-teal)" : "var(--color-amber)" }} />
           Your lane
         </span>
+        {/* This pill's content is Findings Pack tier data when shown: blue. */}
         <span
           className="pill mono-n"
           data-testid="your-lane-tier"
-          style={{ fontSize: 9, background: locked && tier ? "var(--color-teal-low)" : "var(--color-surface-3)", color: locked && tier ? "var(--color-teal)" : "var(--color-dim)" }}
+          style={{ fontSize: 9, background: locked && tier ? "var(--color-info-low)" : "var(--color-surface-3)", color: locked && tier ? "var(--color-info)" : "var(--color-dim)" }}
         >
           {locked && tier ? `FINDINGS PACK · TIER ${tier}` : status}
         </span>
@@ -67,7 +68,7 @@ export function YourLaneCard({
             opacity: hasChampion ? 1 : 0.75,
           }}
         >
-          {hasChampion ? initials(champion) : "?"}
+          {hasChampion ? formatInitials(champion) : "?"}
         </div>
         <div style={{ flex: 1 }}>
           <div data-testid="your-lane-champion" style={{ font: "700 14px var(--font-mono)", letterSpacing: "-.02em" }}>
@@ -75,7 +76,7 @@ export function YourLaneCard({
           </div>
           <div style={{ fontSize: 10, color: "var(--color-dim)", marginTop: 3 }}>
             {locked
-              ? "Locked in — lane matchup intel loads with the game."
+              ? "Locked in — lane intel waits for the in-game Live Client feed."
               : hasChampion
                 ? "Selection is visible, but completion is not confirmed."
                 : "Pick intent and role evidence remain visible until lock."}

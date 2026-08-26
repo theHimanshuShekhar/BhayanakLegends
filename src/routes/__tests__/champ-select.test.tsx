@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChampSelectSnapshot, FindingsPack, LiveStatus } from "../../api/types";
 import type { SseMessage } from "../../api/sse";
@@ -113,8 +113,10 @@ describe("ChampSelectPage — idle", () => {
 
   it("renders the mastery premium numbers parsed from the pack", async () => {
     renderPage();
-    expect(await screen.findByText("50.6%")).toBeInTheDocument();
+    await screen.findByText("50.6%");
     expect(screen.getByText("46.9%")).toBeInTheDocument();
+    // Findings Pack cohort numbers render in population blue, not teal.
+    expect(screen.getByText("50.6%")).toHaveStyle({ color: "var(--color-info)" });
   });
 
   it("renders a real shipped pack champion in the ban advisor with a Recommend ban pill", async () => {
@@ -166,6 +168,11 @@ describe("ChampSelectPage — active session", () => {
     expect(card).not.toHaveTextContent("Malzahar");
     expect(card).toHaveTextContent("Findings Pack");
     expect(card).toHaveTextContent(/pre-lock/i);
+    // Findings Pack population stats are blue; teal stays Personal History-only.
+    const hero = screen.getByTestId("cs-hero-pick");
+    for (const stat of within(hero).getAllByText(/^\d+(?:\.\d+)%$/)) {
+      expect(stat).toHaveStyle({ color: "var(--color-info)" });
+    }
   });
   it("withholds recommendations when the Findings Pack is unavailable", async () => {
     liveState.session = {
@@ -224,9 +231,9 @@ describe("ChampSelectPage — active session", () => {
 
     await waitFor(() => expect(screen.getByTestId("card-comp-read")).toHaveTextContent("2/5 picked"));
     expect(screen.getByTestId("cs-your-side")).toHaveTextContent("Xayah");
-    expect(screen.getByTestId("card-mastery")).toHaveTextContent(/Loading Findings Pack/i);
-    expect(screen.getByTestId("card-how-to-play")).toHaveTextContent(/Loading Findings Pack/i);
-    expect(screen.getByTestId("card-loadout")).toHaveTextContent(/Loading Findings Pack/i);
+    expect(screen.getByTestId("card-mastery")).toHaveTextContent(/Loading… Findings Pack/i);
+    expect(screen.getByTestId("card-how-to-play")).toHaveTextContent(/Loading… Findings Pack/i);
+    expect(screen.getByTestId("card-loadout")).toHaveTextContent(/Loading… Findings Pack/i);
   });
 
   it("keeps session facts visible when the Findings Pack is missing", async () => {
@@ -301,7 +308,12 @@ describe("ChampSelectPage — active session", () => {
     expect(screen.getByTestId("card-comp-read")).toHaveTextContent(/No allied champion picks known/i);
     expect(screen.getByTestId("cs-your-side")).toHaveTextContent("0/5 PICKED");
     expect(screen.getByTestId("card-how-to-play")).toHaveTextContent(/Session champion is not selected/i);
-    expect(screen.getByTestId("cs-session-status")).toHaveTextContent(/Assigned role pending/i);
+    expect(screen.getByTestId("cs-session-status")).toHaveTextContent(
+      /has not reported an assigned role/i,
+    );
+    expect(screen.getByTestId("cs-session-status")).not.toHaveTextContent(
+      /pending|arrives|lands|ships/i,
+    );
   });
 
   it("labels mastery numbers as Findings Pack cohort data without personal claims", async () => {
