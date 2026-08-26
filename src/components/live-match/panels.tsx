@@ -1,4 +1,4 @@
-import type { FindingsPack, LiveEvent, PlayerLive } from "../../api/types";
+import type { InGameSnapshot, LiveEvent, PlayerLive } from "../../api/types";
 import { clockLabel, CardHead, Dot } from "./bits";
 
 export function ActivePlayerCard({ player }: { player: PlayerLive | null }) {
@@ -125,57 +125,82 @@ export function CheatSheetCard() {
   );
 }
 
-function TeamBar({ left, label, right }: { left: string; label: string; right: string }) {
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9.5, marginBottom: 3 }}>
-        <span className="mono-n" style={{ color: "var(--color-dim)" }}>
-          {left}
-        </span>
-        <span style={{ color: "var(--color-dim)", letterSpacing: ".06em" }}>{label}</span>
-        <span className="mono-n" style={{ color: "var(--color-dim)" }}>
-          {right}
-        </span>
-      </div>
-      <div
-        style={{
-          height: 6,
-          borderRadius: 999,
-          overflow: "hidden",
-          display: "flex",
-          background: "var(--color-deep)",
-          boxShadow: "inset 0 2px 4px rgba(0,0,0,.75)",
-        }}
-      >
-        <div style={{ width: "50%", background: "var(--color-surface-3)" }} />
-        <div style={{ flex: 1 }} />
-      </div>
-    </div>
+type TeamKey = "order" | "chaos";
+
+type TeamTotals = {
+  cs: number;
+  level: number;
+  kills: number;
+  deaths: number;
+};
+
+function teamTotals(players: PlayerLive[]): TeamTotals {
+  return players.reduce(
+    (totals, player) => ({
+      cs: totals.cs + player.cs,
+      level: totals.level + player.level,
+      kills: totals.kills + player.kills,
+      deaths: totals.deaths + player.deaths,
+    }),
+    { cs: 0, level: 0, kills: 0, deaths: 0 },
   );
 }
 
-export function TeamVsTeamCard({ pack }: { pack: FindingsPack | undefined }) {
-  const lanesAhead = pack?.findings.find((f) => f.key === "lanes_ahead");
+const TEAM_TOTAL_FIELDS = [
+  ["CS", "cs"],
+  ["Levels", "level"],
+  ["Kills", "kills"],
+  ["Deaths", "deaths"],
+] as const;
+
+export function TeamVsTeamCard({ snapshot }: { snapshot: InGameSnapshot | undefined }) {
+  const active = !!snapshot?.active;
+  const teams: { key: TeamKey; label: string; players: PlayerLive[] }[] = [
+    { key: "order", label: "Order", players: snapshot?.teams.order ?? [] },
+    { key: "chaos", label: "Chaos", players: snapshot?.teams.chaos ?? [] },
+  ];
+
   return (
     <section
       className="card3"
+      data-testid="team-totals"
       style={{ padding: 12, display: "flex", flexDirection: "column", gap: 9 }}
     >
-      <CardHead color="var(--color-teal)" label="TEAM VS TEAM" />
-      <TeamBar left="Unavailable" label="CS" right="Unavailable" />
-      <TeamBar left="Unavailable" label="LEVELS" right="Unavailable" />
-      <TeamBar left="Unavailable" label="LANES AHEAD" right="Unavailable" />
-      {lanesAhead && (
-        <p
-          data-testid="lanes-ahead"
-          style={{ margin: "auto 0 0", fontSize: 9.5, lineHeight: 1.5, color: "#cfd3e5" }}
-        >
-          {lanesAhead.statement}
-        </p>
+      <CardHead color={active ? "var(--color-teal)" : "var(--color-dimmer)"} label="TEAM VS TEAM" />
+      {active ? (
+        <div className="live-table-scroll" aria-label="Team totals table">
+          <table aria-label="Team totals" style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+            <caption style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0, 0, 0, 0)", whiteSpace: "nowrap", border: 0 }}>
+              Team totals
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col" style={{ padding: "0 6px 5px", textAlign: "left", fontSize: 8, color: "var(--color-dimmer)" }}>Team</th>
+                {TEAM_TOTAL_FIELDS.map(([label]) => (
+                  <th key={label} scope="col" style={{ padding: "0 6px 5px", textAlign: "right", fontSize: 8, color: "var(--color-dimmer)" }}>{label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {teams.map(({ key, label, players }) => {
+                const totals = teamTotals(players);
+                return (
+                  <tr key={key} data-testid={`team-total-row-${key}`}>
+                    <th scope="row" style={{ padding: "5px 6px", textAlign: "left", font: "700 9px var(--font-mono)", color: "var(--color-dim)" }}>{label}</th>
+                    {TEAM_TOTAL_FIELDS.map(([field, property]) => (
+                      <td key={field} data-testid={`team-total-${key}-${property}`} className="mono-n" style={{ padding: "5px 6px", textAlign: "right", fontSize: 10, color: "var(--color-text)" }}>
+                        {totals[property]}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p data-testid="team-totals-unavailable" style={{ margin: 0, color: "var(--color-dimmer)", fontSize: 10 }}>No snapshot</p>
       )}
-      <p style={{ margin: 0, fontSize: 9.5, color: "var(--color-dimmer)" }}>
-        Team totals land with the LCU bridge.
-      </p>
     </section>
   );
 }
@@ -265,122 +290,50 @@ export function EventFeedCard({ events }: { events: LiveEvent[] }) {
   );
 }
 
-export function ItemValueCard() {
+export function ItemsByPlayerCard({ snapshot }: { snapshot: InGameSnapshot | undefined }) {
+  const active = !!snapshot?.active;
+  const teams: { key: TeamKey; label: string; players: PlayerLive[] }[] = [
+    { key: "order", label: "Order", players: snapshot?.teams.order ?? [] },
+    { key: "chaos", label: "Chaos", players: snapshot?.teams.chaos ?? [] },
+  ];
+
   return (
     <section
       className="card3"
-      data-testid="item-value"
+      data-testid="items-by-player"
       style={{ padding: 12, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 7 }}
     >
-      <CardHead
-        color="var(--color-teal)"
-        label="ITEM VALUE BY PLAYER"
-        right={
-          <span className="mono-n" style={{ fontSize: 9, color: "var(--color-dimmer)" }}>
-            priced from inventory
-          </span>
-        }
-      />
-      <ul aria-label="Item values" style={{ display: "flex", flexDirection: "column", gap: 7, listStyle: "none", margin: 0, padding: 0 }}>
-        {[0, 1, 2].map((i) => (
-          <li key={i} style={{ display: "flex", alignItems: "center", gap: 9 }}>
-            <div aria-hidden="true" style={{ width: 20, height: 20, flex: "none", borderRadius: 7, background: "var(--color-surface-3)" }} />
-            <span aria-label="Unavailable" style={{ width: 54, fontSize: 10, color: "var(--color-dimmer)" }}>Unavailable</span>
-            <div
-              aria-hidden="true"
-              style={{
-                flex: 1,
-                height: 8,
-                borderRadius: 999,
-                background: "var(--color-deep)",
-                boxShadow: "inset 0 2px 4px rgba(0,0,0,.75)",
-              }}
-            />
-            <span aria-label="Unavailable" className="mono-n" style={{ width: 42, textAlign: "right", fontSize: 10, color: "var(--color-dimmer)" }}>
-              Unavailable
-            </span>
-          </li>
-        ))}
-      </ul>
-      <p style={{ margin: "auto 0 0", fontSize: 9.5, color: "var(--color-dimmer)" }}>
-        Item values land with the LCU bridge.
-      </p>
-    </section>
-  );
-}
-
-export function DeadNowCard() {
-  return (
-    <section
-      className="card3b"
-      data-testid="dead-now"
-      style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}
-    >
-      <CardHead color="var(--color-teal)" label="DEAD RIGHT NOW" />
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: "10px 8px",
-          borderRadius: 13,
-          background: "var(--color-surface-2)",
-          boxShadow: "var(--shadow-z1)",
-          color: "var(--color-dim)",
-          fontSize: 10,
-        }}
-      >
-        death tracker lands with the LCU bridge
-      </div>
-    </section>
-  );
-}
-
-export function EnemySpellsCard() {
-  return (
-    <section
-      className="card3"
-      data-testid="enemy-spells"
-      style={{ padding: 12, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 8 }}
-    >
-      <CardHead color="var(--color-teal)" label="ENEMY SPELLS" />
-      {/* COMPLIANCE (AGENTS.md): enemy ability/ult tracking is out of policy. This panel stays
-          a structure placeholder; when the LCU bridge lands it carries the active player's own
-          summoner spells only — never enemy timers. */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: "12px 8px",
-          borderRadius: 12,
-          background: "var(--color-surface-2)",
-          boxShadow: "var(--shadow-z1)",
-          color: "var(--color-dim)",
-          fontSize: 10,
-        }}
-      >
-        ships after LCU bridge
-      </div>
-      <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "8px 9px",
-            borderRadius: 12,
-            background: "var(--color-accent-low)",
-            boxShadow: "var(--shadow-z1)",
-          }}
-        >
-          <div style={{ width: 20, height: 20, flex: "none", borderRadius: 7, background: "var(--color-accent)" }} />
-          <div style={{ fontSize: 9.5, lineHeight: 1.35, color: "#e7e5fe" }}>
-            Enemy spell timers stay out of policy — active-player summoner spells only, after the
-            bridge.
-          </div>
+      <CardHead color={active ? "var(--color-teal)" : "var(--color-dimmer)"} label="ITEMS BY PLAYER" />
+      {active ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+          {teams.map(({ key, label, players }) => (
+            <section key={key} aria-labelledby={`items-${key}-heading`}>
+              <h3 id={`items-${key}-heading`} style={{ margin: "2px 0 5px", font: "700 8.5px var(--font-mono)", letterSpacing: ".1em", color: "var(--color-dim)" }}>{label}</h3>
+              <ul aria-label={`${label} items by player`} style={{ display: "flex", flexDirection: "column", gap: 5, listStyle: "none", margin: 0, padding: 0 }}>
+                {players.map((player) => (
+                  <li key={`${key}-${player.summoner}`} data-testid={`items-player-${key}-${player.summoner}`} style={{ display: "flex", alignItems: "baseline", gap: 8, fontSize: 9.5 }}>
+                    <span style={{ minWidth: 110, color: "var(--color-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{player.summoner}</span>
+                    {player.items.length ? (
+                      <ul aria-label={`${player.summoner} items`} style={{ display: "flex", flexWrap: "wrap", gap: 5, listStyle: "none", margin: 0, padding: 0 }}>
+                        {player.items.map((item, index) => (
+                          <li key={`${item.id}-${index}`} data-testid={`item-${key}-${player.summoner}-${index}`} style={{ color: "var(--color-text)" }}>
+                            <span>Item {item.id}</span>{" "}
+                            <span className="mono-n" style={{ color: "var(--color-dim)" }}>count {item.count}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <span style={{ color: "var(--color-dimmer)" }}>No items reported</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
         </div>
-      </div>
+      ) : (
+        <p data-testid="items-unavailable" style={{ margin: 0, color: "var(--color-dimmer)", fontSize: 10 }}>No snapshot</p>
+      )}
     </section>
   );
 }

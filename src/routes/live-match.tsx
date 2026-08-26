@@ -9,10 +9,8 @@ import {
   ActivePlayerCard,
   CheatSheetCard,
   clockLabel,
-  DeadNowCard,
-  EnemySpellsCard,
   EventFeedCard,
-  ItemValueCard,
+  ItemsByPlayerCard,
   ObjectivesCard,
   PlayerList,
   RightNowCard,
@@ -201,16 +199,14 @@ export function LiveMatchPage() {
         <div className="live-match-column" style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
           <LiveWinProbabilityCard pack={renderPack} active={active} packVersion={activePackVersion} />
           <div className="live-match-middle-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <TeamVsTeamCard pack={renderPack} />
+            <TeamVsTeamCard snapshot={ingame} />
             <EventFeedCard events={ingame?.events ?? []} />
           </div>
-          <ItemValueCard />
+          <ItemsByPlayerCard snapshot={ingame} />
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
-          <DeadNowCard />
           <ObjectivesCard pack={renderPack} />
-          <EnemySpellsCard />
         </div>
       </div>
     </div>

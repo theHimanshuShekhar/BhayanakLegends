@@ -116,29 +116,18 @@ describe("LiveMatchPage — idle", () => {
     expect(screen.getByTestId("trap-nudge")).toHaveTextContent("Hecarim 41.5%");
   });
 
-  it("keeps idle captions on the live-only panels", async () => {
+  it("keeps live panels honest when the snapshot is unavailable", async () => {
     renderPage();
     expect(await screen.findByTestId("event-feed")).toHaveTextContent(
       "event feed lands with the LCU bridge",
     );
-    expect(screen.getByTestId("item-value")).toHaveTextContent("Item values land with the LCU bridge.");
-    expect(screen.getByTestId("dead-now")).toHaveTextContent("death tracker lands with the LCU bridge");
-  });
-
-  it("shows the enemy spells panel as an idle structure with no timer content", async () => {
-    renderPage();
-    const panel = await screen.findByTestId("enemy-spells");
-    expect(panel).toHaveTextContent("ships after LCU bridge");
-    expect(panel.textContent).not.toMatch(/flash\s*\d/i);
-    expect(panel.textContent).not.toMatch(forbiddenEnemyName);
-  });
-
-  it("carries the lanes-ahead line from the pack finding", async () => {
-    renderPage();
-    const line = await screen.findByTestId("lanes-ahead");
-    expect(line).toHaveTextContent("16.4%");
-    expect(line).toHaveTextContent("83.8%");
-    expect(line).toHaveTextContent("spread beats stacked");
+    expect(screen.getByTestId("items-by-player")).toHaveTextContent("ITEMS BY PLAYER");
+    expect(screen.getByTestId("items-by-player")).toHaveTextContent("No snapshot");
+    expect(screen.queryByTestId("dead-now")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("enemy-spells")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Lanes ahead/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Team totals land with the LCU bridge/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Item values land with the LCU bridge/i)).not.toBeInTheDocument();
   });
 });
 
@@ -161,13 +150,6 @@ describe("LiveMatchPage — active game", () => {
     expect(within(localRow).getAllByTestId("row-ward")[0]).toHaveTextContent("1.4"); // ward score column
   });
 
-  it("sums kills and turret events into the score strip", async () => {
-    renderPage();
-    await screen.findByTestId("player-row-local");
-    expect(screen.getByTestId("score-strip")).toHaveTextContent(
-      "23 kills · 1 turrets", // (2+3+4+5+1) + (3+2+2+1+0), one TurretKilled event
-    );
-  });
 
   it("renders real feed events including DragonKill with its dragon type", async () => {
     renderPage();
@@ -178,7 +160,49 @@ describe("LiveMatchPage — active game", () => {
     expect(feed).toHaveTextContent("FixturePlayer03 → FixturePlayer09");
     expect(feed).toHaveTextContent("FirstBrick");
   });
+  it("renders snapshot-derived team totals and every player item", async () => {
+    renderPage();
+    await screen.findByTestId("player-row-local");
 
+    const totals = screen.getByTestId("team-totals");
+    expect(within(totals).getByTestId("team-total-order-cs")).toHaveTextContent("800");
+    expect(within(totals).getByTestId("team-total-order-level")).toHaveTextContent("57");
+    expect(within(totals).getByTestId("team-total-order-kills")).toHaveTextContent("15");
+    expect(within(totals).getByTestId("team-total-order-deaths")).toHaveTextContent("12");
+    expect(within(totals).getByTestId("team-total-chaos-cs")).toHaveTextContent("739");
+    expect(within(totals).getByTestId("team-total-chaos-level")).toHaveTextContent("55");
+    expect(within(totals).getByTestId("team-total-chaos-kills")).toHaveTextContent("8");
+    expect(within(totals).getByTestId("team-total-chaos-deaths")).toHaveTextContent("18");
+
+    const items = screen.getByTestId("items-by-player");
+    expect(items).toHaveTextContent("FixturePlayer01");
+    expect(items).toHaveTextContent("Item 3065");
+    expect(items).toHaveTextContent("count 1");
+    expect(items).toHaveTextContent("Item 2003");
+    expect(items).toHaveTextContent("count 2");
+    expect(items).toHaveTextContent("FixturePlayer07");
+    expect(within(items).getByTestId("items-player-chaos-FixturePlayer07")).toHaveTextContent("No items reported");
+    expect(items).not.toHaveTextContent(/price|gold|value|icon/i);
+  });
+
+  it("shows zero totals and item counts from a zeroed snapshot", async () => {
+    liveState.ingame = {
+      ...ingameSnapshot,
+      teams: {
+        order: [{ ...ingameSnapshot.teams.order[0], level: 0, kills: 0, deaths: 0, cs: 0, items: [{ id: 0, count: 0 }] }],
+        chaos: [],
+      },
+    };
+    renderPage();
+    await screen.findByTestId("team-order");
+    const totals = screen.getByTestId("team-totals");
+    expect(within(totals).getByTestId("team-total-order-cs")).toHaveTextContent("0");
+    expect(within(totals).getByTestId("team-total-order-level")).toHaveTextContent("0");
+    expect(within(totals).getByTestId("team-total-order-kills")).toHaveTextContent("0");
+    expect(within(totals).getByTestId("team-total-order-deaths")).toHaveTextContent("0");
+    expect(within(totals).getByTestId("team-total-chaos-cs")).toHaveTextContent("0");
+    expect(screen.getByTestId("items-player-order-FixturePlayer01")).toHaveTextContent("count 0");
+  });
   it("binds the active player panel to the local player's stats", async () => {
     renderPage();
     await screen.findByTestId("player-row-local");
