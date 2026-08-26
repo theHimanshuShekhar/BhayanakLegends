@@ -137,6 +137,10 @@ jobs:
           # that can never verify against those bytes.
           $baseInstaller = Get-ChildItem "src-tauri/target/release/bundle/nsis/*_$($env:SMOKE_BASE_VERSION)_*-setup.exe" | Select-Object -First 1
           if (-not $baseInstaller) { throw "lower-version NSIS installer was not produced" }
+          # The exported TAURI_SIGNING_PRIVATE_KEY binds to the CLI's
+          # --private-key option and conflicts with the explicit -f
+          # (--private-key-path); drop it so only -f supplies the key.
+          $env:TAURI_SIGNING_PRIVATE_KEY = $null
           pnpm tauri signer sign -f "$env:SMOKE_KEY_PATH" -p "$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD" $baseInstaller.FullName
           if ($LASTEXITCODE -ne 0) { throw "failed to produce the deliberately mismatched signature" }
           $rejected = Join-Path $env:RUNNER_TEMP "bl-smoke-update\rejected.sig"
