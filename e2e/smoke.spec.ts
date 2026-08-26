@@ -35,7 +35,7 @@ test.describe("Bhayanak Legends v1 smoke", () => {
     await page.goto("/postgame");
     await expect(page.getByTestId("comeback-odds")).toBeVisible();
     // Replayed gold@15 is milder than the 2,000g anchor -> domain suppression.
-    await expect(page.getByTestId("comeback-value")).toContainText("—");
+    await expect(page.getByTestId("comeback-value")).toContainText("Unavailable: no supported population bucket");
     const card = page.getByTestId("comeback-odds");
     await expect(card).not.toContainText(/Backfill/);
   });
@@ -43,7 +43,7 @@ test.describe("Bhayanak Legends v1 smoke", () => {
   test("history shows the imported Personal History", async ({ page }) => {
     await page.goto("/history");
     await expect(page.getByTestId("summary-matches")).toHaveText(/^[1-9][\d,]*$/);
-    await expect(page.getByRole("button", { name: "Start sync" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Start Backfill" })).toBeVisible();
   });
 
   test("champ select idle keeps policy note and population intel visible", async ({ page }) => {
