@@ -1,5 +1,6 @@
 import type { HabitDef } from "../../api/types";
 import { RailHeader } from "../champions/bits";
+import { Unavailable } from "../ui";
 
 export function LeverAdoption({ habits }: { habits: HabitDef[] }) {
   return (
@@ -16,8 +17,13 @@ export function LeverAdoption({ habits }: { habits: HabitDef[] }) {
           </span>
         }
       />
+      <h3 className="route-subheading">Tracked improvement levers</h3>
+      <ul
+        aria-label="Improvement levers"
+        style={{ display: "flex", flexDirection: "column", gap: 8, listStyle: "none", margin: 0, padding: 0 }}
+      >
       {habits.map((h) => (
-        <div
+        <li
           key={h.key}
           data-testid={`habit-row-${h.key}`}
           style={{
@@ -36,12 +42,11 @@ export function LeverAdoption({ habits }: { habits: HabitDef[] }) {
                 +{h.effect_per_sd.toFixed(2)}% WR per SD
               </div>
             </div>
-            <span className="mono-n" style={{ fontSize: 10, color: "var(--color-dim)" }}>
-              — pending
-            </span>
+            <Unavailable />
           </div>
           <div
             data-testid={`habit-bar-${h.key}`}
+            aria-hidden="true"
             style={{
               height: 4,
               borderRadius: 999,
@@ -51,8 +56,9 @@ export function LeverAdoption({ habits }: { habits: HabitDef[] }) {
           >
             <div style={{ width: 0, height: "100%", background: "var(--color-surface-3)" }} />
           </div>
-        </div>
+        </li>
       ))}
+      </ul>
       <p style={{ margin: 0, fontSize: 8.5, lineHeight: 1.4, color: "var(--color-dimmer)" }}>
         These four survive full statistical controls. Personal trend bars stay neutral until
         timeline features land in the Findings Pack.
