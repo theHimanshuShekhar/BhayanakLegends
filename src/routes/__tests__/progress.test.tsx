@@ -131,28 +131,36 @@ describe("ProgressPage", () => {
     expect(screen.getAllByRole("listitem", { name: /CS@10|LEVEL@10|GOLD DIFF@10/i }).length).toBeGreaterThan(0);
   });
 
-  it("renders benchmark cards with real personal vs population medians and bars", async () => {
+  it("renders benchmark evidence in the two data worlds: population blue, personal teal", async () => {
     renderPage(<ProgressPage />);
 
     const mid = await screen.findByTestId("benchmark-MIDDLE");
     expect(within(mid).getByText("77.0")).toBeInTheDocument();
-    expect(within(mid).getByText("pop median 64 · 52k games")).toBeInTheDocument();
+    expect(screen.getByTestId("benchmark-pop-MIDDLE")).toHaveTextContent(
+      "pop median 64 · 52,048 games",
+    );
     expect(within(mid).getByText("+13.0")).toBeInTheDocument();
+    // The Personal History value stays teal even when unfavorable; the delta
+    // pill carries favorable/unfavorable framing instead of recoloring values.
+    expect(within(mid).getByText("77.0")).toHaveStyle({ color: "var(--color-teal)" });
     // personal 77 vs median 64 -> bar scaled to max(77,64), median tick at 83.1%
     const midBar = screen.getByTestId("benchmark-bar-MIDDLE");
     expect(midBar.firstElementChild).toHaveStyle({ width: "100%" });
-    expect(midBar.querySelector("[title='population median 64']")).toHaveStyle({
-      left: "83.1%",
-    });
+    const midTick = midBar.querySelector("[title='population median 64']");
+    expect(midTick).toHaveStyle({ left: "83.1%" });
+    // The population median marker is Findings Pack evidence: blue, not teal.
+    expect(midTick).toHaveStyle({ background: "var(--color-info)" });
 
     const top = screen.getByTestId("benchmark-TOP");
     expect(within(top).getByText("58.5")).toBeInTheDocument();
     expect(within(top).getByText("-2.5")).toBeInTheDocument();
+    expect(within(top).getByText("58.5")).toHaveStyle({ color: "var(--color-teal)" });
     // personal 58.5 vs median 61 -> 95.9% of the track, tick at the right edge
     expect(screen.getByTestId("benchmark-bar-TOP").firstElementChild).toHaveStyle({
       width: "95.9%",
     });
   });
+
   it("renders no benchmark cards and names contract suppression", async () => {
     vi.mocked(api.benchmarks).mockResolvedValue({
       state: "contract-suppressed",
@@ -180,13 +188,22 @@ describe("ProgressPage", () => {
   });
 
 
-  it("renders the four pack habits with neutral pending bars", async () => {
+  it("renders the four pack habits with canonical multiplier units and neutral bars", async () => {
     renderPage(<ProgressPage />);
 
-    expect(await screen.findByTestId("habit-row-recall_safety")).toBeInTheDocument();
-    expect(screen.getByTestId("habit-row-fast_first_dragon")).toBeInTheDocument();
-    expect(screen.getByTestId("habit-row-spend_before_backing")).toBeInTheDocument();
-    expect(screen.getByTestId("habit-row-plates_by_14")).toBeInTheDocument();
+    expect(await screen.findByTestId("habit-row-recall_safety")).toHaveTextContent(
+      "×2.24 effect per SD",
+    );
+    expect(screen.getByTestId("habit-row-recall_safety")).not.toHaveTextContent(/WR per SD|% per SD/);
+    expect(screen.getByTestId("habit-row-fast_first_dragon")).toHaveTextContent(
+      "×0.83 effect per SD",
+    );
+    expect(screen.getByTestId("habit-row-spend_before_backing")).toHaveTextContent(
+      "×0.88 effect per SD",
+    );
+    expect(screen.getByTestId("habit-row-plates_by_14")).toHaveTextContent(
+      "×1.08 effect per SD",
+    );
 
     for (const key of ["recall_safety", "fast_first_dragon", "spend_before_backing", "plates_by_14"]) {
       const bar = screen.getByTestId(`habit-bar-${key}`);
@@ -196,8 +213,9 @@ describe("ProgressPage", () => {
       expect(bar.parentElement).not.toHaveTextContent(/trending|regressing/i);
     }
     expect(screen.getByTestId("lever-adoption")).toHaveTextContent(
-      /timeline features land in the Findings Pack/i,
+      /timeline features are unavailable in the Findings Pack/i,
     );
+    expect(screen.getByTestId("lever-adoption")).not.toHaveTextContent(/lands in the Findings Pack/i);
   });
 
   it("shows the unavailable what-if state without fabricated personal estimates", async () => {
@@ -205,9 +223,10 @@ describe("ProgressPage", () => {
 
     const panel = await screen.findByTestId("what-if-panel");
     expect(screen.getByTestId("what-if-caption")).toHaveTextContent(
-      "Personal what-if estimates stay unavailable until the Honest Model ships.",
+      "Personal what-if estimates are unavailable because the Honest Model contract is absent.",
     );
     expect(panel).toHaveTextContent("Unavailable");
+    expect(panel).not.toHaveTextContent(/ships/);
     expect(panel).not.toHaveTextContent("−280g");
     expect(panel).not.toHaveTextContent("1 of 6");
     expect(panel).not.toHaveTextContent("62%");
@@ -248,5 +267,17 @@ describe("ProgressPage", () => {
 
     expect(screen.getAllByTestId("population-caveat")).toHaveLength(1);
     expect(screen.getByText(/friend group's 26k games/)).toBeInTheDocument();
+  });
+
+  it("replaces the speculative deaths-by-minute roadmap copy with an unavailable reason", async () => {
+    renderPage(<ProgressPage />);
+
+    const panel = await screen.findByTestId("deaths-panel");
+    expect(panel).toHaveTextContent(
+      "Unavailable: timeline features are not in the Findings Pack",
+    );
+    expect(panel).not.toHaveTextContent(/lands|ships/);
+    // Backfill remains the named remediation source.
+    expect(panel).toHaveTextContent(/sync games from the History tab/i);
   });
 });

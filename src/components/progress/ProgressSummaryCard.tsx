@@ -1,5 +1,5 @@
 import type { HistorySummary } from "../../api/types";
-import { formatRate as pct } from "../format";
+import { formatCount, formatRate } from "../format";
 
 export function ProgressSummaryCard({ summary }: { summary: HistorySummary }) {
   const patches = summary.patches;
@@ -19,7 +19,7 @@ export function ProgressSummaryCard({ summary }: { summary: HistorySummary }) {
         style={{
           font: "700 9.5px var(--font-mono)",
           letterSpacing: ".14em",
-          color: "rgba(210,206,253,.6)",
+          color: "var(--color-teal)",
         }}
       >
         PERSONAL HISTORY
@@ -34,7 +34,7 @@ export function ProgressSummaryCard({ summary }: { summary: HistorySummary }) {
             display: "grid",
             placeItems: "center",
             font: "700 13px var(--font-mono)",
-            color: "#0e1020",
+            color: "var(--color-bg)",
             boxShadow: "0 4px 0 rgba(0,0,0,.5),0 14px 26px -8px rgba(145,132,217,.45)",
             flex: "none",
           }}
@@ -47,16 +47,17 @@ export function ProgressSummaryCard({ summary }: { summary: HistorySummary }) {
             style={{ font: "700 20px/1 var(--font-mono)" }}
             data-testid="summary-matches-progress"
           >
-            {summary.matches.toLocaleString()}
+            {formatCount(summary.matches, "matches")}
           </div>
           <div
             className="mono-n"
             style={{ marginTop: 4, fontSize: 10.5, color: "var(--color-dim)" }}
           >
-            {pct(summary.win_rate)} win rate · {range}
+            {formatRate(summary.win_rate)} win rate · {range}
           </div>
         </div>
       </div>
+      {/* Personal History win-rate bar stays teal per the Two-Data-Worlds rule. */}
       <div
         style={{
           marginTop: 12,

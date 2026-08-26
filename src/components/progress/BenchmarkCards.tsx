@@ -1,4 +1,5 @@
 import type { RoleBenchmark } from "../../api/types";
+import { formatCount } from "../format";
 
 function deltaLabel(delta: number): string {
   return delta >= 0 ? `+${delta.toFixed(1)}` : delta.toFixed(1);
@@ -47,23 +48,26 @@ export function BenchmarkCards({ rows }: { rows: RoleBenchmark[] }) {
                   <span style={{ fontSize: 9, letterSpacing: ".08em", color: "var(--color-dimmer)" }}>
                     {metric.label} · {r.role}
                   </span>
+                  {/* Outcome framing lives on the pill; the values themselves keep
+                      their data-world colors (personal teal, population blue). */}
                   <span
                     className="pill"
                     style={{
                       background: good ? "var(--color-teal-low)" : "var(--color-danger-low)",
-                      color: good ? "var(--color-teal)" : "#f4c3ce",
+                      color: good ? "var(--color-teal)" : "var(--color-soft-rose)",
                       padding: "2px 7px",
                     }}
                   >
                     {deltaLabel(delta)}
                   </span>
                 </div>
+                {/* Personal History value: teal regardless of favorable/unfavorable. */}
                 <div
                   className="mono-n"
                   style={{
                     font: "700 25px/1.1 var(--font-mono)",
                     marginTop: 6,
-                    color: good ? undefined : "var(--color-danger)",
+                    color: "var(--color-teal)",
                   }}
                 >
                   {personal.toFixed(1)}
@@ -84,7 +88,7 @@ export function BenchmarkCards({ rows }: { rows: RoleBenchmark[] }) {
                       position: "absolute",
                       inset: 0,
                       width: fill,
-                      background: good ? "var(--color-teal)" : "var(--color-danger)",
+                      background: "var(--color-teal)",
                       borderRadius: 999,
                     }}
                   />
@@ -97,13 +101,18 @@ export function BenchmarkCards({ rows }: { rows: RoleBenchmark[] }) {
                         bottom: -2,
                         left: tick,
                         width: 2,
-                        background: "#e9e9ed",
+                        background: "var(--color-info)",
                       }}
                     />
                   )}
                 </div>
-                <div style={{ marginTop: 6, fontSize: 9, color: "var(--color-dimmer)" }}>
-                  pop median {median} · {Math.round(r.population.sample / 1000)}k games
+                <div
+                  data-testid={`benchmark-pop-${r.role}`}
+                  style={{ marginTop: 6, fontSize: 9, color: "var(--color-dimmer)" }}
+                >
+                  pop median{" "}
+                  <span style={{ color: "var(--color-info)" }}>{median}</span> ·{" "}
+                  {formatCount(r.population.sample, "games")}
                 </div>
               </div>
             </li>

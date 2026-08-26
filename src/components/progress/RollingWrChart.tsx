@@ -1,5 +1,7 @@
 import type { CSSProperties } from "react";
 import type { PatchAggregate } from "../../api/types";
+import { formatCount } from "../format";
+import { EmptyState, SectionHead } from "../ui";
 
 export type WrPoint = PatchAggregate;
 
@@ -26,7 +28,7 @@ function direction(points: WrPoint[]): { label: string; style: CSSProperties } |
   if (last > first + 0.005)
     return { label: "Climbing", style: { background: "var(--color-teal-low)", color: "var(--color-teal)" } };
   if (last < first - 0.005)
-    return { label: "Sliding", style: { background: "var(--color-danger-low)", color: "#f4c3ce" } };
+    return { label: "Sliding", style: { background: "var(--color-danger-low)", color: "var(--color-soft-rose)" } };
   return { label: "Flat", style: { background: "var(--color-surface-3)", color: "var(--color-dim)" } };
 }
 
@@ -41,27 +43,19 @@ export function RollingWrChart({ points }: { points: WrPoint[] }) {
       data-testid="rolling-wr-chart"
       style={{ padding: 15, display: "flex", flexDirection: "column" }}
     >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span
-          style={{
-            font: "700 9.5px var(--font-mono)",
-            letterSpacing: ".14em",
-            color: "var(--color-dim)",
-          }}
-        >
-          PATCH WIN RATE · PERSONAL HISTORY
-        </span>
-        {dir && <span className="pill" style={dir.style}>{dir.label}</span>}
-      </div>
+      {/* Personal History surface: teal head per the Two-Data-Worlds rule. */}
+      <SectionHead
+        level={3}
+        label="PATCH WIN RATE · PERSONAL HISTORY"
+        color="var(--color-teal)"
+        right={dir && <span className="pill" style={dir.style}>{dir.label}</span>}
+      />
 
       {points.length === 0 ? (
-        <div data-testid="empty-state" style={{ padding: "26px 4px", textAlign: "center" }}>
-          <div style={{ fontSize: 12, fontWeight: 500 }}>No tracked games yet</div>
-          <p style={{ margin: "4px auto 0", maxWidth: 420, fontSize: 10.5, color: "var(--color-dim)" }}>
-            Once Backfill downloads matches from the History tab, your true patch win rates show
-            up here.
-          </p>
-        </div>
+        <EmptyState
+          title="No tracked games yet"
+          body="Once Backfill downloads matches from the History tab, your true patch win rates show up here."
+        />
       ) : (
         <>
           <svg
@@ -71,23 +65,24 @@ export function RollingWrChart({ points }: { points: WrPoint[] }) {
             data-testid="rolling-wr-svg"
           >
             <defs>
+              {/* Teal wash: this whole chart is Personal History data. */}
               <linearGradient id="bl-wr-fill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0" stopColor="#9184d9" stopOpacity=".45" />
-                <stop offset="1" stopColor="#9184d9" stopOpacity="0" />
+                <stop offset="0" style={{ stopColor: "var(--color-teal)", stopOpacity: 0.45 }} />
+                <stop offset="1" style={{ stopColor: "var(--color-teal)", stopOpacity: 0 }} />
               </linearGradient>
             </defs>
             {single ? (
-              <circle cx={single.x} cy={single.y} r="5" fill="#9184d9" />
+              <circle cx={single.x} cy={single.y} r="5" style={{ fill: "var(--color-teal)" }} />
             ) : (
               <>
                 <path d={area} fill="url(#bl-wr-fill)" />
                 <polyline
                   points={poly}
                   fill="none"
-                  stroke="#9184d9"
                   strokeWidth="2.5"
                   strokeLinejoin="round"
                   strokeLinecap="round"
+                  style={{ stroke: "var(--color-teal)" }}
                 />
               </>
             )}
@@ -113,8 +108,8 @@ export function RollingWrChart({ points }: { points: WrPoint[] }) {
               color: "var(--color-dimmer)",
             }}
           >
-            True games in the patch/role-known Personal History subset: {totalGames.toLocaleString()}
-            — never summed from overlapping Trajectory windows.
+            True games in the patch/role-known Personal History subset:{" "}
+            {formatCount(totalGames, "games")} — never summed from overlapping Trajectory windows.
           </p>
         </>
       )}
