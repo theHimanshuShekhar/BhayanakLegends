@@ -1,7 +1,5 @@
-import type { FindingsPack, TierEntry } from "../../api/types";
-import { initials, pct0 } from "./shared";
-
-const ROLE = "MIDDLE";
+import type { AssignedRole, FindingsPack, TierEntry } from "../../api/types";
+import { initials, pct0, CS_ROLES } from "./shared";
 
 function StatBlock({ value, label, teal }: { value: string; label: string; teal?: boolean }) {
   return (
@@ -22,7 +20,7 @@ function StatBlock({ value, label, teal }: { value: string; label: string; teal?
   );
 }
 
-function HeroCard({ hero }: { hero: TierEntry }) {
+function HeroCard({ hero, role }: { hero: TierEntry; role: AssignedRole }) {
   return (
     <div
       data-testid="cs-hero-pick"
@@ -60,11 +58,11 @@ function HeroCard({ hero }: { hero: TierEntry }) {
             Best pick
           </span>
           <span className="pill" style={{ background: "var(--color-info-low)", color: "#cfe3f9" }}>
-            {hero.tier} tier
+            {hero.tier} tier · {role}
           </span>
         </div>
         <p style={{ margin: "5px 0 0", fontSize: 11, lineHeight: 1.5, color: "#e0ddf5", maxWidth: 420 }}>
-          {hero.games.toLocaleString()} pack games at {pct0(hero.win_rate)} — population data, not your history.
+          {hero.games.toLocaleString()} Findings Pack games at {pct0(hero.win_rate)} — population data, not your history.
         </p>
       </div>
       <div style={{ display: "flex", gap: 8 }}>
@@ -127,12 +125,33 @@ function MiniCard({ entry, muted }: { entry: TierEntry; muted: boolean }) {
   );
 }
 
-export function SuggestedPicks({ pack }: { pack: FindingsPack | undefined }) {
-  const sorted = (pack?.tier_list ?? []).filter((t) => t.role === ROLE).sort((a, b) => b.win_rate - a.win_rate);
+export function SuggestedPicks({
+  pack,
+  role,
+  locked = false,
+}: {
+  pack: FindingsPack | undefined;
+  role: AssignedRole | null;
+  locked?: boolean;
+}) {
+  if (locked) return null;
+
+  const validRole = role && CS_ROLES.includes(role) ? role : null;
+  const sorted =
+    validRole && pack
+      ? pack.tier_list.filter((t) => t.role === validRole).sort((a, b) => b.win_rate - a.win_rate)
+      : [];
   const hero = sorted.find((t) => t.tier === "S" || t.tier === "A");
   const minis = sorted.filter((t) => t !== hero).slice(0, 3);
   const muted = minis.length ? minis[minis.length - 1].champion : null;
   const patch = pack?.dataset.patches[pack.dataset.patches.length - 1];
+  const unavailable = !validRole
+    ? "Assigned role unavailable — Findings Pack suggestions are withheld."
+    : !pack
+      ? `Findings Pack unavailable for ${validRole} — suggestions are withheld.`
+      : sorted.length === 0
+        ? `No Findings Pack rows for ${validRole} yet.`
+        : null;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }} data-testid="card-suggested-picks">
@@ -141,12 +160,15 @@ export function SuggestedPicks({ pack }: { pack: FindingsPack | undefined }) {
         <span style={{ font: "700 11px var(--font-mono)", letterSpacing: ".12em", color: "var(--color-dim)" }}>
           SUGGESTED PICKS
         </span>
-        <span
-          className="pill"
-          style={{ background: "var(--color-surface-2)", color: "var(--color-dim)", boxShadow: "var(--shadow-z1)" }}
-        >
-          Your pool
-        </span>
+        {validRole && (
+          <span
+            className="pill"
+            data-testid="suggested-role"
+            style={{ background: "var(--color-accent-low)", color: "var(--color-accent)" }}
+          >
+            {validRole}
+          </span>
+        )}
         <span className="mono-n" style={{ marginLeft: "auto", fontSize: 10, color: "var(--color-dimmer)" }}>
           {patch ? `patch ${patch}` : "pack pending"}
         </span>
@@ -155,23 +177,24 @@ export function SuggestedPicks({ pack }: { pack: FindingsPack | undefined }) {
         data-testid="honesty-caption"
         style={{ margin: "-6px 0 0", fontSize: 10, lineHeight: 1.5, color: "var(--color-dimmer)" }}
       >
-        Counter-pick spread across every matchup ≈ ±2.5pp, empirical-Bayes shrunk — the smallest lever in the game.
-        Read these as a nudge, not a verdict.
+        {unavailable ?? `Pre-lock guidance for ${validRole}: Findings Pack population data only — not your history.`}
       </p>
 
-      {hero ? (
-        <HeroCard hero={hero} />
-      ) : (
-        <div className="card3" style={{ padding: 15, fontSize: 11, color: "var(--color-dim)" }}>
-          No tier-list rows for {ROLE} yet.
+      {unavailable ? (
+        <div className="card3" data-testid="suggestions-unavailable" style={{ padding: 15, fontSize: 11, color: "var(--color-dim)" }}>
+          {unavailable}
+        </div>
+      ) : hero ? (
+        <HeroCard hero={hero} role={validRole!} />
+      ) : null}
+
+      {!unavailable && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+          {minis.map((m) => (
+            <MiniCard key={m.champion} entry={m} muted={m.champion === muted} />
+          ))}
         </div>
       )}
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-        {minis.map((m) => (
-          <MiniCard key={m.champion} entry={m} muted={m.champion === muted} />
-        ))}
-      </div>
     </div>
   );
 }
