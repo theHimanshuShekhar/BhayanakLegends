@@ -208,3 +208,23 @@ html[data-live-companion="widget"] .rc {
     grid-template-columns: minmax(0, 1fr) !important;
   }
 }
+
+@media (max-width: 1100px) {
+  .live-match-columns {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .live-match-middle-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
