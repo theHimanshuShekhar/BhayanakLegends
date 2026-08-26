@@ -75,11 +75,11 @@ describe("LiveMatchPage — idle", () => {
     expect(screen.getByTestId("bridge-status")).toHaveTextContent("waiting for :2999");
 
     const list = screen.getByTestId("player-list");
-    expect(list).toHaveTextContent("PLAYER LIST · LEVEL · K/D/A · CS · WARD SCORE");
-    expect(screen.getByTestId("score-strip")).toHaveTextContent("— kills · — turrets");
-    // Skeleton rows are dash cells only — no roster names, enemy or ally.
+    expect(list).toHaveTextContent("PLAYER ROSTER");
+    expect(screen.getByTestId("score-strip")).toHaveTextContent("Unavailable kills · Unavailable turrets");
+    // Skeleton rows carry no roster names — enemy or ally.
     expect(within(list).queryByText(/ornn|viego|taliyah|syndra/i)).not.toBeInTheDocument();
-    expect(within(list).getAllByText("—").length).toBeGreaterThan(20);
+    expect(within(list).queryByText(forbiddenEnemyName)).not.toBeInTheDocument();
     expect(screen.queryByText(forbiddenEnemyName)).not.toBeInTheDocument();
   });
 

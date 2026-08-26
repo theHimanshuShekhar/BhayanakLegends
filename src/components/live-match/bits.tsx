@@ -31,7 +31,7 @@ export function CardHead({
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
       <Dot color={color} />
-      <span style={{ font: size, letterSpacing: spacing, color: "var(--color-dim)" }}>{label}</span>
+      <h2 style={{ margin: 0, font: size, letterSpacing: spacing, color: "var(--color-dim)" }}>{label}</h2>
       {right != null && (
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>{right}</div>
       )}

@@ -84,8 +84,16 @@ export function ChampSelectPage() {
     <div
       style={{ fontFamily: "var(--font-mono)", letterSpacing: "-.01em", minWidth: 0 }}
       data-testid="champ-select-page"
+      role="region"
+      aria-label="Live Companion: Champ Select"
+      aria-busy={sessionQuery.isLoading || statusQuery.isLoading || packQuery.isLoading}
     >
       <PageHeader title="Live Companion: Champ Select" />
+      {(sessionQuery.isLoading || statusQuery.isLoading || packQuery.isLoading) && (
+        <p role="status" aria-live="polite" style={{ margin: "0 0 10px", fontSize: 10, color: "var(--color-dim)" }}>
+          Loading Live Companion data
+        </p>
+      )}
       <BanStrip
         snapshot={session}
         timerLabel={timerLabel}
@@ -93,7 +101,7 @@ export function ChampSelectPage() {
         lastError={status?.last_error ?? null}
       />
       {packQuery.isError && (
-        <div style={{ paddingTop: 10, fontSize: 10.5, color: "var(--color-danger)" }}>
+        <div role="alert" style={{ paddingTop: 10, fontSize: 10.5, color: "var(--color-danger)" }}>
           {actionableErrorMessage(packQuery.error, "pack")}
         </div>
       )}
@@ -117,6 +125,7 @@ export function ChampSelectPage() {
         <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0, minWidth: 0 }}>
           <SuggestedPicks pack={packQuery.data} />
           <div
+            className="champ-select-secondary"
             style={{
               display: "grid",
               gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",

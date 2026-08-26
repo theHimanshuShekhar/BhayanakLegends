@@ -18,16 +18,10 @@ export function RightNowCard({ pack }: { pack: FindingsPack | undefined }) {
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <Dot color="#7a8098" />
-        <span
-          style={{
-            font: "700 9.5px var(--font-mono)",
-            letterSpacing: ".11em",
-            color: "var(--color-dim)",
-          }}
-        >
+        <h2 style={{ margin: 0, font: "700 9.5px var(--font-mono)", letterSpacing: ".11em", color: "var(--color-dim)" }}>
           RIGHT NOW
-        </span>
-        <div style={{ flex: 1, height: 1, background: "linear-gradient(90deg,var(--color-line),transparent)" }} />
+        </h2>
+        <div aria-hidden="true" style={{ flex: 1, height: 1, background: "linear-gradient(90deg,var(--color-line),transparent)" }} />
       </div>
       <div
         style={{
@@ -46,53 +40,55 @@ export function RightNowCard({ pack }: { pack: FindingsPack | undefined }) {
           Act-level nudges read the live game state — they land with the :2999 bridge.
         </p>
       </div>
-      {habits.map((h) => (
-        <div
-          key={h.key}
-          data-testid={`habit-nudge-${h.key}`}
-          style={{
-            display: "flex",
-            gap: 9,
-            padding: "8px 9px",
-            borderRadius: 13,
-            background: "var(--color-surface-2)",
-            boxShadow: "var(--shadow-z1)",
-          }}
-        >
-          <span
-            className="pill"
-            style={{ alignSelf: "flex-start", background: "var(--color-info-low)", color: "#cfe3f9" }}
+      <ul aria-label="Live guidance" style={{ display: "flex", flexDirection: "column", gap: 7, listStyle: "none", margin: 0, padding: 0 }}>
+        {habits.map((h) => (
+          <li
+            key={h.key}
+            data-testid={`habit-nudge-${h.key}`}
+            style={{
+              display: "flex",
+              gap: 9,
+              padding: "8px 9px",
+              borderRadius: 13,
+              background: "var(--color-surface-2)",
+              boxShadow: "var(--shadow-z1)",
+            }}
           >
-            Habit
-          </span>
-          <p style={{ margin: 0, fontSize: 10.5, lineHeight: 1.5, color: "#cfd3e5" }}>
-            {h.label} — worth ×{h.effect_per_sd.toFixed(2)} per SD.
-          </p>
-        </div>
-      ))}
-      {traps.length > 0 && (
-        <div
-          data-testid="trap-nudge"
-          style={{
-            display: "flex",
-            gap: 9,
-            padding: "8px 9px",
-            borderRadius: 13,
-            background: "var(--color-surface-2)",
-            boxShadow: "var(--shadow-z1)",
-          }}
-        >
-          <span
-            className="pill"
-            style={{ alignSelf: "flex-start", background: "var(--color-amber-low)", color: "var(--color-amber)" }}
+            <span
+              className="pill"
+              style={{ alignSelf: "flex-start", background: "var(--color-info-low)", color: "#cfe3f9" }}
+            >
+              Habit
+            </span>
+            <p style={{ margin: 0, fontSize: 10.5, lineHeight: 1.5, color: "#cfd3e5" }}>
+              {h.label} — worth ×{h.effect_per_sd.toFixed(2)} per SD.
+            </p>
+          </li>
+        ))}
+        {traps.length > 0 && (
+          <li
+            data-testid="trap-nudge"
+            style={{
+              display: "flex",
+              gap: 9,
+              padding: "8px 9px",
+              borderRadius: 13,
+              background: "var(--color-surface-2)",
+              boxShadow: "var(--shadow-z1)",
+            }}
           >
-            Trap
-          </span>
-          <p style={{ margin: 0, fontSize: 10.5, lineHeight: 1.5, color: "#cfd3e5" }}>
-            Trap picks this patch — {traps.map((t) => `${t.champion} ${pct(t.win_rate)}`).join(" · ")}.
-          </p>
-        </div>
-      )}
+            <span
+              className="pill"
+              style={{ alignSelf: "flex-start", background: "var(--color-amber-low)", color: "var(--color-amber)" }}
+            >
+              Trap
+            </span>
+            <p style={{ margin: 0, fontSize: 10.5, lineHeight: 1.5, color: "#cfd3e5" }}>
+              Trap picks this patch — {traps.map((t) => `${t.champion} ${pct(t.win_rate)}`).join(" · ")}.
+            </p>
+          </li>
+        )}
+      </ul>
     </section>
   );
 }
