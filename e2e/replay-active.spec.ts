@@ -132,7 +132,7 @@ async function expectRenderedSnapshot(page: Page, snapshot: LiveSnapshot) {
       await expect(itemPlayer).toHaveCount(1);
       for (const [index, item] of player.items.entries()) {
         await expect(page.getByTestId(`item-${side}-${player.summoner}-${index}`)).toHaveText(
-          new RegExp(`^Item ${item.id}\\s+count ${item.count}$`),
+          new RegExp(`^Item ${item.id}\\s+×${item.count}$`),
         );
       }
       await expect(itemPlayer.getByRole("listitem")).toHaveCount(player.items.length);
@@ -231,7 +231,7 @@ test.describe("active Live Companion replay", () => {
     await expect(page.getByTestId("team-chaos")).toContainText("Camille");
     await expect(page.getByTestId("score-strip")).toContainText("kills");
     await expect(page.getByTestId("event-feed")).toContainText("DragonKill");
-    await expect(page.getByTestId("wp-value")).toHaveText("—");
+    await expect(page.getByTestId("wp-value")).toHaveText("Unavailable: compatible live inputs unavailable");
     await expect(page.getByTestId("wp-band")).toContainText(
       "The current Findings Pack lacks the compatible live input, quartile boundaries, and model inputs needed to map this game.",
     );
@@ -451,7 +451,7 @@ test.describe("active Live Companion replay", () => {
       await expect(initial.teams.order.flatMap((player) => player.items)).not.toHaveLength(0);
       await expectRenderedSnapshot(page, initial);
       await expectLiveDataContractDetector(page, initial);
-      await expect(page.getByTestId("wp-value")).toHaveText("—");
+      await expect(page.getByTestId("wp-value")).toHaveText("Unavailable: compatible live inputs unavailable");
       await expect(page.getByTestId("wp-band")).toContainText(
         "The current Findings Pack lacks the compatible live input, quartile boundaries, and model inputs needed to map this game.",
       );
