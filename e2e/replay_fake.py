@@ -51,6 +51,11 @@ class ReplayState:
             )
             player = next(p for p in self.game["allPlayers"] if p["summonerName"] == "FixturePlayer03")
             player["scores"]["kills"] = 5
+        elif scenario == "in-game-empty":
+            self.game = load_json("allgamedata.json")
+            for player in self.game["allPlayers"]:
+                player["items"] = []
+            self.game["events"]["Events"] = []
         elif scenario in {"idle", "reconnect", "malformed"}:
             return
         else:
@@ -59,7 +64,7 @@ class ReplayState:
     def gameflow(self) -> str:
         if self.scenario in {"champ-select", "champ-select-update"}:
             return "ChampSelect"
-        if self.scenario in {"in-game", "in-game-update", "malformed"}:
+        if self.scenario in {"in-game", "in-game-update", "in-game-empty", "malformed"}:
             return "InProgress"
         return "None"
 
