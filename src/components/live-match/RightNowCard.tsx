@@ -32,7 +32,7 @@ export function RightNowCard({ pack }: { pack: FindingsPack | undefined }) {
           Act
         </span>
         <p style={{ margin: 0, fontSize: 10.5, lineHeight: 1.5, color: "var(--color-soft-lavender)" }}>
-          Act-level nudges read the live game state — they land with the :2999 bridge.
+          Act-level nudges read the live game state — they require the :2999 bridge.
         </p>
       </div>
       <ul aria-label="Live guidance" style={{ display: "flex", flexDirection: "column", gap: 7, listStyle: "none", margin: 0, padding: 0 }}>

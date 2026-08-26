@@ -21,6 +21,21 @@
   min-height: 24px;
 }
 
+/* Shared interaction seam (#99): enabled links/buttons point and brighten
+   their existing semantic fill on hover; disabled controls keep the default
+   cursor and never match the hover rule; focus-visible stays amber above. */
+.rc :where(a, button):not(:disabled) {
+  cursor: pointer;
+}
+
+.rc :where(button):disabled {
+  cursor: default;
+}
+
+.rc :where(a, button):not(:disabled):hover {
+  filter: brightness(1.12);
+}
+
 .rc :where(input, select, textarea) {
   min-height: 24px;
 }

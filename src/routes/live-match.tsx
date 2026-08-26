@@ -240,7 +240,7 @@ export function LiveMatchPage() {
         )}
         <div
           className="pill"
-          style={{ background: "var(--color-info-low)", color: "#cfe3f9", boxShadow: "var(--shadow-z1)" }}
+          style={{ background: "var(--color-info-low)", color: "var(--color-soft-blue)", boxShadow: "var(--shadow-z1)" }}
         >
           <span style={{ width: 6, height: 6, borderRadius: 999, background: "var(--color-info)" }} />
           Findings Pack{activePackVersion ? ` ${activePackVersion}` : ""}

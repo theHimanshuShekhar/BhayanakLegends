@@ -36,7 +36,7 @@ export function SurrenderReadCard() {
         </span>
       </div>
       <p style={{ margin: "auto 0 0", fontSize: 9.5, lineHeight: 1.5, color: "var(--color-dim)" }}>
-        The surrender advisor ships with the next Findings Pack. Calibrated on state, not outcome —
+        The surrender advisor is not part of this Findings Pack. Calibrated on state, not outcome —
         surrendered games look more winnable in hindsight than they were (survivorship bias).
       </p>
     </section>

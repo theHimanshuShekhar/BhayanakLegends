@@ -9,7 +9,7 @@ import { formatDuration, formatInitials } from "../format";
 export function VerdictHeader({ digest }: { digest: PostGameDigest | null }) {
   const idle = digest == null;
   const win = digest?.win ?? false;
-  const titleColor = idle ? "var(--color-dim)" : win ? "#b8ecd9" : "#f4c3ce";
+  const titleColor = idle ? "var(--color-dim)" : win ? "#b8ecd9" : "var(--color-soft-rose)";
   const subColor = idle
     ? "var(--color-dimmer)"
     : win
@@ -29,8 +29,8 @@ export function VerdictHeader({ digest }: { digest: PostGameDigest | null }) {
         background: idle
           ? "var(--color-surface-2)"
           : win
-            ? "linear-gradient(150deg,#1b463f,var(--color-surface-2) 82%)"
-            : "linear-gradient(150deg,#4d2436,var(--color-surface-2) 82%)",
+            ? "linear-gradient(150deg,var(--color-teal-low),var(--color-surface-2) 82%)"
+            : "linear-gradient(150deg,var(--color-danger-low),var(--color-surface-2) 82%)",
       }}
     >
       <div
@@ -45,7 +45,7 @@ export function VerdictHeader({ digest }: { digest: PostGameDigest | null }) {
           display: "grid",
           placeItems: "center",
           font: "700 12px var(--font-mono)",
-          color: idle ? "var(--color-dimmer)" : "#0e1020",
+          color: idle ? "var(--color-dimmer)" : "var(--color-bg)",
         }}
       >
         {formatInitials(digest?.champion, "champion unavailable")}

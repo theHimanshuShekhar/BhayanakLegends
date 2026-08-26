@@ -23,7 +23,7 @@ export function ConnectionStatus({ connected }: { connected: boolean }) {
       aria-atomic="true"
       style={{
         background: connected ? "var(--color-accent-low)" : "var(--color-surface-2)",
-        color: connected ? "#e7e5fe" : "var(--color-dim)",
+        color: connected ? "var(--color-chip-text)" : "var(--color-dim)",
         boxShadow: "var(--shadow-z1)",
       }}
     >
@@ -131,7 +131,7 @@ export function Layout({ children }: { children: ReactNode }) {
                   active
                     ? {
                         background: "var(--color-accent)",
-                        color: "#0e1020",
+                        color: "var(--color-bg)",
                         boxShadow:
                           "0 3px 0 var(--color-accent-low),0 8px 16px -6px rgba(145,132,217,.6)",
                       }
@@ -154,7 +154,7 @@ export function Layout({ children }: { children: ReactNode }) {
             className="pill"
             style={{
               background: "var(--color-info-low)",
-              color: "#cfe3f9",
+              color: "var(--color-soft-blue)",
               boxShadow: "var(--shadow-z1)",
             }}
           >

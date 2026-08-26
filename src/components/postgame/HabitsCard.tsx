@@ -4,7 +4,7 @@ import { SectionHead, Unavailable } from "../ui";
 
 const VERDICT_PILL: Record<HabitOutcome["verdict"], CSSProperties> = {
   good: { background: "var(--color-teal-low)", color: "var(--color-teal)" },
-  bad: { background: "var(--color-danger-low)", color: "#f4c3ce" },
+  bad: { background: "var(--color-danger-low)", color: "var(--color-soft-rose)" },
   neutral: { background: "var(--color-surface-3)", color: "var(--color-dim)" },
   "n/a": { background: "var(--color-surface-3)", color: "var(--color-dimmer)" },
 };
@@ -112,8 +112,8 @@ export function HabitsCard({ digest }: { digest: PostGameDigest | null }) {
           boxShadow: "var(--shadow-z1)",
         }}
       >
-        <p data-testid="digest-headline" style={{ margin: 0, fontSize: 11, lineHeight: 1.55, color: "#e7e5fe" }}>
-          {digest ? digest.headline : "The read of your game lands here once a digest exists."}
+        <p data-testid="digest-headline" style={{ margin: 0, fontSize: 11, lineHeight: 1.55, color: "var(--color-chip-text)" }}>
+          {digest ? digest.headline : "Unavailable: no analyzed game yet"}
         </p>
       </div>
     </section>

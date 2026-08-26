@@ -153,7 +153,7 @@ export function ComebackOddsCard({
       </div>
       <p
         data-testid="comeback-note"
-        style={{ margin: 0, fontSize: 10, lineHeight: 1.5, color: "#cfd3e5" }}
+        style={{ margin: 0, fontSize: 10, lineHeight: 1.5, color: "var(--color-soft-text)" }}
       >
         {result.match
           ? `Teams in ${result.match.rangeLabel} down 3,500g+ at 15 won about ${formatRate(result.match.winRate)} of the time — Findings Pack population bucket.`
