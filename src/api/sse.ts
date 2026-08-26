@@ -180,9 +180,15 @@ export function parseSseMessage(value: unknown): SseMessage | null {
 
 type EventListener = (message: SseMessage) => void;
 type StatusListener = () => void;
+type ConnectionListener = (connected: boolean) => void;
+
+export interface UseEventsOptions {
+  onConnectionChange?: (connected: boolean) => void;
+}
 
 const eventListeners = new Set<EventListener>();
 const statusListeners = new Set<StatusListener>();
+const connectionListeners = new Set<ConnectionListener>();
 let source: EventSource | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let resolvingUrl = false;
@@ -190,11 +196,12 @@ let connected = false;
 let generation = 0;
 
 function hasSubscribers() {
-  return eventListeners.size > 0 || statusListeners.size > 0;
+  return eventListeners.size > 0 || statusListeners.size > 0 || connectionListeners.size > 0;
 }
 
 function notifyStatus() {
   for (const listener of statusListeners) listener();
+  for (const listener of connectionListeners) listener(connected);
 }
 
 function stopConnection() {
@@ -286,20 +293,36 @@ function subscribeEvents(listener: EventListener) {
     if (!hasSubscribers()) stopConnection();
   };
 }
+function subscribeConnection(listener: ConnectionListener) {
+  connectionListeners.add(listener);
+  listener(connected);
+  connect();
+  return () => {
+    connectionListeners.delete(listener);
+    if (!hasSubscribers()) stopConnection();
+  };
+}
 
 function getConnected() {
   return connected;
 }
 
 /** Subscribes to the app-wide event stream; all callers share one EventSource. */
-export function useEvents(onMessage?: EventListener) {
+export function useEvents(onMessage?: EventListener, options?: UseEventsOptions) {
   const connectedNow = useSyncExternalStore(subscribeStatus, getConnected, () => false);
   const handlerRef = useRef(onMessage);
+  const connectionHandlerRef = useRef(options?.onConnectionChange);
   handlerRef.current = onMessage;
+  connectionHandlerRef.current = options?.onConnectionChange;
 
   useEffect(() => {
     if (!onMessage) return;
     return subscribeEvents((message) => handlerRef.current?.(message));
+  }, []);
+
+  useEffect(() => {
+    if (!options?.onConnectionChange) return;
+    return subscribeConnection((nextConnected) => connectionHandlerRef.current?.(nextConnected));
   }, []);
 
   return connectedNow;
