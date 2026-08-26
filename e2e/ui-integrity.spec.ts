@@ -1,6 +1,4 @@
 import { expect, test, type APIRequestContext, type Page, type TestInfo } from "@playwright/test";
-import { createHash } from "node:crypto";
-import { writeFileSync } from "node:fs";
 
 // The single cross-route browser seam for #90: semantics, retained sections,
 // overflow, keyboard/focus, Live Companion phases, state fixtures, Backfill
@@ -102,14 +100,31 @@ function makeEvidence() {
   };
 }
 
+type ContrastPair = {
+  ok: boolean;
+  kind: string;
+  text: string;
+  fg: string;
+  bg: string;
+  ratio: number;
+  threshold: number;
+};
+
+function stableDigest(value: string): string {
+  // FNV-1a: dependency-free digest so run-to-run evidence stays comparable.
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
 /** Persist the evidence matrix as an artifact next to the run's screenshots. */
 async function attachEvidence(testInfo: TestInfo, name: string, payload: unknown): Promise<string> {
-  const file = testInfo.outputPath(`${name}.json`);
-  writeFileSync(file, JSON.stringify(payload, null, 2), "utf-8");
-  await testInfo.attach(name, { path: file, contentType: "application/json" });
-  // A stable hash makes runs comparable without shipping full DOM dumps.
-  const digest = createHash("sha256").update(JSON.stringify(payload)).digest("hex").slice(0, 12);
-  return `${name}.json sha256:${digest}`;
+  const body = JSON.stringify(payload, null, 2);
+  await testInfo.attach(name, { body, contentType: "application/json" });
+  return `${name}.json fnv1a:${stableDigest(body)}`;
 }
 
 async function screenshot(page: Page, testInfo: TestInfo, name: string): Promise<string> {
@@ -195,7 +210,7 @@ function assertOverflowRows(rows: OverflowRow[], context: string) {
 /** Accessible names of every <section> inside the route screen. */
 function collectSectionNames(page: Page) {
   return page.evaluate(() =>
-    [...document.querySelectorAll(".rc-screen section")]
+    Array.from(document.querySelectorAll(".rc-screen section"))
       .map((section) => {
         const labelledBy = section.getAttribute("aria-labelledby");
         const name =
@@ -323,7 +338,7 @@ test.describe("cross-route UI integrity", () => {
               r.bottom <= window.innerHeight + 1,
           };
         };
-        return [...document.querySelectorAll(".rc-topbar-status > *, .rc-nav-status > *")].map(within);
+        return Array.from(document.querySelectorAll(".rc-topbar-status > *, .rc-nav-status > *")).map(within);
       });
       for (const box of statusBoxes) {
         expect(box.fits, `status pill clipped at ${vp}: ${box.text}`).toBe(true);
@@ -380,7 +395,7 @@ test.describe("cross-route UI integrity", () => {
     for (let i = 1; i < stops.length; i += 1) {
       const inOrder = await page.evaluate(({ a, b }) => {
         const resolve = (label: string) =>
-          [...document.querySelectorAll("a[href], button, input, select")].find(
+          Array.from(document.querySelectorAll("a[href], button, input, select")).find(
             (el) =>
               (el.getAttribute("aria-label") ?? el.textContent ?? "")
                 .trim()
@@ -759,7 +774,7 @@ test.describe("cross-route UI integrity", () => {
       // No authored animation or transition may be running anywhere.
       const running = await page.evaluate(() =>
         document.getAnimations().map((animation) => ({
-          name: animation.animationName,
+          name: animation instanceof CSSAnimation ? animation.animationName : "(other)",
           state: animation.playState,
         })),
       );
@@ -810,7 +825,7 @@ test.describe("cross-route UI integrity", () => {
       // Nothing interactive is clipped horizontally at zoom-equivalent width.
       const clipped = await page.evaluate(() => {
         const bad: Array<{ label: string; x: number; right: number; innerWidth: number }> = [];
-        for (const el of document.querySelectorAll("a[href], button, input, select")) {
+        for (const el of Array.from(document.querySelectorAll("a[href], button, input, select"))) {
           const r = el.getBoundingClientRect();
           if (r.width === 0 && r.height === 0) continue;
           if (r.x < -1 || r.right > window.innerWidth + 1) {
@@ -962,9 +977,9 @@ test.describe("cross-route UI integrity", () => {
         });
       };
       const hasOwnText = (el: Element) =>
-        [...el.childNodes].some((n) => n.nodeType === 3 && (n.textContent ?? "").trim().length > 0);
+        Array.from(el.childNodes).some((n) => n.nodeType === 3 && (n.textContent ?? "").trim().length > 0);
 
-      for (const el of document.querySelectorAll("body *")) {
+      for (const el of Array.from(document.querySelectorAll("body *"))) {
         const style = getComputedStyle(el);
         const size = parseFloat(style.fontSize);
         const bold = Number.parseInt(style.fontWeight, 10) >= 700;
@@ -1038,7 +1053,7 @@ test.describe("cross-route UI integrity", () => {
         test.setTimeout(150_000);
         await page.setViewportSize(viewport);
         const vp = `${viewport.width}x${viewport.height}`;
-        const matrix: Array<{ route: string; state: string; pairs: unknown[] }> = [];
+        const matrix: Array<{ route: string; state: string; pairs: ContrastPair[] }> = [];
 
         const harvest = async (route: string, state: string) => {
           const pairs = await page.evaluate(SAMPLER);
@@ -1106,7 +1121,7 @@ test.describe("cross-route UI integrity", () => {
 
         // Report exact failing pairs with foreground/background and route/state.
         const failures = matrix.flatMap((entry) =>
-          (entry.pairs as Array<{ ok: boolean }>)
+          entry.pairs
             .filter((p) => !p.ok)
             .map((p) => ({ ...entry, pair: p })),
         );
@@ -1122,7 +1137,7 @@ test.describe("cross-route UI integrity", () => {
         await attachEvidence(testInfo, `ui-integrity-contrast-evidence-${viewport.width}`, {
           viewport: vp,
           states: [...new Set(matrix.map((m) => m.state))],
-          sampledPairs: matrix.reduce((sum, m) => sum + (m.pairs as unknown[]).length, 0),
+          sampledPairs: matrix.reduce((sum, m) => sum + m.pairs.length, 0),
           note: "gradient backgrounds approximate to their nearest opaque solid ancestor layer",
           matrix,
         });
