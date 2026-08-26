@@ -1,5 +1,5 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
-import { eventsUrl } from "./client";
+import { eventsUrl, invalidateConnection } from "./client";
 import { isChampSelectSnapshot, PHASES } from "./liveValidation";
 import type {
   ChampSelectSnapshot,
@@ -248,6 +248,7 @@ function connect() {
           if (source !== next) return;
           source = null;
           next.close();
+          invalidateConnection();
           connected = false;
           notifyStatus();
           scheduleReconnect();
