@@ -1,4 +1,3 @@
-export { clockLabel, Dot, pp } from "./bits";
 export { PlayerList } from "./PlayerList";
 export { WinProbabilityCard } from "./WinProbabilityCard";
 export { RightNowCard } from "./RightNowCard";

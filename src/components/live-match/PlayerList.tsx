@@ -1,5 +1,6 @@
 import type { InGameSnapshot, PlayerLive } from "../../api/types";
-import { Dot } from "./bits";
+import { formatCount } from "../format";
+import { SectionHead } from "../ui";
 
 const SKELETON_ROWS = 3;
 
@@ -52,7 +53,7 @@ function PlayerRow({ player, side, local }: { player: PlayerLive; side: string; 
         {player.summoner}
       </td>
       <td style={{ padding: "4px 8px", fontSize: 9.5, color: "var(--color-dim)", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-        {player.champion ?? <span aria-label="Unavailable">Unavailable</span>}
+        {player.champion ?? <span aria-label="Unavailable: champion not reported">Unavailable: champion not reported</span>}
       </td>
       <td style={{ padding: "4px 8px", textAlign: "right" }}><Scalar value={player.level} /></td>
       <td
@@ -89,15 +90,17 @@ export function PlayerList({ snapshot }: { snapshot: InGameSnapshot | undefined 
       aria-busy={!rosterAvailable}
       style={{ flex: "none", padding: "11px 13px", background: "linear-gradient(180deg,var(--color-surface-2),var(--color-surface))" }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 9 }}>
-        <Dot color={rosterAvailable ? "var(--color-teal)" : "var(--color-dimmer)"} />
-        <h2 id="player-roster-heading" style={{ margin: 0, font: "700 9.5px var(--font-mono)", letterSpacing: ".13em", color: "var(--color-dim)" }}>
-          PLAYER ROSTER
-        </h2>
-        <span className="mono-n" data-testid="score-strip" style={{ marginLeft: "auto", fontSize: 10, color: rosterAvailable ? "var(--color-text)" : "var(--color-dimmer)" }}>
-          {rosterAvailable ? `${kills} kills · ${turrets} turrets` : "Unavailable kills · Unavailable turrets"}
-        </span>
-      </div>
+      <SectionHead
+        color={rosterAvailable ? "var(--color-teal)" : "var(--color-dimmer)"}
+        label={<span id="player-roster-heading">PLAYER ROSTER</span>}
+        right={
+          <span className="mono-n" data-testid="score-strip" style={{ fontSize: 10, color: rosterAvailable ? "var(--color-text)" : "var(--color-dimmer)" }}>
+            {rosterAvailable
+              ? `${formatCount(kills, "kills")} · ${formatCount(turrets, "turrets")}`
+              : "Unavailable: kills and turrets not reported"}
+          </span>
+        }
+      />
       <div className="live-table-scroll">
         <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
           <caption style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0, 0, 0, 0)", whiteSpace: "nowrap", border: 0 }}>Player roster</caption>

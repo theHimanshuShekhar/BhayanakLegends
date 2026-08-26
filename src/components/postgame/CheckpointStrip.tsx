@@ -1,6 +1,6 @@
 import type { PostGameDigest } from "../../api/types";
-import { PanelHeading, Subheading, UnavailableValue } from "./bits";
-import { signed } from "./format";
+import { formatGold } from "../format";
+import { SectionHead, Unavailable } from "../ui";
 
 
 /**
@@ -21,16 +21,21 @@ export function CheckpointStrip({ digest }: { digest: PostGameDigest | null }) {
       aria-labelledby="postgame-checkpoints-heading"
       style={{ flex: "none", marginTop: 12, padding: 14 }}
     >
-      <PanelHeading color="var(--color-info)">
-        <span id="postgame-checkpoints-heading">Checkpoints</span>
-        <span
-          data-testid="checkpoint-source"
-          style={{ font: "400 8.5px var(--font-mono)", letterSpacing: ".08em", color: "var(--color-dimmer)", textTransform: "none" }}
-        >
-          Diagnostic · Personal History
-        </span>
-      </PanelHeading>
-      <Subheading>Gold difference checkpoints</Subheading>
+      <SectionHead
+        color="var(--color-soft-blue)"
+        label={
+          <>
+            <span id="postgame-checkpoints-heading">Checkpoints</span>
+            <span
+              data-testid="checkpoint-source"
+              style={{ font: "400 8.5px var(--font-mono)", letterSpacing: ".08em", color: "var(--color-dimmer)", textTransform: "none" }}
+            >
+              Diagnostic · Personal History
+            </span>
+          </>
+        }
+      />
+      <SectionHead level={3} dot={false} label="Gold difference checkpoints" />
       <ul
         aria-label="Gold difference checkpoints"
         style={{
@@ -59,15 +64,10 @@ export function CheckpointStrip({ digest }: { digest: PostGameDigest | null }) {
               className="mono-n"
               style={{
                 font: "700 14px var(--font-mono)",
-                color:
-                  cell.value == null
-                    ? "var(--color-dimmer)"
-                    : cell.value >= 0
-                      ? "var(--color-teal)"
-                      : "var(--color-danger)",
+                color: cell.value == null ? "var(--color-dimmer)" : "var(--color-teal)",
               }}
             >
-              {cell.value == null ? <UnavailableValue /> : signed(Math.round(cell.value))}
+              {cell.value == null ? <Unavailable reason="gold checkpoint not reported" /> : formatGold(Math.round(cell.value))}
             </div>
           </li>
         ))}

@@ -1,6 +1,6 @@
 import type { FindingsPack } from "../../api/types";
-import { pct } from "../ui";
-import { Dot } from "./bits";
+import { formatRate } from "../format";
+import { SectionHead } from "../ui";
 
 /**
  * RIGHT NOW nudges. Habits are the pack's actionable tier (ADR-0003: they may
@@ -16,13 +16,7 @@ export function RightNowCard({ pack }: { pack: FindingsPack | undefined }) {
       data-testid="habit-nudges"
       style={{ padding: 12, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 7 }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <Dot color="#7a8098" />
-        <h2 style={{ margin: 0, font: "700 9.5px var(--font-mono)", letterSpacing: ".11em", color: "var(--color-dim)" }}>
-          RIGHT NOW
-        </h2>
-        <div aria-hidden="true" style={{ flex: 1, height: 1, background: "linear-gradient(90deg,var(--color-line),transparent)" }} />
-      </div>
+      <SectionHead color="var(--color-info)" label="RIGHT NOW" />
       <div
         style={{
           display: "flex",
@@ -84,7 +78,14 @@ export function RightNowCard({ pack }: { pack: FindingsPack | undefined }) {
               Trap
             </span>
             <p style={{ margin: 0, fontSize: 10.5, lineHeight: 1.5, color: "#cfd3e5" }}>
-              Trap picks this patch — {traps.map((t) => `${t.champion} ${pct(t.win_rate)}`).join(" · ")}.
+              Trap picks this patch —{" "}
+              {traps.map((t, index) => (
+                <span key={t.champion} style={{ color: "var(--color-soft-blue)" }}>
+                  {index > 0 ? " · " : ""}
+                  {t.champion} {formatRate(t.win_rate)}
+                </span>
+              ))}
+              .
             </p>
           </li>
         )}

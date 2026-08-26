@@ -1,6 +1,6 @@
 import type { FindingsPack } from "../../api/types";
-import { pct } from "../ui";
-import { PanelHeading, Subheading, pp, UnavailableValue } from "./bits";
+import { formatPercentagePoints, formatRate } from "../format";
+import { SectionHead } from "../ui";
 /** Objective read cards: digest headline context + pack.objectives takeaways. */
 export function ObjectiveReadCard({ pack }: { pack: FindingsPack | undefined }) {
   const o = pack?.objectives;
@@ -11,10 +11,8 @@ export function ObjectiveReadCard({ pack }: { pack: FindingsPack | undefined }) 
       aria-labelledby="postgame-objectives-heading"
       style={{ padding: 13, display: "flex", flexDirection: "column", gap: 8 }}
     >
-      <PanelHeading color="var(--color-info)">
-        <span id="postgame-objectives-heading">Objectives</span>
-      </PanelHeading>
-      <Subheading>Objective reads</Subheading>
+      <SectionHead color="var(--color-soft-blue)" label={<span id="postgame-objectives-heading">Objectives</span>} />
+      <SectionHead level={3} dot={false} label="Objective reads" />
       <ul
         aria-label="Objective reads"
         style={{ display: "flex", flexDirection: "column", gap: 8, listStyle: "none", margin: 0, padding: 0 }}
@@ -38,13 +36,13 @@ export function ObjectiveReadCard({ pack }: { pack: FindingsPack | undefined }) 
             className="pill"
             data-testid="read-dragons"
             style={{
-              background: "var(--color-teal-low)",
-              color: "var(--color-teal)",
+              background: "var(--color-info-low)",
+              color: "var(--color-soft-blue)",
               fontSize: 8,
               padding: "2px 7px",
             }}
           >
-            {o?.dragon_denial_win_rate == null ? <UnavailableValue /> : `denial ${pct(o.dragon_denial_win_rate)}`}
+            denial {formatRate(o?.dragon_denial_win_rate, "Findings Pack objective rate unavailable")}
           </span>
         </li>
         <li
@@ -61,7 +59,7 @@ export function ObjectiveReadCard({ pack }: { pack: FindingsPack | undefined }) 
           <div style={{ flex: 1 }}>
             <div style={{ font: "600 11px var(--font-mono)" }}>Baron</div>
             <div style={{ fontSize: 9, color: "var(--color-dimmer)" }}>
-              comeback tool · pre-25 {o?.baron_pre25_win_rate == null ? <UnavailableValue /> : pct(o.baron_pre25_win_rate)}
+              comeback tool · pre-25 {formatRate(o?.baron_pre25_win_rate, "Findings Pack objective rate unavailable")}
             </div>
           </div>
           <span
@@ -69,17 +67,17 @@ export function ObjectiveReadCard({ pack }: { pack: FindingsPack | undefined }) 
             data-testid="read-baron"
             style={{
               background: "var(--color-amber-low)",
-              color: "var(--color-amber)",
+              color: "var(--color-soft-blue)",
               fontSize: 8,
               padding: "2px 7px",
             }}
           >
-            {o?.baron_comeback_lift_pp == null ? <UnavailableValue /> : `${pp(o.baron_comeback_lift_pp)} lift`}
+            {formatPercentagePoints(o?.baron_comeback_lift_pp, "Findings Pack comeback lift unavailable")} lift
           </span>
         </li>
       </ul>
       <p style={{ margin: 0, fontSize: 9.5, lineHeight: 1.5, color: "var(--color-dim)" }}>
-        First dragon before 20 wins {o?.first_dragon_pre20_win_rate == null ? <UnavailableValue /> : pct(o.first_dragon_pre20_win_rate)} of games — the swing is
+        First dragon before 20 wins {formatRate(o?.first_dragon_pre20_win_rate, "Findings Pack objective rate unavailable")} of games — the swing is
         denial, not possession.
       </p>
     </section>

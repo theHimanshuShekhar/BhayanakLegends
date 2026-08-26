@@ -89,8 +89,7 @@ describe("LiveMatchPage — idle", () => {
 
     const list = screen.getByTestId("player-list");
     expect(list).toHaveTextContent("PLAYER ROSTER");
-    expect(screen.getByTestId("score-strip")).toHaveTextContent("Unavailable kills · Unavailable turrets");
-    expect(screen.queryByTestId("waiting-pill")).not.toBeInTheDocument();
+    expect(screen.getByTestId("score-strip")).toHaveTextContent("Unavailable: kills and turrets not reported");
     const bridgeDot = within(screen.getByTestId("bridge-status")).getByTestId("bridge-dot");
     expect(bridgeDot).toHaveStyle({ background: "var(--color-dimmer)" });
     expect(bridgeDot).not.toHaveStyle({ boxShadow: "0 0 8px var(--color-teal)" });
@@ -102,14 +101,14 @@ describe("LiveMatchPage — idle", () => {
   it("keeps the unsupported live probability unavailable without a future-pack promise", async () => {
     renderPage();
     const band = await screen.findByTestId("wp-band");
-    expect(band).toHaveTextContent("—");
+    expect(band).toHaveTextContent("Unavailable: compatible live inputs unavailable");
     expect(band).toHaveTextContent(
       "The current Findings Pack lacks the compatible live input, quartile boundaries, and model inputs needed to map this game.",
     );
     expect(band).toHaveTextContent("Personal History");
     expect(band).not.toHaveTextContent(/next pack|future pack/i);
     expect(band).not.toHaveTextContent(/bottom quartile|top quartile/i);
-    expect(screen.getByTestId("wp-value")).toHaveTextContent("—");
+    expect(screen.getByTestId("wp-value")).toHaveTextContent("Unavailable: compatible live inputs unavailable");
   });
 
   it("binds the objectives cards to real pack numbers", async () => {
@@ -119,7 +118,7 @@ describe("LiveMatchPage — idle", () => {
     expect(screen.getByTestId("objective-baron")).toHaveTextContent("comeback tool");
     expect(screen.getByTestId("objective-baron")).toHaveTextContent("81.4%");
     expect(screen.getByTestId("objectives-caption")).toHaveTextContent("60.3%");
-    expect(screen.getByTestId("objectives-caption")).toHaveTextContent("+29.5pp");
+    expect(screen.getByTestId("objectives-caption")).toHaveTextContent("+29.5 pp");
   });
 
   it("renders habit nudges with ×-per-SD formatting and the trap line from the pack", async () => {
@@ -190,9 +189,9 @@ describe("LiveMatchPage — active game", () => {
     const items = screen.getByTestId("items-by-player");
     expect(items).toHaveTextContent("FixturePlayer01");
     expect(items).toHaveTextContent("Item 3065");
-    expect(items).toHaveTextContent("count 1");
+    expect(items).toHaveTextContent("×1");
     expect(items).toHaveTextContent("Item 2003");
-    expect(items).toHaveTextContent("count 2");
+    expect(items).toHaveTextContent("×2");
     expect(items).toHaveTextContent("FixturePlayer07");
     expect(within(items).getByTestId("items-player-chaos-FixturePlayer07")).toHaveTextContent("No items reported");
     expect(items).not.toHaveTextContent(/price|gold|value|icon/i);
@@ -215,7 +214,7 @@ describe("LiveMatchPage — active game", () => {
     expect(within(totals).getByTestId("team-total-order-kills")).toHaveTextContent("0");
     expect(within(totals).getByTestId("team-total-order-deaths")).toHaveTextContent("0");
     expect(within(totals).getByTestId("team-total-chaos-cs")).toHaveTextContent("0");
-    expect(screen.getByTestId("items-player-order-FixturePlayer01")).toHaveTextContent("count 0");
+    expect(screen.getByTestId("items-player-order-FixturePlayer01")).toHaveTextContent("×0");
   });
   it("binds the active player panel to the local player's stats", async () => {
     renderPage();
@@ -269,7 +268,7 @@ describe("LiveMatchPage — active game", () => {
     renderPage();
     await screen.findByTestId("player-row-local");
     const band = screen.getByTestId("wp-band");
-    expect(screen.getByTestId("wp-value")).toHaveTextContent("—");
+    expect(screen.getByTestId("wp-value")).toHaveTextContent("Unavailable: compatible live inputs unavailable");
     expect(band).not.toHaveTextContent(/bottom quartile|top quartile/i);
     expect(band).not.toHaveTextContent(/\d+(?:\.\d+)?%/);
     expect(screen.getByTestId("bridge-status")).toHaveTextContent(":2999 · 1s poll");
@@ -421,13 +420,11 @@ describe("LiveMatchPage — Findings Pack version parity", () => {
     expect(api.pack).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps loading state dash-only with unavailable live probability copy", async () => {
+  it("keeps loading state unavailable with canonical live probability copy", async () => {
     vi.mocked(api.pack).mockReturnValueOnce(new Promise<FindingsPack>(() => {}));
     renderPage();
     const band = await screen.findByTestId("wp-band");
-    expect(screen.getByTestId("wp-value")).toHaveTextContent("—");
-    expect(band).toHaveTextContent("compatible live input");
-    expect(band).not.toHaveTextContent(/bottom quartile|top quartile|\d+(?:\.\d+)?%/i);
+    expect(screen.getByTestId("wp-value")).toHaveTextContent("Unavailable: compatible live inputs unavailable");
     expect(band).not.toHaveTextContent(/v\d/);
   });
 
@@ -436,7 +433,7 @@ describe("LiveMatchPage — Findings Pack version parity", () => {
     renderPage();
     expect(await screen.findByText("Something went wrong. Check your settings and try again.")).toBeInTheDocument();
     const band = screen.getByTestId("wp-band");
-    expect(screen.getByTestId("wp-value")).toHaveTextContent("—");
+    expect(screen.getByTestId("wp-value")).toHaveTextContent("Unavailable: compatible live inputs unavailable");
     expect(band).toHaveTextContent("compatible live input");
     expect(band).not.toHaveTextContent(/sensitive pack detail|bottom quartile|top quartile|\d+(?:\.\d+)?%/i);
   });

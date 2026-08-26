@@ -1,54 +1,56 @@
-import { ReactNode } from "react";
+import type { ReactNode } from "react";
 
-export function Card({
-  kicker,
-  title,
-  children,
-  className = "",
-}: {
-  kicker?: string;
-  title?: string;
-  children?: ReactNode;
-  className?: string;
-}) {
+export function Dot({ color, glow = false }: { color: string; glow?: boolean }) {
   return (
-    <section
-      className={`rounded-lg border border-line bg-surface p-4 shadow-z1 ${className}`}
-      data-testid={title ? `card-${slug(title)}` : undefined}
-    >
-      {kicker && <div className="kicker">{kicker}</div>}
-      {title && <h2 className="mt-0.5 text-sm font-medium">{title}</h2>}
-      {children}
-    </section>
+    <span
+      aria-hidden="true"
+      style={{
+        width: 6,
+        height: 6,
+        borderRadius: "var(--radius-pill)",
+        background: color,
+        flex: "none",
+        boxShadow: glow ? `0 0 8px ${color}` : undefined,
+      }}
+    />
   );
 }
 
-export function Tag({
-  verdict,
-  children,
+export function SectionHead({
+  color = "var(--color-info)",
+  label,
+  right,
+  level = 2,
+  glow = false,
+  dot = true,
 }: {
-  verdict: "good" | "bad" | "neutral" | "advice" | "info";
-  children: ReactNode;
+  color?: string;
+  label: ReactNode;
+  right?: ReactNode;
+  level?: 2 | 3;
+  glow?: boolean;
+  dot?: boolean;
 }) {
-  const styles = {
-    good: "bg-teal-low text-teal",
-    bad: "bg-danger-low text-danger",
-    neutral: "bg-surface-3 text-dim",
-    advice: "bg-accent-low text-accent",
-    info: "bg-info-low text-info",
-  }[verdict];
+  const Heading = level === 3 ? "h3" : "h2";
   return (
-    <span className={`inline-flex rounded px-1.5 py-0.5 text-[10px] font-medium ${styles}`}>
-      {children}
-    </span>
-  );
-}
-
-export function Stat({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <div>
-      <div className="text-[10px] uppercase tracking-widest text-dimmer">{label}</div>
-      <div className="font-mono text-sm">{value}</div>
+    <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
+      {dot && <Dot color={color} glow={glow} />}
+      <Heading
+        style={{
+          margin: 0,
+          font: level === 3 ? "600 10.5px var(--font-mono)" : "var(--type-label)",
+          letterSpacing: level === 3 ? undefined : "var(--tracking-label)",
+          color: "var(--color-dim)",
+          textTransform: level === 3 ? undefined : "uppercase",
+        }}
+      >
+        {label}
+      </Heading>
+      {right != null && (
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
+          {right}
+        </div>
+      )}
     </div>
   );
 }
@@ -65,28 +67,11 @@ export function EmptyState({ title, body }: { title: string; body: string }) {
   );
 }
 
-export function Unavailable({ testId }: { testId?: string }) {
+export function Unavailable({ reason, testId }: { reason: string; testId?: string }) {
   return (
-    <span data-testid={testId} className="inline-flex items-center gap-1">
-      <span
-        aria-hidden="true"
-        style={{
-          width: 5,
-          height: 5,
-          borderRadius: "50%",
-          background: "var(--color-dimmer)",
-          display: "inline-block",
-        }}
-      />
-      <span>Unavailable</span>
+    <span data-testid={testId} role="status" className="inline-flex items-center gap-1">
+      <Dot color="var(--color-dimmer)" />
+      <span>{`Unavailable: ${reason}`}</span>
     </span>
   );
-}
-
-export function pct(v: number | null | undefined, digits = 1): string {
-  return v == null ? "—" : `${(v * 100).toFixed(digits)}%`;
-}
-
-function slug(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 }

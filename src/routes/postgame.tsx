@@ -3,6 +3,7 @@ import { actionableErrorMessage } from "../api/client";
 import {
   CheckpointStrip,
   ComebackOddsCard,
+  EmptyState,
   HabitsCard,
   ObjectiveReadCard,
   SurrenderReadCard,
@@ -52,20 +53,9 @@ export function PostGamePage() {
         <CheckpointStrip digest={digest} />
 
         {digest == null && !query.isLoading && (
-          <section
-            className="card3b"
-            aria-labelledby="postgame-empty-heading"
-            data-testid="empty-state"
-            style={{ marginTop: 12, padding: 14, textAlign: "center", fontSize: 11, color: "var(--color-dim)" }}
-          >
-            <h2
-              id="postgame-empty-heading"
-              style={{ margin: 0, font: "600 11px var(--font-mono)", color: "var(--color-dim)" }}
-            >
-              No digest yet
-            </h2>
-            <div>No games analyzed yet — Backfill from History</div>
-          </section>
+          <div style={{ marginTop: 12 }}>
+            <EmptyState title="No digest yet" body="No games analyzed yet — Backfill from History" />
+          </div>
         )}
 
         <div className="postgame-route-grid">

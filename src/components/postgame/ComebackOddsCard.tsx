@@ -1,6 +1,6 @@
 import type { FindingsPack, PostGameDigest } from "../../api/types";
-import { pct } from "../ui";
-import { PanelHeading, Subheading, UnavailableValue } from "./bits";
+import { formatGold, formatRate } from "../format";
+import { SectionHead, Unavailable } from "../ui";
 
 /**
  * Domain-aware Findings Pack population lookup over the contracted comeback
@@ -104,7 +104,7 @@ export function matchComebackBucket(
       return {
         match: {
           winRate: anchors[index].win_rate,
-          rangeLabel: `[${fmtGold(low)}g, ${fmtGold(high)}g${isLast ? "]" : ")"}`,
+          rangeLabel: `[${formatGold(-low).slice(1)}, ${formatGold(-high).slice(1)}${isLast ? "]" : ")"}`,
         },
         reason: null,
       };
@@ -113,9 +113,6 @@ export function matchComebackBucket(
   return { match: null, reason: "outside-domain" };
 }
 
-function fmtGold(value: number): string {
-  return Math.abs(value).toLocaleString("en-US");
-}
 
 /**
  * Population-bucket comeback read: describes what Findings Pack teams at a
@@ -137,23 +134,21 @@ export function ComebackOddsCard({
       aria-labelledby="postgame-comeback-heading"
       style={{ padding: 13, display: "flex", flexDirection: "column", gap: 8 }}
     >
-      <PanelHeading color="var(--color-info)">
-        <span id="postgame-comeback-heading">Comeback odds</span>
-      </PanelHeading>
-      <Subheading>Findings Pack population bucket</Subheading>
+      <SectionHead color="var(--color-soft-blue)" label={<span id="postgame-comeback-heading">Comeback odds</span>} />
+      <SectionHead level={3} dot={false} label="Findings Pack population bucket" />
       <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
         <span
           className="mono-n"
           data-testid="comeback-value"
           style={{
             font: "700 22px var(--font-mono)",
-            color: result.match ? "var(--color-danger)" : "var(--color-dimmer)",
+            color: result.match ? "var(--color-soft-blue)" : "var(--color-dimmer)",
           }}
         >
-          {result.match ? pct(result.match.winRate) : <UnavailableValue />}
+          {result.match ? formatRate(result.match.winRate) : <Unavailable reason="no supported population bucket" />}
         </span>
         <span style={{ fontSize: 10, color: "var(--color-dimmer)" }} data-testid="comeback-range">
-          {result.match ? result.match.rangeLabel : "—"}
+          {result.match ? result.match.rangeLabel : ""}
         </span>
       </div>
       <p
@@ -161,7 +156,7 @@ export function ComebackOddsCard({
         style={{ margin: 0, fontSize: 10, lineHeight: 1.5, color: "#cfd3e5" }}
       >
         {result.match
-          ? `Teams in ${result.match.rangeLabel} down 3,500g+ at 15 won about ${pct(result.match.winRate)} of the time — Findings Pack population bucket.`
+          ? `Teams in ${result.match.rangeLabel} down 3,500g+ at 15 won about ${formatRate(result.match.winRate)} of the time — Findings Pack population bucket.`
           : SUPPRESSION_COPY[result.reason]}
       </p>
       {result.match && gold15 != null && (
@@ -169,8 +164,7 @@ export function ComebackOddsCard({
           data-testid="personal-checkpoint-note"
           style={{ margin: 0, fontSize: 10, lineHeight: 1.5, color: "var(--color-dimmer)" }}
         >
-          Your game was down {Math.abs(gold15).toLocaleString("en-US")}g at 15 — Personal
-          History, shown separately above.
+          Your game was down {formatGold(Math.abs(gold15)).slice(1)} at 15 — Personal History, shown separately above.
         </p>
       )}
     </section>

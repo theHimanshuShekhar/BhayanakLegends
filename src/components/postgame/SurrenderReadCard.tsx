@@ -1,4 +1,4 @@
-import { PanelHeading, Subheading, UnavailableValue } from "./bits";
+import { SectionHead, Unavailable } from "../ui";
 
 /**
  * Structure-only until the pack ships the surrender advisor (ADR-0003): the
@@ -12,13 +12,11 @@ export function SurrenderReadCard() {
       aria-labelledby="postgame-surrender-heading"
       style={{ padding: 13, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 8 }}
     >
-      <PanelHeading color="var(--color-info)">
-        <span id="postgame-surrender-heading">Surrender read</span>
-      </PanelHeading>
-      <Subheading>Vote context</Subheading>
+      <SectionHead color="var(--color-info)" label={<span id="postgame-surrender-heading">Surrender read</span>} />
+      <SectionHead level={3} dot={false} label="Vote context" />
       <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
         <span className="mono-n" style={{ font: "700 22px var(--font-mono)", color: "var(--color-dimmer)" }}>
-          <UnavailableValue />
+          <Unavailable reason="surrender advisor unavailable" />
         </span>
         <span style={{ fontSize: 10, color: "var(--color-dimmer)" }}>flip chance at your vote</span>
       </div>
@@ -34,7 +32,7 @@ export function SurrenderReadCard() {
       >
         <span style={{ fontSize: 9.5, color: "var(--color-dim)" }}>At 20 min, before the vote</span>
         <span className="mono-n" style={{ marginLeft: "auto", fontSize: 11, color: "var(--color-dimmer)" }}>
-          <UnavailableValue />
+          <Unavailable reason="surrender advisor unavailable" />
         </span>
       </div>
       <p style={{ margin: "auto 0 0", fontSize: 9.5, lineHeight: 1.5, color: "var(--color-dim)" }}>
