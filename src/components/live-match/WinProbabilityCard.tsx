@@ -7,8 +7,6 @@ import { clockLabel, Dot } from "./bits";
  * and model inputs. Keep this state explicit instead of deriving a number
  * from a clock-only checkpoint lookup.
  */
-const LIVE_PROBABILITY: number | null = null;
-
 export function WinProbabilityCard({
   pack: _pack,
   clockS,
@@ -20,9 +18,6 @@ export function WinProbabilityCard({
   active: boolean;
   packVersion: string | null;
 }) {
-  void clockS;
-  const wr = LIVE_PROBABILITY;
-  const y = 54;
   const signal = "var(--color-dimmer)";
   return (
     <section
@@ -71,46 +66,17 @@ export function WinProbabilityCard({
         style={{ width: "100%", height: 100, marginTop: 6 }}
         preserveAspectRatio="none"
       >
-        <defs>
-          <linearGradient id="wp-fill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="#57cfb4" stopOpacity=".4" />
-            <stop offset="1" stopColor="#57cfb4" stopOpacity="0" />
-          </linearGradient>
-          <linearGradient id="wp-fill-behind" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="#e5738f" stopOpacity=".35" />
-            <stop offset="1" stopColor="#e5738f" stopOpacity="0" />
-          </linearGradient>
-        </defs>
         <line x1="0" y1="54" x2="640" y2="54" stroke="rgba(233,233,237,.16)" strokeWidth="1" />
-        {wr == null ? (
-          <line
-            x1="0"
-            y1={y}
-            x2="640"
-            y2={y}
-            stroke="rgba(233,233,237,.28)"
-            strokeWidth="2"
-            strokeDasharray="4 5"
-            strokeLinecap="round"
-          />
-        ) : (
-          <>
-            <path
-              d={`M0,${y} L640,${y} L640,108 L0,108 Z`}
-              fill={wr >= 0.5 ? "url(#wp-fill)" : "url(#wp-fill-behind)"}
-            />
-            <polyline
-              points={`0,${y} 640,${y}`}
-              fill="none"
-              stroke={signal}
-              strokeWidth="2.5"
-              strokeLinejoin="round"
-              strokeLinecap="round"
-            />
-            <circle cx="640" cy={y} r="5" fill={signal} />
-            <circle cx="640" cy={y} r="9" fill={signal} opacity=".25" />
-          </>
-        )}
+        <line
+          x1="0"
+          y1="54"
+          x2="640"
+          y2="54"
+          stroke="rgba(233,233,237,.28)"
+          strokeWidth="2"
+          strokeDasharray="4 5"
+          strokeLinecap="round"
+        />
       </svg>
       <div
         style={{

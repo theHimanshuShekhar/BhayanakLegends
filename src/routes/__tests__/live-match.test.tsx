@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { FindingsPack, InGameSnapshot } from "../../api/types";
 import type { SseMessage } from "../../api/sse";
+import type { api as ApiObject } from "../../api/client";
 import { LiveMatchPage } from "../live-match";
 import {
   forbiddenEnemyName,
@@ -11,20 +12,25 @@ import {
   makePack,
 } from "./fixtures";
 
+type ClientModule = { api: typeof ApiObject; [key: string]: unknown };
+
 // Mutable fixtures read lazily by the hook mocks below.
 const liveState = vi.hoisted(() => ({
   ingame: null as InGameSnapshot | null,
 }));
 
-vi.mock("../../api/client", () => ({
-  api: {
-    pack: vi.fn(),
-  },
-  actionableErrorMessage: (_error: unknown, context?: string) =>
-    context === "pack" ? "The Findings Pack is unavailable." : "Something went wrong.",
-  connection: () => ({ base: "", token: "t" }),
-  eventsUrl: () => "http://127.0.0.1:1/events?token=t",
-}));
+vi.mock("../../api/client", async (importOriginal) => {
+  const actual = await importOriginal<ClientModule>();
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      pack: vi.fn(),
+    },
+    connection: () => ({ base: "", token: "t" }),
+    eventsUrl: () => "http://127.0.0.1:1/events?token=t",
+  };
+});
 
 // Real react-query hooks bound to the fixtures above, so SSE overlays that
 // write into ["live-ingame"] re-render exactly like production.
@@ -313,7 +319,7 @@ describe("LiveMatchPage — Findings Pack version parity", () => {
   it("keeps pack errors bounded while the probability card stays suppressed", async () => {
     vi.mocked(api.pack).mockRejectedValueOnce(new Error("sensitive pack detail"));
     renderPage();
-    expect(await screen.findByText("The Findings Pack is unavailable.")).toBeInTheDocument();
+    expect(await screen.findByText("Something went wrong. Check your settings and try again.")).toBeInTheDocument();
     const band = screen.getByTestId("wp-band");
     expect(screen.getByTestId("wp-value")).toHaveTextContent("—");
     expect(band).toHaveTextContent("compatible live input");
