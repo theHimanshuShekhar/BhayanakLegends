@@ -48,9 +48,11 @@ def artifacts(tmp_path: Path) -> dict[str, Path]:
     # tauri signer writes keys/signatures as a single line of base64 text
     # (base64 of the minisign armored comment+key block); the fixture must
     # copy that text verbatim into latest.json rather than re-encoding it.
-    artifact = tmp_path / "BhayanakLegends_0.2.0_x64-setup.nsis.zip"
+    # The real tauri CLI emits the signed NSIS setup .exe itself as the
+    # updater artifact with <archive>.sig next to it; no .nsis.zip exists.
+    artifact = tmp_path / "BhayanakLegends_0.2.0_x64-setup.exe"
     artifact.write_bytes(b"real-higher-version-updater-archive-bytes")
-    signature = tmp_path / "BhayanakLegends_0.2.0_x64-setup.nsis.zip.sig"
+    signature = tmp_path / "BhayanakLegends_0.2.0_x64-setup.exe.sig"
     signature.write_text("dW50cnVzdGVkIGNvbW1lbnQ6VkFMSURfU0lHTkFUVVJFX0RBVEE=", encoding="utf-8")
     rejected_signature = tmp_path / "rejected.sig"
     rejected_signature.write_text("dW50cnVzdGVkIGNvbW1lbnQ6TUlTTUFUQ0hFRF9TSUdOQVRVUkU=", encoding="utf-8")
