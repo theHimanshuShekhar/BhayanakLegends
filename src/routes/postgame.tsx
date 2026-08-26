@@ -27,62 +27,71 @@ export function PostGamePage() {
       }}
     >
       <PageHeader kicker="post-game review · the 30 seconds after the game" title="Post-game Review" />
-      {query.isError && (
-        <div style={{ marginBottom: 10, fontSize: 11, color: "var(--color-amber)" }}>
-          {actionableErrorMessage(query.error)}
+      {(query.isLoading || packQuery.isLoading) && (
+        <div role="status" aria-live="polite" style={{ minHeight: 15, fontSize: 10.5, color: "var(--color-dim)" }}>
+          Loading post-game review…
         </div>
       )}
-      {packQuery.isError && (
-        <div style={{ marginBottom: 10, fontSize: 11, color: "var(--color-amber)" }}>
-          {actionableErrorMessage(packQuery.error, "pack")}
-        </div>
-      )}
-
-      <VerdictHeader digest={digest} />
-      <CheckpointStrip digest={digest} />
-
-      {digest == null && (
-        <div
-          className="card3b"
-          data-testid="empty-state"
-          style={{ marginTop: 12, padding: 14, textAlign: "center", fontSize: 11, color: "var(--color-dim)" }}
-        >
-          No games analyzed yet — Backfill from History
-        </div>
-      )}
-
-      <div
-        style={{
-          flex: 1,
-          display: "grid",
-          gridTemplateColumns: "1fr 380px",
-          gap: 14,
-          paddingTop: 14,
-          minHeight: 0,
-        }}
+      <section
+        className="postgame-evidence"
+        aria-label="Post-game evidence"
+        aria-busy={query.isLoading || packQuery.isLoading}
       >
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
-          <HabitsCard digest={digest} />
-          <section className="card3" style={{ padding: 13, display: "flex", alignItems: "center", gap: 10 }}>
-            <span
-              className="pill"
-              style={{ background: "var(--color-amber-low)", color: "var(--color-amber)" }}
-            >
-              Backfill
-            </span>
-            <p style={{ margin: 0, fontSize: 10.5, lineHeight: 1.5, color: "#cfd3e5" }}>
-              Older games arrive through Backfill — start it from the History tab. This digest covers
-              the latest game only.
-            </p>
-          </section>
-        </div>
+        {query.isError && (
+          <div role="alert" style={{ marginBottom: 10, fontSize: 11, color: "var(--color-amber)" }}>
+            {actionableErrorMessage(query.error)}
+          </div>
+        )}
+        {packQuery.isError && (
+          <div role="alert" style={{ marginBottom: 10, fontSize: 11, color: "var(--color-amber)" }}>
+            {actionableErrorMessage(packQuery.error, "pack")}
+          </div>
+        )}
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
-          <ObjectiveReadCard pack={packQuery.data} />
-          <ComebackOddsCard digest={digest} pack={packQuery.data} />
-          <SurrenderReadCard />
+        <VerdictHeader digest={digest} />
+        <CheckpointStrip digest={digest} />
+
+        {digest == null && !query.isLoading && (
+          <section
+            className="card3b"
+            aria-labelledby="postgame-empty-heading"
+            data-testid="empty-state"
+            style={{ marginTop: 12, padding: 14, textAlign: "center", fontSize: 11, color: "var(--color-dim)" }}
+          >
+            <h2
+              id="postgame-empty-heading"
+              style={{ margin: 0, font: "600 11px var(--font-mono)", color: "var(--color-dim)" }}
+            >
+              No digest yet
+            </h2>
+            <div>No games analyzed yet — Backfill from History</div>
+          </section>
+        )}
+
+        <div className="postgame-route-grid">
+          <div className="postgame-main-column">
+            <HabitsCard digest={digest} />
+            <section className="card3" aria-labelledby="postgame-backfill-heading" style={{ padding: 13, display: "flex", alignItems: "center", gap: 10 }}>
+              <h2
+                id="postgame-backfill-heading"
+                style={{ margin: 0, font: "600 10.5px var(--font-mono)", color: "var(--color-amber)" }}
+              >
+                Backfill context
+              </h2>
+              <p style={{ margin: 0, fontSize: 10.5, lineHeight: 1.5, color: "#cfd3e5" }}>
+                Older games arrive through Backfill — start it from the History tab. This digest covers
+                the latest game only.
+              </p>
+            </section>
+          </div>
+
+          <div className="postgame-support-column">
+            <ObjectiveReadCard pack={packQuery.data} />
+            <ComebackOddsCard digest={digest} pack={packQuery.data} />
+            <SurrenderReadCard />
+          </div>
         </div>
-      </div>
+      </section>
     </div>
   );
 }

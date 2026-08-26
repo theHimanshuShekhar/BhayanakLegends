@@ -14,6 +14,55 @@ export function Dot({ color }: { color: string }) {
   );
 }
 
+export function PanelHeading({
+  color = "var(--color-info)",
+  children,
+}: {
+  color?: string;
+  children: ReactNode;
+}) {
+  return (
+    <h2
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        margin: 0,
+        font: "700 9.5px var(--font-mono)",
+        letterSpacing: ".11em",
+        color: "var(--color-dim)",
+        textTransform: "uppercase",
+      }}
+    >
+      <Dot color={color} />
+      {children}
+    </h2>
+  );
+}
+
+export function Subheading({ children }: { children: ReactNode }) {
+  return (
+    <h3
+      style={{
+        margin: 0,
+        font: "600 10.5px var(--font-mono)",
+        color: "var(--color-dim)",
+      }}
+    >
+      {children}
+    </h3>
+  );
+}
+
+export function UnavailableValue() {
+  return (
+    <>
+      <span aria-hidden="true">—</span>
+      <span className="sr-only">Unavailable</span>
+    </>
+  );
+}
+
 export function CardHead({ color, label, right }: { color: string; label: string; right?: ReactNode }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
