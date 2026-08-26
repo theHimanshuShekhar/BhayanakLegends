@@ -80,6 +80,37 @@ jobs:
           uv run --project backend python tools/sign_findings_pack_manifest.py \
             pack/findings-pack-manifest.json
 
+      - name: Verify updater signing prerequisites
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          config = json.loads(Path("src-tauri/tauri.conf.json").read_text())
+          if config.get("bundle", {}).get("createUpdaterArtifacts") is not True:
+              sys.exit("createUpdaterArtifacts must be true before publishing")
+          if not config.get("plugins", {}).get("updater", {}).get("pubkey"):
+              sys.exit("updater pubkey must be configured before publishing")
+          if not os.environ.get("TAURI_SIGNING_PRIVATE_KEY"):
+              sys.exit("TAURI_SIGNING_PRIVATE_KEY secret is not provisioned; refusing to publish unsigned updates")
+          PY
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+
+      - name: Build Windows updater bundle
+        run: pnpm tauri build --bundles nsis
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      - name: Check Windows updater artifacts
+        run: |
+          uv run --project backend --locked python tools/check_windows_updater_artifacts.py \
+            --bundle-dir src-tauri/target/release/bundle/nsis \
+            --latest-json "$RUNNER_TEMP/latest.json" \
+            --write-latest-json \
+            --base-url "https://github.com/${{ github.repository }}/releases/download/v${GITHUB_REF_NAME#v}" \
+            --version "${GITHUB_REF_NAME#v}"
+
       - name: Build and publish signed release
         uses: tauri-apps/tauri-action@564aea5a8075c7a54c167bb0cf5b3255314a7f9d # v0.5.22
         env:
@@ -93,3 +124,15 @@ jobs:
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
+          updaterJsonPreferNsis: true
+
+      - name: Verify emitted updater artifacts
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${GITHUB_REF_NAME#v}"
+          gh release view "$TAG" --json assets --jq '.assets[].name' > /tmp/assets.txt
+          grep -q 'latest.json' /tmp/assets.txt || { echo "latest.json missing from release assets"; exit 1; }
+          grep -q '\.sig$' /tmp/assets.txt || { echo "no .sig updater signature in release assets"; exit 1; }
+          echo "updater artifacts verified"
