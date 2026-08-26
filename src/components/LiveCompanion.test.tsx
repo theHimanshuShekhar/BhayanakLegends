@@ -1,10 +1,12 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { champSelectSession, ingameSnapshot, idleSession } from "../routes/__tests__/fixtures";
+import type { LiveStatus } from "../api/types";
 import type { SseMessage } from "../api/sse";
 
-const mocks = vi.hoisted(() => ({ invoke: vi.fn() }));
-vi.mock("@tauri-apps/api/core", () => mocks);
+const mocks = vi.hoisted(() => ({ invoke: vi.fn(), useLiveStatus: vi.fn() }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke }));
+vi.mock("../api/hooks", () => ({ useLiveStatus: mocks.useLiveStatus }));
 const { invoke } = mocks;
 let pushSse: ((message: SseMessage) => void) | undefined;
 vi.mock("../api/sse", () => ({
@@ -14,12 +16,24 @@ vi.mock("../api/sse", () => ({
   },
 }));
 
+const idleStatus: LiveStatus = {
+  champ_select: { active: false, phase: null },
+  ingame: { active: false, game_id: null, mode: null, clock_s: 0 },
+  last_error: null,
+};
+const inGameStatus: LiveStatus = {
+  ...idleStatus,
+  ingame: { active: true, game_id: 42, mode: "CLASSIC", clock_s: 3 },
+};
+
 import { LiveCompanion } from "./LiveCompanion";
 
 describe("LiveCompanion", () => {
   beforeEach(() => {
     invoke.mockReset();
     invoke.mockResolvedValue(undefined);
+    mocks.useLiveStatus.mockReset();
+    mocks.useLiveStatus.mockReturnValue({ data: undefined });
     pushSse = undefined;
   });
 
@@ -44,6 +58,21 @@ describe("LiveCompanion", () => {
     pushSse!({ type: "champselect.state", ts: "4", data: idleSession });
     expect(await screen.findByTestId("live-companion-mode")).toHaveTextContent("idle");
     expect(invoke).toHaveBeenLastCalledWith("set_live_companion_mode", { mode: "idle" });
+  });
+
+  it("hydrates in-game from the first successful status query", async () => {
+    mocks.useLiveStatus.mockReturnValue({ data: inGameStatus });
+
+    render(<LiveCompanion />);
+
+    expect(await screen.findByTestId("live-companion-mode")).toHaveTextContent("in-game");
+    expect(invoke).toHaveBeenLastCalledWith("set_live_companion_mode", {
+      mode: "in-game",
+      expanded: false,
+    });
+    expect(
+      screen.getByText("Borderless-windowed mode required; this companion is not click-through."),
+    ).toBeVisible();
   });
 
   it("expands and collapses in-game without opening a second event owner", async () => {

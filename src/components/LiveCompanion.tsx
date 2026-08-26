@@ -1,8 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState } from "react";
+import { useLiveStatus } from "../api/hooks";
 import { useEvents } from "../api/sse";
 import type { SseMessage } from "../api/sse";
-
 type LivePhase = "idle" | "champ-select" | "in-game";
 type CompanionModeRequest =
   | { mode: "idle" }
@@ -26,6 +26,7 @@ function requestFor(phase: LivePhase, expanded = false): CompanionModeRequest {
 }
 
 export function LiveCompanion() {
+  const liveStatus = useLiveStatus();
   const [phase, setPhase] = useState<LivePhase>("idle");
   const [expanded, setExpanded] = useState(false);
   const phaseRef = useRef<LivePhase>("idle");
@@ -55,6 +56,14 @@ export function LiveCompanion() {
     }
     applyPhase(modeFromSources(sourcesRef.current.champSelect, sourcesRef.current.inGame));
   });
+
+  useEffect(() => {
+    const status = liveStatus.data;
+    if (!status) return;
+    sourcesRef.current.champSelect = status.champ_select.active;
+    sourcesRef.current.inGame = status.ingame.active;
+    applyPhase(modeFromSources(status.champ_select.active, status.ingame.active));
+  }, [liveStatus.data]);
 
   useEffect(() => {
     document.documentElement.dataset.liveCompanion = phase === "in-game" ? "widget" : "normal";

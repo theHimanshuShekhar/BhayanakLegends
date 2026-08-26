@@ -1,7 +1,79 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api } from "./client";
 import { useEvents } from "./sse";
-import type { PatchAggregate, SettingsPatch } from "./types";
+import type { SseMessage } from "./sse";
+import type { LiveStatus, PatchAggregate, SettingsPatch } from "./types";
+
+interface LiveStatusArbiter {
+  champSelectRevision: number;
+  inGameRevision: number;
+  champSelectActive?: boolean;
+  champSelectPhase?: LiveStatus["champ_select"]["phase"];
+  inGameActive?: boolean;
+  latest?: LiveStatus;
+  hasConnected: boolean;
+  wasConnected: boolean;
+}
+
+const liveStatusArbiters = new WeakMap<object, LiveStatusArbiter>();
+
+function liveStatusArbiterFor(queryClient: QueryClient): LiveStatusArbiter {
+  const existing = liveStatusArbiters.get(queryClient);
+  if (existing) return existing;
+  const created: LiveStatusArbiter = {
+    champSelectRevision: 0,
+    inGameRevision: 0,
+    hasConnected: false,
+    wasConnected: false,
+  };
+  liveStatusArbiters.set(queryClient, created);
+  return created;
+}
+
+function applyLiveStatusEvent(
+  queryClient: QueryClient,
+  arbiter: LiveStatusArbiter,
+  message: SseMessage,
+) {
+  if (message.type === "live.status") {
+    arbiter.champSelectRevision += 1;
+    arbiter.inGameRevision += 1;
+    arbiter.champSelectActive = message.data.champ_select.active;
+    arbiter.champSelectPhase = message.data.champ_select.phase;
+    arbiter.inGameActive = message.data.ingame.active;
+    arbiter.latest = message.data;
+    queryClient.setQueryData(["live-status"], message.data);
+    return;
+  }
+  if (message.type === "champselect.state") {
+    arbiter.champSelectRevision += 1;
+    arbiter.champSelectActive = message.data.active;
+    arbiter.champSelectPhase = message.data.phase;
+    if (arbiter.latest) {
+      arbiter.latest = {
+        ...arbiter.latest,
+        champ_select: {
+          ...arbiter.latest.champ_select,
+          active: message.data.active,
+          phase: message.data.phase,
+        },
+      };
+      queryClient.setQueryData(["live-status"], arbiter.latest);
+    }
+    return;
+  }
+  if (message.type === "live.state") {
+    arbiter.inGameRevision += 1;
+    arbiter.inGameActive = message.data.active;
+    if (arbiter.latest) {
+      arbiter.latest = {
+        ...arbiter.latest,
+        ingame: { ...arbiter.latest.ingame, active: message.data.active },
+      };
+      queryClient.setQueryData(["live-status"], arbiter.latest);
+    }
+  }
+}
 export function useHealth() {
   return useQuery({ queryKey: ["health"], queryFn: api.health });
 }
@@ -120,12 +192,54 @@ export function useSyncStatus() {
 
 export function useLiveStatus() {
   const qc = useQueryClient();
-  useEvents((message) => {
-    if (message.type === "live.status") qc.setQueryData(["live-status"], message.data);
-  });
+  const arbiter = liveStatusArbiterFor(qc);
+  useEvents(
+    (message) => applyLiveStatusEvent(qc, arbiter, message),
+    {
+      onConnectionChange: (connected) => {
+        if (!connected) {
+          arbiter.wasConnected = false;
+          return;
+        }
+        if (arbiter.wasConnected) return;
+        if (arbiter.hasConnected) {
+          void qc.refetchQueries({ queryKey: ["live-status"], type: "active" });
+        }
+        arbiter.hasConnected = true;
+        arbiter.wasConnected = true;
+      },
+    },
+  );
   return useQuery({
     queryKey: ["live-status"],
-    queryFn: api.liveStatus,
+    queryFn: async () => {
+      const champSelectRevision = arbiter.champSelectRevision;
+      const inGameRevision = arbiter.inGameRevision;
+      const status = await api.liveStatus();
+      const next: LiveStatus = {
+        ...status,
+        champ_select:
+          arbiter.champSelectRevision > champSelectRevision && arbiter.champSelectActive !== undefined
+            ? {
+                ...status.champ_select,
+                active: arbiter.champSelectActive,
+                phase:
+                  arbiter.champSelectPhase !== undefined
+                    ? arbiter.champSelectPhase
+                    : status.champ_select.phase,
+              }
+            : status.champ_select,
+        ingame:
+          arbiter.inGameRevision > inGameRevision && arbiter.inGameActive !== undefined
+            ? { ...status.ingame, active: arbiter.inGameActive }
+            : status.ingame,
+      };
+      arbiter.latest = next;
+      arbiter.champSelectActive = next.champ_select.active;
+      arbiter.champSelectPhase = next.champ_select.phase;
+      arbiter.inGameActive = next.ingame.active;
+      return next;
+    },
     refetchInterval: 3_000,
   });
 }

@@ -49,6 +49,11 @@ function StatusOnly() {
   return <output data-testid="status-only">{connected ? "connected" : "offline"}</output>;
 }
 
+function ConnectionObserver({ onChange }: { onChange: (connected: boolean) => void }) {
+  useEvents(undefined, { onConnectionChange: onChange });
+  return null;
+}
+
 const validSyncProgress = {
   type: "sync.progress",
   ts: "2026-08-24T00:00:00Z",
@@ -102,6 +107,7 @@ describe("shared SSE owner", () => {
     vi.stubGlobal("EventSource", FakeEventSource);
     FakeEventSource.instances = [];
     urls.eventsUrl.mockClear();
+    urls.invalidateConnection.mockClear();
   });
 
   afterEach(() => {
@@ -206,6 +212,38 @@ describe("shared SSE owner", () => {
     expect(screen.getByTestId("status-only")).toHaveTextContent("connected");
     expect(received).toHaveLength(2);
     expect(received.map((message) => message.type)).toEqual(["sync.progress", "champselect.state"]);
+  });
+
+  it("notifies connection edges while retaining one shared source across reconnect", async () => {
+    vi.useFakeTimers();
+    const firstEdges: boolean[] = [];
+    const secondEdges: boolean[] = [];
+    render(
+      <>
+        <ConnectionObserver onChange={(connected) => firstEdges.push(connected)} />
+        <ConnectionObserver onChange={(connected) => secondEdges.push(connected)} />
+      </>,
+    );
+
+    await act(async () => {});
+    expect(FakeEventSource.instances).toHaveLength(1);
+    await act(async () => {
+      FakeEventSource.instances[0].open();
+    });
+    expect(firstEdges).toEqual([false, true]);
+    expect(secondEdges).toEqual([false, true]);
+
+    await act(async () => {
+      FakeEventSource.instances[0].error();
+      vi.advanceTimersByTime(2_000);
+    });
+    await act(async () => {});
+    expect(FakeEventSource.instances).toHaveLength(2);
+    await act(async () => {
+      FakeEventSource.instances[1].open();
+    });
+    expect(firstEdges).toEqual([false, true, false, true]);
+    expect(secondEdges).toEqual([false, true, false, true]);
   });
 
   it("closes the source and cancels reconnect when the final subscriber unmounts", async () => {
