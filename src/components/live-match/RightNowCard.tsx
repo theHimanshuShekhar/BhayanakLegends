@@ -14,9 +14,10 @@ export function RightNowCard({ pack }: { pack: FindingsPack | undefined }) {
     <section
       className="card3"
       data-testid="habit-nudges"
+      aria-labelledby="right-now-heading"
       style={{ padding: 12, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 7 }}
     >
-      <SectionHead color="var(--color-info)" label="RIGHT NOW" />
+      <SectionHead color="var(--color-info)" label={<span id="right-now-heading">RIGHT NOW</span>} />
       <div
         style={{
           display: "flex",

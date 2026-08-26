@@ -51,6 +51,7 @@ export function ChampionHeader({
     >
       <div style={{ display: "flex", alignItems: "center", gap: 13 }}>
         <div
+          aria-hidden="true"
           style={{
             width: 60,
             height: 60,

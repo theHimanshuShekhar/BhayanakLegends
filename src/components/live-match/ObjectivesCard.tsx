@@ -8,9 +8,10 @@ export function ObjectivesCard({ pack }: { pack: FindingsPack | undefined }) {
     <section
       className="card3"
       data-testid="objectives-computed"
+      aria-labelledby="objectives-computed-heading"
       style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}
     >
-      <SectionHead color="var(--color-info)" label="OBJECTIVES · COMPUTED" />
+      <SectionHead color="var(--color-info)" label={<span id="objectives-computed-heading">OBJECTIVES · COMPUTED</span>} />
       <div
         data-testid="objective-dragon"
         style={{

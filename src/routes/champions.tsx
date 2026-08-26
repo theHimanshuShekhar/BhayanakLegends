@@ -122,7 +122,7 @@ export function ChampionsPage() {
           style={{
             minHeight: 0,
             display: "grid",
-            gridTemplateColumns: "380px 1fr 360px",
+            gridTemplateColumns: "minmax(0, 380px) minmax(0, 1fr) minmax(0, 360px)",
             gap: 14,
             alignItems: "start",
           }}

@@ -26,6 +26,7 @@ export function ProgressSummaryCard({ summary }: { summary: HistorySummary }) {
       </div>
       <div style={{ marginTop: 9, display: "flex", alignItems: "center", gap: 12 }}>
         <div
+          aria-hidden="true"
           style={{
             width: 50,
             height: 50,

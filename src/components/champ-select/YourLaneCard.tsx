@@ -54,6 +54,7 @@ export function YourLaneCard({
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
         <div
+          aria-hidden="true"
           style={{
             width: 50,
             height: 50,

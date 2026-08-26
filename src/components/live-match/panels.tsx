@@ -7,6 +7,7 @@ export function ActivePlayerCard({ player }: { player: PlayerLive | null }) {
     <section
       className="card3b"
       data-testid="active-player"
+      aria-labelledby="active-player-heading"
       style={{
         padding: 13,
         background: "linear-gradient(165deg,#1f2c31,var(--color-surface-2) 64%)",
@@ -15,7 +16,7 @@ export function ActivePlayerCard({ player }: { player: PlayerLive | null }) {
       }}
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 9 }}>
-        <h2 style={{ margin: 0, font: "700 9.5px var(--font-mono)", letterSpacing: ".11em", color: "var(--color-dim)" }}>
+        <h2 id="active-player-heading" style={{ margin: 0, font: "700 9.5px var(--font-mono)", letterSpacing: ".11em", color: "var(--color-dim)" }}>
           Active player
         </h2>
         {player && (
@@ -156,9 +157,10 @@ export function TeamVsTeamCard({ snapshot }: { snapshot: InGameSnapshot | undefi
     <section
       className="card3"
       data-testid="team-totals"
+      aria-labelledby="team-vs-team-heading"
       style={{ padding: 12, display: "flex", flexDirection: "column", gap: 9 }}
     >
-      <SectionHead color={active ? "var(--color-teal)" : "var(--color-dimmer)"} label="TEAM VS TEAM" />
+      <SectionHead color={active ? "var(--color-teal)" : "var(--color-dimmer)"} label={<span id="team-vs-team-heading">TEAM VS TEAM</span>} />
       {active && teams.some((team) => team.players.length > 0) ? (
         <div className="live-table-scroll" aria-label="Team totals table">
           <table aria-label="Team totals" style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
@@ -207,11 +209,12 @@ export function EventFeedCard({ snapshot }: { snapshot: InGameSnapshot | undefin
     <section
       className="card3"
       data-testid="event-feed"
+      aria-labelledby="event-feed-heading"
       style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}
     >
       <SectionHead
         color={active ? "var(--color-teal)" : "var(--color-dimmer)"}
-        label="EVENT FEED"
+        label={<span id="event-feed-heading">EVENT FEED</span>}
         right={
           <span className="mono-n" style={{ fontSize: 9, color: "var(--color-dimmer)" }}>
             {active ? formatCount(events.length, "events") : "No snapshot"}
@@ -298,9 +301,10 @@ export function ItemsByPlayerCard({ snapshot }: { snapshot: InGameSnapshot | und
     <section
       className="card3"
       data-testid="items-by-player"
+      aria-labelledby="items-by-player-heading"
       style={{ padding: 12, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 7 }}
     >
-      <SectionHead color={active ? "var(--color-teal)" : "var(--color-dimmer)"} label="ITEMS BY PLAYER" />
+      <SectionHead color={active ? "var(--color-teal)" : "var(--color-dimmer)"} label={<span id="items-by-player-heading">ITEMS BY PLAYER</span>} />
       {active && teams.some((team) => team.players.length > 0) ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
           {teams.map(({ key, label, players }) => (
