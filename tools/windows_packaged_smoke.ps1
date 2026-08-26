@@ -212,12 +212,21 @@ try {
   $installerProcess = Start-Process -FilePath $InstallerPath -ArgumentList @("/S", "/D=$InstallRoot") -Wait -PassThru
   if ($installerProcess.ExitCode -ne 0) { throw "NSIS installer failed with exit code $($installerProcess.ExitCode)" }
 
-  $appPath = Join-Path $InstallRoot "Bhayanak Legends.exe"
+  # Tauri's productName controls the installer/display name, but the installed
+  # executable keeps Cargo's binary name. Never fall back to the bundled
+  # sidecar: doing so launches Python without the app-generated token and makes
+  # every WebView assertion fail before CDP can open.
+  $appPath = Join-Path $InstallRoot "bhayanak-legends.exe"
   if (-not (Test-Path $appPath)) {
-    $candidate = Get-ChildItem -Path $InstallRoot -Filter "*.exe" -Recurse | Where-Object { $_.Name -notlike "uninstall*" } | Select-Object -First 1
-    if (-not $candidate) { throw "packaged executable was not found under $InstallRoot" }
-    $appPath = $candidate.FullName
+    $candidates = @(Get-ChildItem -Path $InstallRoot -Filter "*.exe" -Recurse |
+      Where-Object { $_.Name -notlike "uninstall*" -and $_.Name -notlike "*sidecar*" })
+    if ($candidates.Count -ne 1) {
+      $names = ($candidates | ForEach-Object { $_.FullName }) -join ", "
+      throw "packaged app executable resolution was ambiguous: $names"
+    }
+    $appPath = $candidates[0].FullName
   }
+  Write-Output "packaged app executable: $appPath"
   $state.executable = $appPath
 
   $appNameForDiagnostics = [System.IO.Path]::GetFileNameWithoutExtension($appPath)
