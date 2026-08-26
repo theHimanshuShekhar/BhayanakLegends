@@ -154,11 +154,27 @@ jobs:
           $diagnostics = Join-Path $env:RUNNER_TEMP "bl-smoke"
           New-Item -ItemType Directory -Force -Path $diagnostics | Out-Null
           $stateFile = Join-Path $diagnostics "updater-fixture.json"
-          $stdout = Join-Path $diagnostics "updater-fixture.log"
-          $stderr = Join-Path $diagnostics "updater-fixture.err.log"
+          $stdoutLog = Join-Path $diagnostics "updater-fixture.log"
+          $stderrLog = Join-Path $diagnostics "updater-fixture.err.log"
           $flipFile = Join-Path $env:RUNNER_TEMP "bl-smoke-invalid-phase"
 
-          $fixture = Start-Process -FilePath python -ArgumentList @(
+          # Cold runner filesystems can make Defender scan the freshly
+          # written helper scripts long enough to blow a short readiness
+          # wait, so allow up to 60s, watch the process itself (an early
+          # crash must fail immediately with its logs in the step output),
+          # and retry once if the first launch exits before readiness.
+          function Show-FixtureLogs {
+            foreach ($log in @($stdoutLog, $stderrLog)) {
+              if (Test-Path $log) {
+                Write-Output "--- $log ---"
+                Get-Content $log | ForEach-Object { Write-Output $_ }
+              } else {
+                Write-Output "--- $log (absent) ---"
+              }
+            }
+          }
+
+          $fixtureArguments = @(
             "tools/windows_updater_fixture.py",
             "--state-file", $stateFile,
             "--port", "$env:SMOKE_FIXTURE_PORT",
@@ -168,15 +184,46 @@ jobs:
             "--signature", "$env:SMOKE_UPDATE_SIGNATURE",
             "--rejected-signature", "$env:SMOKE_REJECTED_SIGNATURE",
             "--flip-file", $flipFile
-          ) -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          )
+
+          $fixture = $null
+          $ready = $false
+          foreach ($launch in 1..2) {
+            if ($fixture -and -not $fixture.HasExited) {
+              Stop-Process -Id $fixture.Id -Force -ErrorAction SilentlyContinue
+            }
+            Remove-Item $stateFile, $stdoutLog, $stderrLog -ErrorAction SilentlyContinue
+
+            $fixture = Start-Process -FilePath python -ArgumentList $fixtureArguments `
+              -PassThru -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
+
+            $deadline = (Get-Date).AddSeconds(60)
+            while ((Get-Date) -lt $deadline) {
+              if (Test-Path $stateFile) { break }
+              $fixture.Refresh()
+              if ($fixture.HasExited) { break }
+              Start-Sleep -Milliseconds 250
+            }
+
+            if (Test-Path $stateFile) { $ready = $true; break }
+
+            $fixture.Refresh()
+            if ($fixture.HasExited) {
+              Write-Output "fixture attempt ${launch}: exited before readiness (exit code $($fixture.ExitCode))"
+            } else {
+              Write-Output "fixture attempt ${launch}: still running but state file absent after 60s; stopping it"
+              Stop-Process -Id $fixture.Id -Force -ErrorAction SilentlyContinue
+            }
+            Show-FixtureLogs
+          }
+          if (-not $ready) {
+            throw "updater fixture did not become ready within 60s (logs above)"
+          }
+
           "FIXTURE_PID=$($fixture.Id)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "SMOKE_DIAGNOSTICS=$diagnostics" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "SMOKE_FLIP_FILE=$flipFile" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-          for ($attempt = 0; $attempt -lt 60 -and -not (Test-Path $stateFile); $attempt++) {
-            Start-Sleep -Milliseconds 250
-          }
-          if (-not (Test-Path $stateFile)) { throw "updater fixture did not start" }
           $fixtureInfo = Get-Content $stateFile | ConvertFrom-Json
           if ($fixtureInfo.port -ne [int]$env:SMOKE_FIXTURE_PORT) {
             throw "updater fixture did not bind the port the packaged config was patched to"
