@@ -25,44 +25,101 @@ class ReplayState:
         self.champ = load_json("champselect_session.json")
         self.game = load_json("allgamedata.json")
 
-    def set_scenario(self, scenario: str) -> None:
-        self.scenario = scenario
-        if scenario == "champ-select":
-            self.champ = load_json("champselect_session.json")
-        elif scenario == "champ-select-update":
-            self.champ = load_json("champselect_session.json")
-            self.champ["timer"]["adjustedTimeLeftInSec"] = 11
-            local = next(p for p in self.champ["myTeam"] if p["cellId"] == 2)
-            local["championId"] = 25
-            local["championPickIntent"] = 25
-        elif scenario == "in-game":
-            self.game = load_json("allgamedata.json")
-        elif scenario == "in-game-update":
-            self.game = load_json("allgamedata.json")
-            self.game["gameData"]["gameTime"] = 812.4
-            self.game["gameData"]["gameId"] = 5123456790
-            self.game["events"]["Events"].append(
+    def _local_cell(self) -> dict:
+        local_cell_id = self.champ["localTeamCellId"]
+        return next(player for player in self.champ["myTeam"] if player["cellId"] == local_cell_id)
+
+    def _set_local_state(
+        self,
+        *,
+        assigned_position: object,
+        champion_id: int,
+        completed: bool,
+    ) -> None:
+        local = self._local_cell()
+        local["assignedPosition"] = assigned_position
+        local["championId"] = champion_id
+        local["championPickIntent"] = champion_id
+        self.champ["actions"] = [
+            [
                 {
-                    "EventName": "BaronKill",
-                    "EventTime": 801.2,
-                    "KillerName": "Order",
-                    "DragonType": None,
+                    "actorCellId": self.champ["localTeamCellId"],
+                    "championId": champion_id,
+                    "completed": completed,
+                    "type": "pick",
                 }
-            )
-            player = next(p for p in self.game["allPlayers"] if p["summonerName"] == "FixturePlayer03")
-            player["scores"]["kills"] = 5
+            ]
+        ]
+
+    def set_scenario(self, scenario: str) -> None:
+        scenario = {
+            "assigned-unlocked": "champ-select-assigned-unlocked",
+            "picked-not-locked": "champ-select-picked-not-locked",
+            "completed-lock": "champ-select-completed-lock",
+            "unknown-role": "champ-select-unknown-role",
+            "missing-pack": "pack-unavailable",
+        }.get(scenario, scenario)
+        self.scenario = scenario
+        if scenario in {"champ-select", "champ-select-locked", "champ-select-completed-lock"}:
+            self.champ = load_json("champselect_session.json")
+            if scenario != "champ-select":
+                self._set_local_state(assigned_position="middle", champion_id=1, completed=True)
+        elif scenario in {"champ-select-update", "champ-select-picked", "champ-select-picked-not-locked"}:
+            self.champ = load_json("champselect_session.json")
+            if scenario == "champ-select-update":
+                self.champ["timer"]["adjustedTimeLeftInSec"] = 11
+                self._set_local_state(assigned_position="top", champion_id=25, completed=False)
+            else:
+                self._set_local_state(assigned_position="top", champion_id=1, completed=False)
+        elif scenario in {"champ-select-assigned", "champ-select-assigned-unlocked"}:
+            self.champ = load_json("champselect_session.json")
+            self._set_local_state(assigned_position="top", champion_id=0, completed=False)
+        elif scenario in {"champ-select-unknown-role", "champ-select-unknown"}:
+            self.champ = load_json("champselect_session.json")
+            self._set_local_state(assigned_position="UNKNOWN", champion_id=0, completed=False)
         elif scenario == "in-game-empty":
             self.game = load_json("allgamedata.json")
             for player in self.game["allPlayers"]:
                 player["items"] = []
             self.game["events"]["Events"] = []
+        elif scenario in {"in-game", "in-game-update"}:
+            self.game = load_json("allgamedata.json")
+            if scenario == "in-game-update":
+                self.game["gameData"]["gameTime"] = 812.4
+                self.game["gameData"]["gameId"] = 5123456790
+                self.game["events"]["Events"].append(
+                    {
+                        "EventName": "BaronKill",
+                        "EventTime": 801.2,
+                        "KillerName": "Order",
+                        "DragonType": None,
+                    }
+                )
+                player = next(p for p in self.game["allPlayers"] if p["summonerName"] == "FixturePlayer03")
+                player["scores"]["kills"] = 5
+        elif scenario in {"pack-unavailable", "pack-error"}:
+            self.champ = load_json("champselect_session.json")
+            self._set_local_state(assigned_position="top", champion_id=0, completed=False)
         elif scenario in {"idle", "reconnect", "malformed"}:
             return
         else:
             raise ValueError(f"unknown replay scenario: {scenario}")
 
     def gameflow(self) -> str:
-        if self.scenario in {"champ-select", "champ-select-update"}:
+        if self.scenario in {
+            "champ-select",
+            "champ-select-update",
+            "champ-select-assigned",
+            "champ-select-assigned-unlocked",
+            "champ-select-picked",
+            "champ-select-picked-not-locked",
+            "champ-select-locked",
+            "champ-select-completed-lock",
+            "champ-select-unknown-role",
+            "champ-select-unknown",
+            "pack-unavailable",
+            "pack-error",
+        }:
             return "ChampSelect"
         if self.scenario in {"in-game", "in-game-update", "in-game-empty", "malformed"}:
             return "InProgress"
