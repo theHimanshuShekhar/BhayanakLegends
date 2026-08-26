@@ -1,7 +1,8 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::process::{Child, Command, Stdio};
-use std::sync::{mpsc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -175,17 +176,32 @@ fn compact_position(
     PhysicalPosition::new(x, y)
 }
 
-struct SidecarState(Mutex<SidecarStateInner>, std::sync::Arc<LifecycleSignal>);
+struct SidecarState(Mutex<SidecarStateInner>, Arc<LifecycleSignal>);
 struct CompanionState(Mutex<CompanionWindowState>);
+
+#[derive(Clone, Default)]
+struct ShutdownToken(Arc<AtomicBool>);
+
+impl ShutdownToken {
+    fn request(&self) {
+        self.0.store(true, Ordering::Release);
+    }
+
+    fn is_requested(&self) -> bool {
+        self.0.load(Ordering::Acquire)
+    }
+}
 
 struct LifecycleSignal {
     wake: (Mutex<()>, std::sync::Condvar),
+    shutdown: ShutdownToken,
 }
 
 impl LifecycleSignal {
     fn new() -> Self {
         Self {
             wake: (Mutex::new(()), std::sync::Condvar::new()),
+            shutdown: ShutdownToken::default(),
         }
     }
 
@@ -196,6 +212,15 @@ impl LifecycleSignal {
     fn wait(&self) {
         let guard = self.wake.0.lock().expect("lifecycle signal lock poisoned");
         let _ = self.wake.1.wait_timeout(guard, Duration::from_millis(250));
+    }
+
+    fn shutdown(&self) -> ShutdownToken {
+        self.shutdown.clone()
+    }
+
+    fn request_shutdown(&self) {
+        self.shutdown.request();
+        self.notify();
     }
 }
 
@@ -366,6 +391,155 @@ struct SidecarStateInner {
     lifecycle: SidecarLifecycle,
 }
 
+#[derive(Debug)]
+struct ProcessContainment {
+    #[cfg(windows)]
+    job: *mut std::ffi::c_void,
+}
+
+impl ProcessContainment {
+    fn attach(pid: u32) -> Result<Self, String> {
+        #[cfg(windows)]
+        {
+            windows_containment::attach(pid)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = pid;
+            Ok(Self {})
+        }
+    }
+}
+
+#[cfg(windows)]
+mod windows_containment {
+    use super::ProcessContainment;
+    use std::ffi::c_void;
+    use std::ptr::null_mut;
+
+    type Handle = *mut c_void;
+    const PROCESS_TERMINATE: u32 = 0x0001;
+    const PROCESS_SET_QUOTA: u32 = 0x0100;
+    const JOB_OBJECT_EXTENDED_LIMIT_INFORMATION: u32 = 9;
+    const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: u32 = 0x2000;
+
+    #[repr(C)]
+    struct BasicLimitInformation {
+        per_process_user_time_limit: i64,
+        per_job_user_time_limit: i64,
+        limit_flags: u32,
+        minimum_working_set_size: usize,
+        maximum_working_set_size: usize,
+        active_process_limit: u32,
+        affinity: usize,
+        priority_class: u32,
+        scheduling_class: u32,
+    }
+
+    #[repr(C)]
+    struct IoCounters {
+        read_operations: u64,
+        write_operations: u64,
+        other_operations: u64,
+        read_bytes: u64,
+        write_bytes: u64,
+        other_bytes: u64,
+    }
+
+    #[repr(C)]
+    struct ExtendedLimitInformation {
+        basic_limit_information: BasicLimitInformation,
+        io_info: IoCounters,
+        process_memory_limit: usize,
+        job_memory_limit: usize,
+        peak_process_memory_used: usize,
+        peak_job_memory_used: usize,
+    }
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn AssignProcessToJobObject(job: Handle, process: Handle) -> i32;
+        fn CloseHandle(handle: Handle) -> i32;
+        fn CreateJobObjectW(attributes: *const c_void, name: *const u16) -> Handle;
+        fn OpenProcess(access: u32, inherit_handle: i32, process_id: u32) -> Handle;
+        fn SetInformationJobObject(
+            job: Handle,
+            information_class: u32,
+            information: *const c_void,
+            information_length: u32,
+        ) -> i32;
+    }
+
+    pub(super) fn attach(pid: u32) -> Result<ProcessContainment, String> {
+        unsafe {
+            let job = CreateJobObjectW(null_mut(), null_mut());
+            if job.is_null() {
+                return Err("sidecar containment job creation failed".into());
+            }
+            let mut limits = ExtendedLimitInformation {
+                basic_limit_information: BasicLimitInformation {
+                    per_process_user_time_limit: 0,
+                    per_job_user_time_limit: 0,
+                    limit_flags: JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+                    minimum_working_set_size: 0,
+                    maximum_working_set_size: 0,
+                    active_process_limit: 0,
+                    affinity: 0,
+                    priority_class: 0,
+                    scheduling_class: 0,
+                },
+                io_info: IoCounters {
+                    read_operations: 0,
+                    write_operations: 0,
+                    other_operations: 0,
+                    read_bytes: 0,
+                    write_bytes: 0,
+                    other_bytes: 0,
+                },
+                process_memory_limit: 0,
+                job_memory_limit: 0,
+                peak_process_memory_used: 0,
+                peak_job_memory_used: 0,
+            };
+            if SetInformationJobObject(
+                job,
+                JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
+                (&mut limits as *mut ExtendedLimitInformation).cast(),
+                std::mem::size_of::<ExtendedLimitInformation>() as u32,
+            ) == 0
+            {
+                CloseHandle(job);
+                return Err("sidecar containment configuration failed".into());
+            }
+            let process = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, pid);
+            if process.is_null() {
+                CloseHandle(job);
+                return Err("sidecar containment process handle failed".into());
+            }
+            let assigned = AssignProcessToJobObject(job, process);
+            CloseHandle(process);
+            if assigned == 0 {
+                CloseHandle(job);
+                return Err("sidecar containment attachment failed".into());
+            }
+            Ok(ProcessContainment { job })
+        }
+    }
+
+    pub(super) unsafe fn close(handle: Handle) -> i32 {
+        CloseHandle(handle)
+    }
+}
+
+#[cfg(windows)]
+impl Drop for ProcessContainment {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = windows_containment::close(self.job);
+        }
+    }
+}
+
 enum Proc {
     Std(Child),
     Plugin(Option<CommandChild>),
@@ -403,9 +577,11 @@ struct Spawned {
     proc: Proc,
     output: OutputEvents,
     exit: Option<mpsc::Receiver<Result<(), String>>>,
+    containment: ProcessContainment,
 }
 struct SidecarHandle {
     proc: Proc,
+    containment: ProcessContainment,
     generation: u64,
     port: u16,
     token: String,
@@ -442,6 +618,7 @@ trait SidecarProcessAdapter {
         &mut self,
         child: &mut Self::Handle,
         deadline: Instant,
+        shutdown: &ShutdownToken,
     ) -> Result<u16, String>;
     fn wait_for_health(
         &mut self,
@@ -449,14 +626,21 @@ trait SidecarProcessAdapter {
         port: u16,
         token: &str,
         deadline: Instant,
+        shutdown: &ShutdownToken,
     ) -> Result<SidecarHealth, String>;
+    fn establish_containment(&mut self, _child: &mut Self::Handle) -> Result<(), String> {
+        Ok(())
+    }
     fn terminate(&mut self, child: &mut Self::Handle) -> Result<(), String>;
     fn reap(&mut self, child: &mut Self::Handle) -> Result<(), String>;
-    fn wait_for_exit(&mut self, _child: &mut Self::Handle) -> Result<(), String> {
+    fn wait_for_exit(
+        &mut self,
+        _child: &mut Self::Handle,
+        _shutdown: &ShutdownToken,
+    ) -> Result<(), String> {
         Err("sidecar exit observation is unavailable".into())
     }
 }
-
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct SidecarStartupError {
     pub code: String,
@@ -477,16 +661,22 @@ struct SidecarSupervisor<A: SidecarProcessAdapter> {
     next_generation: u64,
     child: Option<(u64, A::Handle)>,
     info: Option<SidecarInfo>,
+    shutdown: ShutdownToken,
 }
 
 impl<A: SidecarProcessAdapter> SidecarSupervisor<A> {
     fn new(adapter: A) -> Self {
+        Self::with_shutdown(adapter, ShutdownToken::default())
+    }
+
+    fn with_shutdown(adapter: A, shutdown: ShutdownToken) -> Self {
         Self {
             adapter,
             state: SidecarLifecycle::NotStarted,
             next_generation: 0,
             child: None,
             info: None,
+            shutdown,
         }
     }
 
@@ -509,11 +699,13 @@ impl<A: SidecarProcessAdapter> SidecarSupervisor<A> {
     }
 
     fn start(&mut self, token: String) -> Result<SidecarInfo, SidecarStartupError> {
-        if !matches!(
-            self.state,
-            SidecarLifecycle::NotStarted | SidecarLifecycle::Restarting { .. }
-        ) {
-            return Err(self.invalid_transition("sidecar generation cannot start from this state"));
+        if self.shutdown.is_requested()
+            || !matches!(
+                self.state,
+                SidecarLifecycle::NotStarted | SidecarLifecycle::Restarting { .. }
+            )
+        {
+            return Err(self.invalid_transition("sidecar cannot start after shutdown"));
         }
         debug_assert!(self.child.is_none());
         self.next_generation += 1;
@@ -525,6 +717,11 @@ impl<A: SidecarProcessAdapter> SidecarSupervisor<A> {
             Ok(child) => child,
             Err(message) => return Err(self.fail(generation, message)),
         };
+        if let Err(message) = self.adapter.establish_containment(&mut child) {
+            let _ = self.adapter.terminate(&mut child);
+            let _ = self.adapter.reap(&mut child);
+            return Err(self.fail(generation, message));
+        }
         if self.child.is_some() {
             let _ = self.adapter.terminate(&mut child);
             let _ = self.adapter.reap(&mut child);
@@ -535,16 +732,20 @@ impl<A: SidecarProcessAdapter> SidecarSupervisor<A> {
         }
         self.child = Some((generation, child));
 
+        let shutdown = self.shutdown.clone();
         let result = (|| {
             let (_, child) = self.child.as_mut().expect("child assigned above");
-            let port = self
-                .adapter
-                .wait_for_readiness(child, Instant::now() + READINESS_TIMEOUT)?;
+            let port = self.adapter.wait_for_readiness(
+                child,
+                Instant::now() + READINESS_TIMEOUT,
+                &shutdown,
+            )?;
             let status = self.adapter.wait_for_health(
                 child,
                 port,
                 &token,
                 Instant::now() + HEALTH_TIMEOUT,
+                &shutdown,
             )?;
             Ok(SidecarInfo {
                 port,
@@ -556,19 +757,21 @@ impl<A: SidecarProcessAdapter> SidecarSupervisor<A> {
         match result {
             Ok(info) => {
                 if !self.publish_running(generation, info.clone()) {
-                    return Err(self.fail(
+                    Err(self.fail(
                         generation,
                         "sidecar generation resolution became stale".into(),
-                    ));
+                    ))
+                } else {
+                    Ok(info)
                 }
-                Ok(info)
             }
             Err(message) => Err(self.fail(generation, message)),
         }
     }
 
     fn publish_running(&mut self, generation: u64, info: SidecarInfo) -> bool {
-        if self.next_generation != generation
+        if self.shutdown.is_requested()
+            || self.next_generation != generation
             || !matches!(
                 self.state,
                 SidecarLifecycle::Starting { generation: current }
@@ -586,8 +789,10 @@ impl<A: SidecarProcessAdapter> SidecarSupervisor<A> {
     fn launch(&mut self, token: String) -> Result<SidecarInfo, SidecarStartupError> {
         self.start(token)
     }
-
     fn restart(&mut self) -> Result<(), SidecarStartupError> {
+        if self.shutdown.is_requested() || self.state == SidecarLifecycle::Stopping {
+            return Err(self.invalid_transition("stopping sidecar cannot restart"));
+        }
         match self.state {
             SidecarLifecycle::Running { generation }
             | SidecarLifecycle::Starting { generation }
@@ -600,9 +805,7 @@ impl<A: SidecarProcessAdapter> SidecarSupervisor<A> {
             SidecarLifecycle::NotStarted => Err(self
                 .invalid_transition("sidecar cannot restart before its first generation starts")),
             SidecarLifecycle::Restarting { .. } => Ok(()),
-            SidecarLifecycle::Stopping => {
-                Err(self.invalid_transition("stopping sidecar cannot restart"))
-            }
+            SidecarLifecycle::Stopping => unreachable!("checked above"),
         }
     }
 
@@ -611,29 +814,39 @@ impl<A: SidecarProcessAdapter> SidecarSupervisor<A> {
             SidecarLifecycle::Running { generation } => generation,
             _ => return Err(self.invalid_transition("sidecar is not running")),
         };
-        let Some((owned_generation, child)) = self.child.as_mut() else {
+        if self.shutdown.is_requested() {
+            self.stop()?;
+            return Err(self.stopping_error());
+        }
+        let Some((owned_generation, mut child)) = self.child.take() else {
             return Err(self.invalid_transition("running sidecar has no process"));
         };
-        debug_assert_eq!(generation, *owned_generation);
-        self.adapter
-            .wait_for_exit(child)
-            .and_then(|_| self.adapter.reap(child))
+        debug_assert_eq!(generation, owned_generation);
+        let observed = self.adapter.wait_for_exit(&mut child, &self.shutdown);
+        if self.shutdown.is_requested() {
+            let _ = self.adapter.terminate(&mut child);
+            let _ = self.adapter.reap(&mut child);
+            self.info = None;
+            self.state = SidecarLifecycle::Stopping;
+            return Err(self.stopping_error());
+        }
+        observed
+            .and_then(|_| self.adapter.reap(&mut child))
             .map_err(|message| self.adapter_error(message))?;
-        self.child.take();
         self.info = None;
         self.state = SidecarLifecycle::Restarting { generation };
         Ok(generation)
     }
 
-    #[allow(dead_code)] // fixture-test seam; production stop lands with #63
     fn stop(&mut self) -> Result<(), SidecarStartupError> {
+        self.shutdown.request();
         if self.state == SidecarLifecycle::Stopping {
             return Ok(());
         }
-        self.dispose_child()?;
+        let result = self.dispose_child();
         self.info = None;
         self.state = SidecarLifecycle::Stopping;
-        Ok(())
+        result
     }
 
     fn dispose_child(&mut self) -> Result<(), SidecarStartupError> {
@@ -652,11 +865,24 @@ impl<A: SidecarProcessAdapter> SidecarSupervisor<A> {
             let _ = self.adapter.reap(&mut child);
         }
         self.info = None;
-        self.state = SidecarLifecycle::Failed { generation };
+        if self.shutdown.is_requested() {
+            self.state = SidecarLifecycle::Stopping;
+            self.stopping_error()
+        } else {
+            self.state = SidecarLifecycle::Failed { generation };
+            SidecarStartupError {
+                code: "sidecar_startup_failed".into(),
+                message,
+                attempts: 1,
+            }
+        }
+    }
+
+    fn stopping_error(&self) -> SidecarStartupError {
         SidecarStartupError {
             code: "sidecar_startup_failed".into(),
-            message,
-            attempts: 1,
+            message: "sidecar is stopping".into(),
+            attempts: 0,
         }
     }
 
@@ -723,7 +949,9 @@ where
     })
 }
 #[tauri::command]
-async fn sidecar_info(state: tauri::State<'_, SidecarState>) -> Result<SidecarInfo, SidecarStartupError> {
+async fn sidecar_info(
+    state: tauri::State<'_, SidecarState>,
+) -> Result<SidecarInfo, SidecarStartupError> {
     let signal = state.1.clone();
     loop {
         let (lifecycle, info, startup_error) = {
@@ -788,6 +1016,14 @@ impl SidecarProcessAdapter for ProductionSidecarAdapter {
                 .stderr(Stdio::piped())
                 .spawn()
                 .map_err(|e| format!("sidecar spawn failed: {e}"))?;
+            let containment = match ProcessContainment::attach(child.id()) {
+                Ok(containment) => containment,
+                Err(error) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(error);
+                }
+            };
             let stdout = match child.stdout.take() {
                 Some(stdout) => stdout,
                 None => {
@@ -815,6 +1051,7 @@ impl SidecarProcessAdapter for ProductionSidecarAdapter {
                 proc: Proc::Std(child),
                 output: OutputEvents::Lines(Some(rx)),
                 exit: None,
+                containment,
             })
         } else {
             let sidecar = self
@@ -826,6 +1063,13 @@ impl SidecarProcessAdapter for ProductionSidecarAdapter {
             let (mut events, child) = sidecar
                 .spawn()
                 .map_err(|e| format!("sidecar spawn failed: {e}"))?;
+            let containment = match ProcessContainment::attach(child.pid()) {
+                Ok(containment) => containment,
+                Err(error) => {
+                    let _ = child.kill();
+                    return Err(error);
+                }
+            };
             let (tx, rx) = mpsc::channel();
             let (exit_tx, exit_rx) = mpsc::channel();
             tauri::async_runtime::spawn(async move {
@@ -855,16 +1099,17 @@ impl SidecarProcessAdapter for ProductionSidecarAdapter {
                 proc: Proc::Plugin(Some(child)),
                 output: OutputEvents::Lines(Some(rx)),
                 exit: Some(exit_rx),
+                containment,
             })
         }
     }
-
     fn wait_for_readiness(
         &mut self,
         child: &mut Self::Handle,
         deadline: Instant,
+        shutdown: &ShutdownToken,
     ) -> Result<u16, String> {
-        wait_for_readiness_until(child, deadline)
+        wait_for_readiness_until(child, deadline, shutdown)
     }
 
     fn wait_for_health(
@@ -873,8 +1118,9 @@ impl SidecarProcessAdapter for ProductionSidecarAdapter {
         port: u16,
         token: &str,
         deadline: Instant,
+        shutdown: &ShutdownToken,
     ) -> Result<SidecarHealth, String> {
-        wait_for_health_until(port, token, deadline)
+        wait_for_health_until(port, token, deadline, shutdown)
     }
 
     fn terminate(&mut self, child: &mut Self::Handle) -> Result<(), String> {
@@ -887,12 +1133,24 @@ impl SidecarProcessAdapter for ProductionSidecarAdapter {
         Ok(())
     }
 
-    fn wait_for_exit(&mut self, child: &mut Self::Handle) -> Result<(), String> {
+    fn wait_for_exit(
+        &mut self,
+        child: &mut Self::Handle,
+        shutdown: &ShutdownToken,
+    ) -> Result<(), String> {
         if let Some(events) = child.exit.take() {
-            return events
-                .recv()
-                .map_err(|_| "sidecar exit observer disconnected".to_string())?
-                .map_err(|error| error);
+            loop {
+                if shutdown.is_requested() {
+                    return Err("sidecar shutdown requested".into());
+                }
+                match events.recv_timeout(Duration::from_millis(50)) {
+                    Ok(result) => return result.map_err(|error| error),
+                    Err(mpsc::RecvTimeoutError::Timeout) => {}
+                    Err(mpsc::RecvTimeoutError::Disconnected) => {
+                        return Err("sidecar exit observer disconnected".into())
+                    }
+                }
+            }
         }
         if let Proc::Std(process) = &mut child.proc {
             loop {
@@ -902,6 +1160,9 @@ impl SidecarProcessAdapter for ProductionSidecarAdapter {
                     .is_some()
                 {
                     return Ok(());
+                }
+                if shutdown.is_requested() {
+                    return Err("sidecar shutdown requested".into());
                 }
                 thread::sleep(Duration::from_millis(50));
             }
@@ -917,6 +1178,19 @@ fn sanitize_startup_message(message: String, token: &str) -> String {
         bounded.push_str("...");
     }
     bounded
+}
+
+fn sleep_with_shutdown(duration: Duration, shutdown: &ShutdownToken) -> bool {
+    let deadline = Instant::now() + duration;
+    while Instant::now() < deadline {
+        if shutdown.is_requested() {
+            return false;
+        }
+        thread::sleep(
+            Duration::from_millis(10).min(deadline.saturating_duration_since(Instant::now())),
+        );
+    }
+    !shutdown.is_requested()
 }
 
 fn run_startup_cycle<A, F>(
@@ -973,7 +1247,9 @@ where
                 last_error = sanitize_startup_message(error.message, &token);
                 eprintln!("sidecar launch attempt {attempt}/{MAX_LAUNCHES} failed: {last_error}");
                 if attempt < MAX_LAUNCHES {
-                    thread::sleep(retry_backoff);
+                    if !sleep_with_shutdown(retry_backoff, &supervisor.shutdown) {
+                        return Err(supervisor.stopping_error());
+                    }
                 }
             }
         }
@@ -994,6 +1270,7 @@ fn spawn_sidecar(app: &tauri::AppHandle) -> Result<SidecarHandle, SidecarStartup
     )?;
     Ok(SidecarHandle {
         proc: spawned.proc,
+        containment: spawned.containment,
         generation,
         port: info.port,
         token: info.token,
@@ -1004,13 +1281,20 @@ fn spawn_output_drain(events: mpsc::Receiver<Result<Vec<u8>, String>>) -> thread
     thread::spawn(move || while events.recv().is_ok() {})
 }
 
-fn wait_for_readiness_until(spawned: &mut Spawned, deadline: Instant) -> Result<u16, String> {
+fn wait_for_readiness_until(
+    spawned: &mut Spawned,
+    deadline: Instant,
+    shutdown: &ShutdownToken,
+) -> Result<u16, String> {
     let events = match &mut spawned.output {
         OutputEvents::Lines(events) => events
             .take()
             .ok_or_else(|| "sidecar output consumer already started".to_string())?,
     };
     loop {
+        if shutdown.is_requested() {
+            return Err("sidecar shutdown requested".into());
+        }
         if Instant::now() >= deadline {
             return Err("sidecar readiness timed out".into());
         }
@@ -1057,15 +1341,25 @@ fn wait_for_health_until(
     port: u16,
     token: &str,
     deadline: Instant,
+    shutdown: &ShutdownToken,
 ) -> Result<SidecarHealth, String> {
     let mut last_error = "sidecar health request failed".to_string();
     while Instant::now() < deadline {
+        if shutdown.is_requested() {
+            return Err("sidecar shutdown requested".into());
+        }
         let remaining = deadline.saturating_duration_since(Instant::now());
         match health_request(port, token, remaining.min(Duration::from_millis(500))) {
             Ok(status) => return Ok(status),
             Err(error) => {
                 last_error = error;
-                thread::sleep(Duration::from_millis(50));
+                let sleep_until = Instant::now() + Duration::from_millis(50);
+                while Instant::now() < sleep_until {
+                    if shutdown.is_requested() {
+                        return Err("sidecar shutdown requested".into());
+                    }
+                    thread::sleep(Duration::from_millis(10));
+                }
             }
         }
     }
@@ -1128,6 +1422,10 @@ fn publish_sidecar_state(
     let state = app.state::<SidecarState>();
     let lock_result = state.0.lock();
     if let Ok(mut guard) = lock_result {
+        if guard.lifecycle == SidecarLifecycle::Stopping && lifecycle != SidecarLifecycle::Stopping
+        {
+            return;
+        }
         guard.lifecycle = lifecycle;
         guard.handle = info;
         guard.startup_error = startup_error;
@@ -1136,15 +1434,22 @@ fn publish_sidecar_state(
 }
 
 fn run_sidecar_supervisor(app: tauri::AppHandle) {
-    let mut supervisor = SidecarSupervisor::new(ProductionSidecarAdapter { app: app.clone() });
+    let shutdown = app.state::<SidecarState>().1.shutdown();
+    let mut supervisor =
+        SidecarSupervisor::with_shutdown(ProductionSidecarAdapter { app: app.clone() }, shutdown);
     loop {
+        if supervisor.shutdown.is_requested() {
+            let _ = supervisor.stop();
+            publish_sidecar_state(
+                &app,
+                SidecarLifecycle::Stopping,
+                None,
+                Some(supervisor.stopping_error()),
+            );
+            return;
+        }
         let generation = supervisor.next_generation + 1;
-        publish_sidecar_state(
-            &app,
-            SidecarLifecycle::Starting { generation },
-            None,
-            None,
-        );
+        publish_sidecar_state(&app, SidecarLifecycle::Starting { generation }, None, None);
         let startup = run_supervised_startup_cycle(
             &mut supervisor,
             || Uuid::new_v4().simple().to_string(),
@@ -1163,12 +1468,22 @@ fn run_sidecar_supervisor(app: tauri::AppHandle) {
                     None,
                 );
                 if let Err(error) = supervisor.observe_exit() {
-                    publish_sidecar_state(
-                        &app,
-                        SidecarLifecycle::Failed { generation },
-                        None,
-                        Some(error),
-                    );
+                    if supervisor.shutdown.is_requested() {
+                        let _ = supervisor.stop();
+                        publish_sidecar_state(
+                            &app,
+                            SidecarLifecycle::Stopping,
+                            None,
+                            Some(supervisor.stopping_error()),
+                        );
+                    } else {
+                        publish_sidecar_state(
+                            &app,
+                            SidecarLifecycle::Failed { generation },
+                            None,
+                            Some(error),
+                        );
+                    }
                     return;
                 }
                 publish_sidecar_state(
@@ -1179,20 +1494,45 @@ fn run_sidecar_supervisor(app: tauri::AppHandle) {
                 );
             }
             Err(error) => {
-                let generation = match supervisor.state() {
-                    SidecarLifecycle::Failed { generation } => generation,
-                    _ => supervisor.next_generation,
-                };
-                publish_sidecar_state(
-                    &app,
-                    SidecarLifecycle::Failed { generation },
-                    None,
-                    Some(error),
-                );
+                if supervisor.shutdown.is_requested() {
+                    let _ = supervisor.stop();
+                    publish_sidecar_state(
+                        &app,
+                        SidecarLifecycle::Stopping,
+                        None,
+                        Some(supervisor.stopping_error()),
+                    );
+                } else {
+                    let generation = match supervisor.state() {
+                        SidecarLifecycle::Failed { generation } => generation,
+                        _ => supervisor.next_generation,
+                    };
+                    publish_sidecar_state(
+                        &app,
+                        SidecarLifecycle::Failed { generation },
+                        None,
+                        Some(error),
+                    );
+                }
                 return;
             }
         }
     }
+}
+
+fn request_sidecar_shutdown(app: &tauri::AppHandle) {
+    let state = app.state::<SidecarState>();
+    state.1.request_shutdown();
+    if let Ok(mut guard) = state.0.lock() {
+        guard.lifecycle = SidecarLifecycle::Stopping;
+        guard.handle = None;
+        guard.startup_error = Some(SidecarStartupError {
+            code: "sidecar_startup_failed".into(),
+            message: "sidecar is stopping".into(),
+            attempts: 0,
+        });
+        state.1.notify();
+    };
 }
 
 fn start_sidecar_supervisor(app: tauri::AppHandle) {
@@ -1231,17 +1571,11 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
-            if let tauri::RunEvent::ExitRequested { .. } = event {
-                if let Ok(mut guard) = app_handle.state::<SidecarState>().0.lock() {
-                    guard.lifecycle = SidecarLifecycle::Stopping;
-                    guard.handle = None;
-                    guard.startup_error = Some(SidecarStartupError {
-                        code: "sidecar_startup_failed".into(),
-                        message: "sidecar is stopping".into(),
-                        attempts: 0,
-                    });
-                    app_handle.state::<SidecarState>().1.notify();
-                }
+            if matches!(
+                event,
+                tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+            ) {
+                request_sidecar_shutdown(&app_handle);
             }
         });
 }
@@ -1301,9 +1635,13 @@ mod tests {
             proc: Proc::Plugin(None),
             output: OutputEvents::Lines(Some(rx)),
             exit: None,
+            containment: ProcessContainment::attach(0).unwrap(),
         };
-        let result =
-            wait_for_readiness_until(&mut spawned, Instant::now() + Duration::from_secs(1));
+        let result = wait_for_readiness_until(
+            &mut spawned,
+            Instant::now() + Duration::from_secs(1),
+            &ShutdownToken::default(),
+        );
         assert!(result.unwrap_err().contains("exited before readiness"));
     }
 
@@ -1314,9 +1652,13 @@ mod tests {
             proc: Proc::Plugin(None),
             output: OutputEvents::Lines(Some(rx)),
             exit: None,
+            containment: ProcessContainment::attach(0).unwrap(),
         };
-        let result =
-            wait_for_readiness_until(&mut spawned, Instant::now() + Duration::from_millis(1));
+        let result = wait_for_readiness_until(
+            &mut spawned,
+            Instant::now() + Duration::from_millis(1),
+            &ShutdownToken::default(),
+        );
         assert_eq!(result.unwrap_err(), "sidecar readiness timed out");
     }
 
@@ -1423,8 +1765,10 @@ mod tests {
         readiness: Option<u16>,
         readiness_sequence: Vec<u16>,
         health: Option<SidecarHealth>,
+        containment_error: Option<String>,
         children: usize,
         terminated: usize,
+        descendants_terminated: usize,
         reaped: usize,
         exits: Vec<bool>,
     }
@@ -1444,11 +1788,15 @@ mod tests {
                 id: self.next_child,
             })
         }
+        fn establish_containment(&mut self, _child: &mut Self::Handle) -> Result<(), String> {
+            self.containment_error.take().map_or(Ok(()), Err)
+        }
 
         fn wait_for_readiness(
             &mut self,
             child: &mut Self::Handle,
             _deadline: Instant,
+            _shutdown: &ShutdownToken,
         ) -> Result<u16, String> {
             self.events.push("readiness");
             assert!(child.id > 0);
@@ -1464,6 +1812,7 @@ mod tests {
             _port: u16,
             _token: &str,
             _deadline: Instant,
+            _shutdown: &ShutdownToken,
         ) -> Result<SidecarHealth, String> {
             self.events.push("health");
             assert!(child.id > 0);
@@ -1474,6 +1823,7 @@ mod tests {
             self.events.push("terminate");
             assert!(child.id > 0);
             self.terminated += 1;
+            self.descendants_terminated += 2;
             Ok(())
         }
 
@@ -1484,7 +1834,11 @@ mod tests {
             Ok(())
         }
 
-        fn wait_for_exit(&mut self, child: &mut Self::Handle) -> Result<(), String> {
+        fn wait_for_exit(
+            &mut self,
+            child: &mut Self::Handle,
+            _shutdown: &ShutdownToken,
+        ) -> Result<(), String> {
             self.events.push("exit");
             assert!(child.id > 0);
             match self.exits.pop() {
@@ -1530,12 +1884,91 @@ mod tests {
         supervisor.launch("token-a".into()).unwrap();
         assert!(supervisor.start("token-b".into()).is_err());
         supervisor.stop().unwrap();
+        supervisor.stop().unwrap();
         assert_eq!(supervisor.state(), SidecarLifecycle::Stopping);
         assert!(supervisor.restart().is_err());
+        assert!(supervisor.start("token-b".into()).is_err());
         assert_eq!(supervisor.info(), None);
         assert_eq!(supervisor.adapter().children, 1);
         assert_eq!(supervisor.adapter().terminated, 1);
         assert_eq!(supervisor.adapter().reaped, 1);
+    }
+    #[test]
+    fn containment_failure_terminates_attempt_before_publishing() {
+        let adapter = FixtureAdapter {
+            readiness: Some(43217),
+            health: Some(SidecarHealth::Ok),
+            containment_error: Some("containment setup failed".into()),
+            ..FixtureAdapter::default()
+        };
+        let mut supervisor = SidecarSupervisor::new(adapter);
+        let error = supervisor.launch("token-a".into()).unwrap_err();
+        assert_eq!(error.code, "sidecar_startup_failed");
+        assert!(error.message.contains("containment setup failed"));
+        assert_eq!(
+            supervisor.state(),
+            SidecarLifecycle::Failed { generation: 1 }
+        );
+        assert_eq!(supervisor.info(), None);
+        assert_eq!(supervisor.adapter().children, 1);
+        assert_eq!(supervisor.adapter().terminated, 1);
+        assert_eq!(supervisor.adapter().reaped, 1);
+    }
+    #[test]
+    fn stopping_terminates_sidecar_tree_and_reaps_root() {
+        let adapter = FixtureAdapter {
+            readiness: Some(43217),
+            health: Some(SidecarHealth::Ok),
+            ..FixtureAdapter::default()
+        };
+        let mut supervisor = SidecarSupervisor::new(adapter);
+        supervisor.launch("token-a".into()).unwrap();
+        supervisor.stop().unwrap();
+        assert_eq!(supervisor.state(), SidecarLifecycle::Stopping);
+        assert_eq!(supervisor.adapter().terminated, 1);
+        assert_eq!(supervisor.adapter().descendants_terminated, 2);
+        assert_eq!(supervisor.adapter().reaped, 1);
+    }
+    #[test]
+    fn pending_readiness_wait_is_cancelled_without_blocking_shutdown() {
+        let (_tx, rx) = mpsc::channel();
+        let mut spawned = Spawned {
+            proc: Proc::Plugin(None),
+            output: OutputEvents::Lines(Some(rx)),
+            exit: None,
+            containment: ProcessContainment::attach(0).unwrap(),
+        };
+        let shutdown = ShutdownToken::default();
+        let request = shutdown.clone();
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(20));
+            request.request();
+        });
+        let started = Instant::now();
+        let result =
+            wait_for_readiness_until(&mut spawned, started + Duration::from_secs(1), &shutdown);
+        assert_eq!(result.unwrap_err(), "sidecar shutdown requested");
+        assert!(started.elapsed() < Duration::from_millis(500));
+    }
+    #[test]
+    fn shutdown_wins_race_with_unexpected_exit_without_recovery() {
+        let adapter = FixtureAdapter {
+            readiness: Some(43217),
+            health: Some(SidecarHealth::Ok),
+            exits: vec![true],
+            ..FixtureAdapter::default()
+        };
+        let shutdown = ShutdownToken::default();
+        let mut supervisor = SidecarSupervisor::with_shutdown(adapter, shutdown.clone());
+        supervisor.launch("token-a".into()).unwrap();
+        shutdown.request();
+        assert!(supervisor.observe_exit().is_err());
+        assert_eq!(supervisor.state(), SidecarLifecycle::Stopping);
+        assert_eq!(supervisor.info(), None);
+        assert_eq!(supervisor.adapter().children, 1);
+        assert_eq!(supervisor.adapter().terminated, 1);
+        assert_eq!(supervisor.adapter().reaped, 1);
+        assert!(supervisor.restart().is_err());
     }
 
     #[test]
@@ -1639,7 +2072,10 @@ mod tests {
                 .unwrap_err();
         assert_eq!(error.code, "sidecar_startup_failed");
         assert_eq!(error.attempts, MAX_LAUNCHES);
-        assert_eq!(supervisor.state(), SidecarLifecycle::Failed { generation: 3 });
+        assert_eq!(
+            supervisor.state(),
+            SidecarLifecycle::Failed { generation: 3 }
+        );
         assert_eq!(supervisor.info(), None);
         assert_eq!(supervisor.adapter().children, 3);
         assert_eq!(supervisor.adapter().terminated, 3);
@@ -1659,6 +2095,9 @@ mod tests {
         let second = supervisor.launch("token-b".into()).unwrap();
         assert!(!supervisor.publish_running(1, first));
         assert_eq!(supervisor.info(), Some(second));
-        assert_eq!(supervisor.state(), SidecarLifecycle::Running { generation: 2 });
+        assert_eq!(
+            supervisor.state(),
+            SidecarLifecycle::Running { generation: 2 }
+        );
     }
 }
