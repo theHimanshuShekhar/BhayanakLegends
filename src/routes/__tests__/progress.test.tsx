@@ -119,6 +119,17 @@ beforeEach(() => {
 });
 
 describe("ProgressPage", () => {
+  it("names trajectory panels and repeated benchmark records", async () => {
+    renderPage(<ProgressPage />);
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Trajectory" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: /personal history/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: /patch win rate/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: /benchmarks/i })).toBeInTheDocument();
+    expect(await screen.findByRole("list", { name: /benchmarks/i })).toBeInTheDocument();
+    expect(screen.getAllByRole("listitem", { name: /CS@10|LEVEL@10|GOLD DIFF@10/i }).length).toBeGreaterThan(0);
+  });
+
   it("renders benchmark cards with real personal vs population medians and bars", async () => {
     renderPage(<ProgressPage />);
 

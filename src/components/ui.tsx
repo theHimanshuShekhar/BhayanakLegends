@@ -65,6 +65,24 @@ export function EmptyState({ title, body }: { title: string; body: string }) {
   );
 }
 
+export function Unavailable({ testId }: { testId?: string }) {
+  return (
+    <span data-testid={testId} className="inline-flex items-center gap-1">
+      <span
+        aria-hidden="true"
+        style={{
+          width: 5,
+          height: 5,
+          borderRadius: "50%",
+          background: "var(--color-dimmer)",
+          display: "inline-block",
+        }}
+      />
+      <span>Unavailable</span>
+    </span>
+  );
+}
+
 export function pct(v: number | null | undefined, digits = 1): string {
   return v == null ? "—" : `${(v * 100).toFixed(digits)}%`;
 }

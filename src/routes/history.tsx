@@ -2,8 +2,9 @@ import { useHistorySummary } from "../api/hooks";
 import { classifyApiError } from "../api/client";
 import { CaveatFooter } from "../components/journal/CaveatFooter";
 import { SyncPanel } from "../components/journal/SyncPanel";
-import { pct } from "../components/ui";
+import { Unavailable, pct } from "../components/ui";
 import { PageHeader } from "../components/Layout";
+import type { ReactNode } from "react";
 
 function StatCell({
   label,
@@ -11,11 +12,11 @@ function StatCell({
   testid,
 }: {
   label: string;
-  value: string;
+  value: ReactNode;
   testid?: string;
 }) {
   return (
-    <div className="card3" style={{ padding: 11, flex: 1, minWidth: 0 }}>
+    <div className="card3" style={{ padding: 11, flex: "1 1 180px", minWidth: 0 }}>
       <div
         style={{
           fontSize: 9,
@@ -37,24 +38,31 @@ function StatCell({
   );
 }
 
+function HistorySkeleton() {
+  return (
+    <div aria-hidden="true" className="history-skeletons">
+      <span />
+      <span />
+      <span />
+    </div>
+  );
+}
+
 export function HistoryPage() {
   const summary = useHistorySummary();
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: 14,
-        paddingTop: 14,
-        maxWidth: 860,
-      }}
-    >
+    <div className="history-page">
       <PageHeader title="Improvement Journal" />
-      <div
+      <section
         className="card3b"
+        aria-labelledby="personal-history-heading"
+        aria-busy={summary.isLoading}
         style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}
       >
+        <h2 id="personal-history-heading" className="route-panel-heading">
+          Personal History
+        </h2>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
           <span className="kicker">PERSONAL HISTORY · THIS MACHINE</span>
           {summary.data && (
@@ -65,11 +73,17 @@ export function HistoryPage() {
         </div>
 
         {summary.isLoading && (
-          <div style={{ fontSize: 10.5, color: "var(--color-dim)" }}>loading…</div>
+          <>
+            <HistorySkeleton />
+            <div role="status" aria-live="polite" className="sr-only">
+              Loading personal history
+            </div>
+          </>
         )}
         {summary.isError && (
           <div
             data-testid="summary-error"
+            role="alert"
             style={{
               fontSize: 10.5,
               color:
@@ -86,8 +100,9 @@ export function HistoryPage() {
 
         {summary.data && (
           <>
+            <h3 className="route-subheading">Summary</h3>
             <div
-              style={{ display: "flex", gap: 10, alignItems: "stretch" }}
+              style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "stretch" }}
               data-testid="summary-stats"
             >
               <StatCell
@@ -95,55 +110,82 @@ export function HistoryPage() {
                 value={summary.data.matches.toLocaleString()}
                 testid="summary-matches"
               />
-              <StatCell label="Win rate" value={pct(summary.data.win_rate)} />
+              <StatCell
+                label="Win rate"
+                value={
+                  summary.data.matches === 0 || summary.data.win_rate == null ? (
+                    <Unavailable testId="summary-win-rate" />
+                  ) : (
+                    pct(summary.data.win_rate)
+                  )
+                }
+              />
               <StatCell
                 label="Patches"
                 value={
-                  summary.data.patches.length > 0
-                    ? `${summary.data.patches[0]} → ${summary.data.patches[summary.data.patches.length - 1]}`
-                    : "—"
+                  summary.data.patches.length > 0 ? (
+                    `${summary.data.patches[0]} → ${summary.data.patches[summary.data.patches.length - 1]}`
+                  ) : (
+                    <Unavailable testId="summary-patches" />
+                  )
                 }
               />
             </div>
 
             {summary.data.by_role.length > 0 && (
-              <table
-                className="mono-n w-full text-left"
-                style={{ fontSize: 11, borderCollapse: "collapse" }}
-                data-testid="by-role-table"
-              >
-                <thead>
-                  <tr
-                    style={{
-                      fontSize: 9,
-                      letterSpacing: ".08em",
-                      textTransform: "uppercase",
-                      color: "var(--color-dimmer)",
-                    }}
+              <>
+                <h3 className="route-subheading">By role</h3>
+                <div className="table-scroll" role="region" aria-label="Personal history by role table">
+                  <table
+                    className="mono-n w-full text-left"
+                    style={{ fontSize: 11, borderCollapse: "collapse" }}
+                    data-testid="by-role-table"
                   >
-                    <th style={{ padding: "4px 0", fontWeight: 400 }}>role</th>
-                    <th style={{ padding: "4px 0", fontWeight: 400 }}>games</th>
-                    <th style={{ padding: "4px 0", fontWeight: 400 }}>wins</th>
-                    <th style={{ padding: "4px 0", fontWeight: 400 }}>wr</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {summary.data.by_role.map((r) => (
-                    <tr key={r.role} style={{ borderTop: "1px solid var(--color-line)" }}>
-                      <td style={{ padding: "5px 0" }}>{r.role}</td>
-                      <td style={{ padding: "5px 0", color: "var(--color-dim)" }}>{r.games}</td>
-                      <td style={{ padding: "5px 0", color: "var(--color-dim)" }}>{r.wins}</td>
-                      <td style={{ padding: "5px 0" }}>
-                        {r.games > 0 ? pct(r.wins / r.games) : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                    <caption>Personal history by role</caption>
+                    <thead>
+                      <tr
+                        style={{
+                          fontSize: 9,
+                          letterSpacing: ".08em",
+                          textTransform: "uppercase",
+                          color: "var(--color-dimmer)",
+                        }}
+                      >
+                        <th scope="col" style={{ padding: "4px 0", fontWeight: 400 }}>
+                          role
+                        </th>
+                        <th scope="col" style={{ padding: "4px 0", fontWeight: 400 }}>
+                          games
+                        </th>
+                        <th scope="col" style={{ padding: "4px 0", fontWeight: 400 }}>
+                          wins
+                        </th>
+                        <th scope="col" style={{ padding: "4px 0", fontWeight: 400 }}>
+                          wr
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {summary.data.by_role.map((r) => (
+                        <tr key={r.role} style={{ borderTop: "1px solid var(--color-line)" }}>
+                          <th scope="row" style={{ padding: "5px 0", textAlign: "left", fontWeight: 400 }}>
+                            {r.role}
+                          </th>
+                          <td style={{ padding: "5px 0", color: "var(--color-dim)" }}>{r.games}</td>
+                          <td style={{ padding: "5px 0", color: "var(--color-dim)" }}>{r.wins}</td>
+                          <td style={{ padding: "5px 0" }}>
+                            {r.games > 0 ? pct(r.wins / r.games) : <Unavailable />}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </>
         )}
-      </div>
+      </section>
 
       <SyncPanel />
 
