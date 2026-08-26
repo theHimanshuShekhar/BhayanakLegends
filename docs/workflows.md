@@ -61,6 +61,15 @@ the app through its window on every graceful phase, and fails if a new
 sidecar survives its owner; phase results are written to structured
 `smoke-state.json` rather than silently leaving a process behind.
 
+Immediately after the silent install the harness also performs a clean
+baseline launch with no `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` set,
+records whether the packaged app survives a 12-second probe into
+`smoke-state.json`, then stops it — separating "the packaged app is
+broken" from "the CDP debug-argument launch breaks it". Every fatal path
+additionally prints the app's exit code, the last 40 lines of its
+captured stdout/stderr, and any matching Application event-log entries
+(faulting module, exception code) from the previous 15 minutes.
+
 On failure, diagnostics are copied through `tools/redact_diagnostics.py` and
 uploaded as an artifact. The fixture records paths only; the ephemeral
 private key, its password, and the production-config backup live outside the
