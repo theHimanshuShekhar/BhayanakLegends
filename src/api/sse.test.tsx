@@ -65,6 +65,7 @@ const validChampSelect = {
     active: true,
     phase: "ChampSelect",
     timer_sec: 23,
+    local_assigned_role: "TOP",
     bans_ally: [{ champion_id: 25, champion: "Miss Fortune" }],
     bans_enemy: [{ champion_id: 412, champion: null }],
     ally: [
@@ -74,7 +75,7 @@ const validChampSelect = {
         champion: "Annie",
         name: "Local",
         is_local: true,
-        state: "picked",
+        state: "locked",
       },
     ],
     enemy: [
@@ -115,14 +116,19 @@ describe("shared SSE owner", () => {
     expect(parseSseMessage(validChampSelect)?.type).toBe("champselect.state");
     for (const data of [
       { ...validChampSelect.data, phase: "InvalidPhase" },
+      { ...validChampSelect.data, local_assigned_role: "UNKNOWN" },
+      { ...validChampSelect.data, local_assigned_role: 42 },
       { ...validChampSelect.data, enemy: [{ ...validChampSelect.data.enemy[0], name: "Enemy" }] },
       { ...validChampSelect.data, ally: [{ ...validChampSelect.data.ally[0], cell_id: "0" }] },
+      { ...validChampSelect.data, ally: [{ ...validChampSelect.data.ally[0], state: "picked-up" }] },
       { ...validChampSelect.data, bans_ally: [{ champion_id: 25, name: "Miss Fortune" }] },
       { ...validChampSelect.data, bans_enemy: [{ champion_id: 25, champion: 42 }] },
       { ...validChampSelect.data, bans_enemy: [{ champion_id: 25, champion: null, name: "obsolete" }] },
     ]) {
       expect(parseSseMessage({ ...validChampSelect, data })).toBeNull();
     }
+    const { local_assigned_role: _role, ...oldData } = validChampSelect.data;
+    expect(parseSseMessage({ ...validChampSelect, data: oldData })).toBeNull();
     expect(
       parseSseMessage({
         ...validChampSelect,

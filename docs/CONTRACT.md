@@ -50,6 +50,7 @@ Base URL: `http://127.0.0.1:{port}`
 
 ```ts
 type Role = "TOP"|"JUNGLE"|"MIDDLE"|"BOTTOM"|"UTILITY"|"UNKNOWN";
+type AssignedRole = "TOP"|"JUNGLE"|"MIDDLE"|"BOTTOM"|"UTILITY";
 type GameflowPhase = "None"|"Lobby"|"Matchmaking"|"RankedGame"|"ChampSelect"|"GameStart"|"InProgress"|"WaitingForStats"|"EndOfGame";
 type GameMode = "CLASSIC"|"ODIN"|"ARAM"|"TUTORIAL"|"URF"|"ONEFORALL"|"DOOM_BOTS"|"ASCENSION"|"FIRSTBLOOD"|"KING_PORO"|"SIEGE"|"PROJECT"|"SNOWDOWN"|"NEXUSBLITZ"|"ULTBOOK"|"CHERRY";
 interface Health { status: "ok"|"degraded"; app_version: string; pack_version: string|null; }
@@ -161,24 +162,34 @@ interface ChampSelectAllyCell {
   champion: string|null;         // Data Dragon display name; null → UI shows "Champion {id}"
   name: string|null;             // teammate summoner name when the LCU exposes it
   is_local: boolean;
-  state: "intent"|"picked"|"hover"|"none";
+  state: "intent"|"picked"|"hover"|"locked"|"none";
 }
 interface ChampSelectEnemyCell {
   cell_id: number;
   champion_id: number;
   champion: string|null;
   name: string|null;             // always null — compliance
-  state: "intent"|"picked"|"hover"|"none";
+  state: "intent"|"picked"|"hover"|"locked"|"none";
 }
 interface ChampSelectSnapshot {
   active: boolean;
   phase: GameflowPhase|null;      // LCU gameflow phase
-  timer_sec: number|null;        // adjustedTimeLeftInSec; client ticks down between frames
+  timer_sec: number|null;         // adjustedTimeLeftInSec; client ticks down between frames
+  local_assigned_role: AssignedRole|null; // local participant assignedPosition; null when absent/unrecognized
   bans_ally: ChampSelectBan[];
   bans_enemy: ChampSelectBan[];
   ally: ChampSelectAllyCell[];
   enemy: ChampSelectEnemyCell[];
 }
+
+`local_assigned_role` is normalized only from the local participant's
+`assignedPosition` (case-insensitive); missing, empty, `UNKNOWN`, and
+unrecognized values are `null`. `locked` is emitted only for the local cell
+when a completed local `pick` action identifies that cell and both action and
+participant champion IDs are nonzero and agree. A nonzero champion without
+completed action evidence remains `picked`; malformed or incomplete evidence
+never implies `locked`. Idle and reconnect snapshots clear the role and lock
+evidence.
 
 // Rich in-game snapshots (GET /live/ingame + SSE "live.state"); from the Live
 // Client Data API on :2999. Summoner names here are official spectator data.

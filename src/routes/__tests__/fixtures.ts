@@ -15,6 +15,7 @@ export const idleSession: ChampSelectSnapshot = {
   active: false,
   phase: null,
   timer_sec: null,
+  local_assigned_role: null,
   bans_ally: [],
   bans_enemy: [],
   ally: [],
@@ -28,6 +29,7 @@ export const idleSession: ChampSelectSnapshot = {
  */
 export const champSelectSession: ChampSelectSnapshot = {
   active: true,
+  local_assigned_role: null,
   phase: "ChampSelect",
   timer_sec: 23,
   bans_ally: [

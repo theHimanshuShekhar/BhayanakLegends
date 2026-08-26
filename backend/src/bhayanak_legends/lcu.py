@@ -20,8 +20,11 @@ Riot endpoints used (all TLS with a self-signed cert → ``verify=False``):
         "localTeamCellId": 2,
         "myTeam": [
           {"cellId": 0, "championId": 25, "championPickIntent": 0,
-           "summonerName": "..."}       # summonerName absent/obfuscated in ranked
+           "summonerName": "...", "assignedPosition": "TOP"} # name/role may be absent
         ],
+        "actions": [[
+          {"actorCellId": 2, "championId": 25, "completed": true, "type": "pick"}
+        ]],
         "theirTeam": [ ... same participant shape ... ],
         "bans": {
           "myTeamBans": [{"championId": 25, "pickTurn": 1}],

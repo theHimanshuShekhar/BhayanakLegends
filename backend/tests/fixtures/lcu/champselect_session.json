@@ -24,7 +24,8 @@
       "championPickIntent": 1,
       "spell1Id": 4,
       "spell2Id": 14,
-      "summonerName": "FixturePlayer03"
+      "summonerName": "FixturePlayer03",
+      "assignedPosition": "top"
     },
     {
       "cellId": 3,
@@ -85,6 +86,14 @@
       "summonerName": "FixturePlayer10"
     }
   ],
+  "actions": [[
+    {
+      "actorCellId": 2,
+      "championId": 1,
+      "completed": true,
+      "type": "pick"
+    }
+  ]],
   "bans": {
     "myTeamBans": [
       { "championId": 25, "pickTurn": 1 },

@@ -1,4 +1,5 @@
 import type {
+  AssignedRole,
   ChampSelectAllyCell,
   ChampSelectBan,
   ChampSelectEnemyCell,
@@ -18,7 +19,8 @@ export const PHASES: readonly GameflowPhase[] = [
   "WaitingForStats",
   "EndOfGame",
 ];
-const CELL_STATES: readonly CellState[] = ["intent", "picked", "hover", "none"];
+const ASSIGNED_ROLES: readonly AssignedRole[] = ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"];
+const CELL_STATES: readonly CellState[] = ["intent", "picked", "hover", "locked", "none"];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -81,7 +83,17 @@ function isEnemy(value: unknown): value is ChampSelectEnemyCell {
 export function isChampSelectSnapshot(value: unknown): value is ChampSelectSnapshot {
   return (
     isRecord(value) &&
-    hasExactKeys(value, ["active", "phase", "timer_sec", "bans_ally", "bans_enemy", "ally", "enemy"]) &&
+    hasExactKeys(value, [
+      "active",
+      "phase",
+      "timer_sec",
+      "local_assigned_role",
+      "bans_ally",
+      "bans_enemy",
+      "ally",
+      "enemy",
+    ]) &&
+    (value.local_assigned_role === null || isEnum(ASSIGNED_ROLES, value.local_assigned_role)) &&
     typeof value.active === "boolean" &&
     (value.phase === null || isEnum(PHASES, value.phase)) &&
     (value.timer_sec === null || isFiniteNumber(value.timer_sec)) &&

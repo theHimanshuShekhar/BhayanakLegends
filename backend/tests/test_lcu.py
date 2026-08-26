@@ -419,6 +419,7 @@ def test_build_champ_select_snapshot_strips_enemy_names_and_maps_bans():
     assert snapshot.active is True
     assert snapshot.phase == "ChampSelect"
     assert snapshot.timer_sec == 23
+    assert snapshot.local_assigned_role == "TOP"
 
     assert [(b.champion_id, b.champion) for b in snapshot.bans_ally] == [
         (25, "Miss Fortune"),
@@ -430,9 +431,9 @@ def test_build_champ_select_snapshot_strips_enemy_names_and_maps_bans():
 
     local = next(cell for cell in snapshot.ally if cell.is_local)
     assert (local.cell_id, local.champion_id, local.champion, local.name, local.state) == (
-        2, 1, "Annie", "FixturePlayer03", "picked",
+        2, 1, "Annie", "FixturePlayer03", "locked",
     )
-    assert [cell.state for cell in snapshot.ally] == ["picked", "intent", "picked", "none", "picked"]
+    assert [cell.state for cell in snapshot.ally] == ["picked", "intent", "locked", "none", "picked"]
 
     # COMPLIANCE: theirTeam summoner names are dropped at the service layer.
     assert all(cell.name is None for cell in snapshot.enemy)
@@ -445,6 +446,51 @@ def test_build_champ_select_snapshot_strips_enemy_names_and_maps_bans():
     ]
     assert [cell.state for cell in snapshot.enemy] == ["picked", "picked", "intent", "none", "picked"]
     assert "FixturePlayer06" not in json.dumps(snapshot.model_dump())
+
+@pytest.mark.parametrize("assigned_position", [None, "", "UNKNOWN", "support", 42])
+def test_local_assigned_role_is_null_for_missing_or_unrecognized_positions(assigned_position):
+    session = load_json("champselect_session.json")
+    local = next(
+        participant for participant in session["myTeam"] if participant["cellId"] == session["localTeamCellId"]
+    )
+    if assigned_position is None:
+        local.pop("assignedPosition", None)
+    else:
+        local["assignedPosition"] = assigned_position
+
+    snapshot = build_champ_select_snapshot(session, "ChampSelect", CHAMPION_NAMES)
+
+    assert snapshot.local_assigned_role is None
+
+
+@pytest.mark.parametrize(
+    "actions",
+    [
+        None,
+        {},
+        [["malformed"]],
+        [[{"actorCellId": 2, "championId": 1, "completed": False, "type": "pick"}]],
+        [[{"actorCellId": 99, "championId": 1, "completed": True, "type": "pick"}]],
+        [[{"actorCellId": 2, "championId": 0, "completed": True, "type": "pick"}]],
+        [[{"actorCellId": 2, "championId": 1, "completed": True, "type": "ban"}]],
+    ],
+)
+def test_local_cell_requires_completed_nonzero_pick_action_to_be_locked(actions):
+    session = load_json("champselect_session.json")
+    session["actions"] = actions
+
+    snapshot = build_champ_select_snapshot(session, "ChampSelect", CHAMPION_NAMES)
+    local = next(cell for cell in snapshot.ally if cell.is_local)
+
+    assert local.state == "picked"
+
+
+def test_idle_snapshot_clears_assigned_role_and_lock_evidence():
+    snapshot = build_champ_select_snapshot(None, None, CHAMPION_NAMES)
+
+    assert snapshot.local_assigned_role is None
+    assert snapshot.ally == []
+
 
 def test_champ_select_ban_rejects_obsolete_name_field():
     with pytest.raises(ValidationError):
@@ -623,6 +669,8 @@ async def test_idle_then_champ_select_then_in_game_transitions():
     assert any(c["is_local"] and c["name"] == "FixturePlayer03" for c in snap["ally"])
     assert "FixturePlayer06" not in json.dumps(snap)
     assert status_frame["data"]["champ_select"]["active"] is True
+    assert snap["local_assigned_role"] == "TOP"
+    assert next(c["state"] for c in snap["ally"] if c["is_local"]) == "locked"
     assert lcu.session_calls == 1
     assert ingame.calls == 0  # :2999 untouched while drafting
 
@@ -710,6 +758,7 @@ class StubLiveService:
             "active": True,
             "phase": "ChampSelect",
             "ally": [],
+            "local_assigned_role": "TOP",
             "enemy": [],
             "timer_sec": 23,
             "bans_ally": [{"champion_id": 25, "champion": "Miss Fortune"}],
@@ -765,6 +814,7 @@ def test_live_endpoints_idle_by_default(tmp_path):
         "active": False,
         "phase": None,
         "timer_sec": None,
+        "local_assigned_role": None,
         "bans_ally": [],
         "bans_enemy": [],
         "ally": [],
@@ -786,6 +836,7 @@ def test_live_endpoints_expose_service_snapshots(tmp_path, monkeypatch):
         status = client.get("/live/status", headers=AUTH).json()
 
     assert session["active"] is True and session["timer_sec"] == 23
+    assert session["local_assigned_role"] == "TOP"
     assert session["bans_ally"][0]["champion"] == "Miss Fortune"
     assert "name" not in session["bans_ally"][0]
     assert ingame["local_champion"] == "Viktor"
