@@ -89,34 +89,38 @@ async function waitUpdaterText(page, pattern, timeoutMs) {
 }
 
 async function assertSidecarConnected(page) {
-  const sidecarInfo = await page.evaluate(async () => {
-    const internals = window.__TAURI_INTERNALS__;
-    if (!internals || typeof internals.invoke !== "function") return null;
-    return internals.invoke("sidecar_info");
-  });
-  if (!sidecarInfo || typeof sidecarInfo.port !== "number") {
-    throw new Error("webview could not observe sidecar handshake state");
+  const deadline = Date.now() + 30_000;
+  let last = "no handshake observed";
+  while (Date.now() < deadline) {
+    try {
+      const sidecarInfo = await page.evaluate(async () => {
+        const internals = window.__TAURI_INTERNALS__;
+        if (!internals || typeof internals.invoke !== "function") return null;
+        return internals.invoke("sidecar_info");
+      });
+      const title = await page.getByTestId("sidecar-dot").getAttribute("title").catch(() => null);
+      const statusText = await page.getByRole("status").innerText().catch(() => "");
+      last = JSON.stringify({ sidecarInfo, title, statusText });
+      if (
+        sidecarInfo &&
+        typeof sidecarInfo.port === "number" &&
+        sidecarInfo.port >= 1 &&
+        sidecarInfo.port <= 65535 &&
+        sidecarInfo.port !== 23110 &&
+        ["ok", "degraded"].includes(sidecarInfo.status) &&
+        typeof sidecarInfo.token === "string" &&
+        sidecarInfo.token.length >= 32 &&
+        title === "sidecar connected" &&
+        statusText.includes("sidecar · connected")
+      ) {
+        return sidecarInfo;
+      }
+    } catch (error) {
+      last = error instanceof Error ? error.message : String(error);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  if (sidecarInfo.port < 1 || sidecarInfo.port > 65535 || sidecarInfo.port === 23110) {
-    throw new Error(`sidecar did not use an ephemeral port: ${sidecarInfo.port}`);
-  }
-  if (!["ok", "degraded"].includes(sidecarInfo.status)) {
-    throw new Error(`unexpected sidecar health status: ${String(sidecarInfo.status)}`);
-  }
-  if (!sidecarInfo.token || typeof sidecarInfo.token !== "string") {
-    throw new Error("webview did not observe an authenticated sidecar token");
-  }
-
-  await page.getByTestId("sidecar-dot").waitFor({ state: "visible", timeout: 15_000 });
-  if ((await page.getByTestId("sidecar-dot").getAttribute("title")) !== "sidecar connected") {
-    throw new Error("webview did not report an authenticated sidecar connection");
-  }
-  const connectionStatus = page.getByRole("status");
-  await connectionStatus.waitFor({ state: "visible", timeout: 15_000 });
-  if (!(await connectionStatus.innerText()).includes("sidecar · connected")) {
-    throw new Error("sidecar health was not observable in the webview");
-  }
-  return sidecarInfo;
+  throw new Error(`webview did not reconcile an authenticated sidecar connection: ${last}`);
 }
 
 async function fetchAuthenticatedHealth(page, sidecarInfo) {
