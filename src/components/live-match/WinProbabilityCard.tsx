@@ -49,7 +49,7 @@ export function WinProbabilityCard({
           className="pill"
           style={{
             background: "var(--color-info-low)",
-            color: "#cfe3f9",
+            color: "var(--color-soft-blue)",
             fontSize: 8,
             padding: "2px 7px",
           }}

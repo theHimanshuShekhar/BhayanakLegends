@@ -333,7 +333,7 @@ export function SyncPanel() {
               className="pill"
               style={{
                 background: "var(--color-accent)",
-                color: "#0e1020",
+                color: "var(--color-bg)",
                 border: "none",
                 cursor: startDisabled ? "default" : "pointer",
                 opacity: startDisabled ? 0.4 : undefined,

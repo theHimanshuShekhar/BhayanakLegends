@@ -352,7 +352,7 @@ export function BanStrip({
         </div>
         <Divider />
         <div
-          className={`pill mono-n${timerUrgent ? " bl-pulse" : ""}`}
+          className="pill mono-n"
           data-testid="cs-timer-pill"
           style={
             timerUrgent
@@ -360,6 +360,22 @@ export function BanStrip({
               : { background: "var(--color-accent)", color: "var(--color-bg)", whiteSpace: "nowrap" }
           }
         >
+          {/* Urgent motion contract (#99): only this aria-hidden dot pulses;
+              the amber pill itself stays static so text never animates. */}
+          {timerUrgent && (
+            <span
+              aria-hidden="true"
+              data-testid="cs-timer-dot"
+              className="bl-pulse"
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: "var(--radius-pill)",
+                background: "var(--color-bg)",
+                flex: "none",
+              }}
+            />
+          )}
           {snapshot.phase ?? "champ select"} · {timerLabel}
         </div>
         <Divider />

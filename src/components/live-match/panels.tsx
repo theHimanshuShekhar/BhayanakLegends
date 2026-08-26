@@ -37,7 +37,7 @@ export function ActivePlayerCard({ player }: { player: PlayerLive | null }) {
                 display: "grid",
                 placeItems: "center",
                 font: "700 14px var(--font-mono)",
-                color: "#e9e9ed",
+                color: "var(--color-text)",
               }}
             >
               {player.champion ? player.champion.replace(/[^a-zA-Z]/g, "").slice(0, 2).toUpperCase() : (
@@ -110,8 +110,8 @@ export function CheatSheetCard() {
   return (
     <section className="card3" aria-labelledby="cheat-sheet-heading" style={{ padding: "10px 12px", display: "flex", alignItems: "center", gap: 9 }}>
       <SectionHead color="var(--color-info)" label={<span id="cheat-sheet-heading">ROLE CHEAT-SHEET</span>} />
-      <div style={{ fontSize: 10, lineHeight: 1.4, color: "#cfd3e5" }}>
-        <b style={{ color: "#e9e9ed" }}>Role cheat-sheet:</b> the per-role lever list (lane gold,
+      <div style={{ fontSize: 10, lineHeight: 1.4, color: "var(--color-soft-text)" }}>
+        <b style={{ color: "var(--color-text)" }}>Role cheat-sheet:</b> the per-role lever list (lane gold,
         plates, show timing) is pulled from the Findings Pack once the live bridge names your role.
       </div>
     </section>
