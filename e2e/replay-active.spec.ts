@@ -55,6 +55,11 @@ test.describe("active Live Companion replay", () => {
     await expect(page.getByTestId("team-chaos")).toContainText("Camille");
     await expect(page.getByTestId("score-strip")).toContainText("kills");
     await expect(page.getByTestId("event-feed")).toContainText("DragonKill");
+    await expect(page.getByTestId("wp-value")).toHaveText("—");
+    await expect(page.getByTestId("wp-band")).toContainText(
+      "The current Findings Pack lacks the compatible live input, quartile boundaries, and model inputs needed to map this game.",
+    );
+    await expect(page.getByTestId("wp-band")).not.toContainText(/bottom quartile|top quartile/i);
 
     const ingameResponse = await request.get(`${SIDECAR}/live/ingame`, { headers: AUTH });
     expect(ingameResponse.ok()).toBeTruthy();
