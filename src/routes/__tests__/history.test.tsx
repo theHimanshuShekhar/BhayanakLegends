@@ -51,6 +51,13 @@ const summary = {
 
 const settings = { riot_id: null, region_route: "europe" as const, has_key: true, auto_sync: false };
 
+const savedSettings = {
+  riot_id: "Player#1234",
+  region_route: "europe" as const,
+  has_key: true,
+  auto_sync: false,
+};
+
 const running = {
   state: "running" as const,
   mode: "era_first" as const,
@@ -95,60 +102,105 @@ describe("HistoryPage", () => {
     const syncPanel = await screen.findByTestId("sync-panel");
     expect(syncPanel).toHaveClass("card3b");
 
-    const save = screen.getByTestId("save-settings");
-    expect(save).toHaveClass("pill");
-    expect(save.style.background).toContain("var(--color-accent)");
-
+    // canonical action hierarchy: Start Backfill primary lavender, Save settings secondary, Cancel tertiary
     const start = screen.getByTestId("start-sync");
     expect(start).toHaveClass("pill");
-    expect(start.style.background).toContain("var(--color-teal-low)");
+    expect(start).toHaveStyle({ background: "var(--color-accent)" });
+
+    const save = screen.getByTestId("save-settings");
+    expect(save).toHaveClass("pill");
+    expect(save).toHaveStyle({ background: "var(--color-surface-2)" });
+    expect(save).toHaveStyle({ color: "var(--color-dim)" });
 
     const cancel = screen.getByTestId("cancel-sync");
     expect(cancel).toHaveClass("pill");
-    expect(cancel.style.background).toContain("var(--color-surface-3)");
+    expect(cancel).toBeDisabled();
+    expect(cancel).toHaveStyle({ background: "transparent" });
   });
 
   it("shows an empty identity and requires it before Backfill", async () => {
     renderPage(<HistoryPage />);
 
     const riotId = await screen.findByTestId("input-riot-id");
-    expect(riotId).toHaveValue("");
-    expect(screen.getByTestId("riot-id-error")).toHaveTextContent("GameName#TAG");
-    expect(screen.getByTestId("start-sync")).toBeDisabled();
     const region = screen.getByTestId("input-region");
     await waitFor(() => expect(region).toHaveValue("europe"));
+    expect(riotId).toHaveValue("");
+    // pristine render: initially blank/default data shows no eager validation error
+    expect(screen.queryByTestId("riot-id-error")).toBeNull();
+    expect(riotId).toHaveAttribute("aria-invalid", "false");
+
+    // saved settings carry no identity yet: Backfill stays gated behind a visible linked reason
+    const startBtn = screen.getByTestId("start-sync");
+    expect(startBtn).toBeDisabled();
+    expect(startBtn).toHaveAttribute("aria-describedby", "start-disabled-reason");
+    expect(screen.getByTestId("start-disabled-reason")).toHaveTextContent(
+      "Enter a valid Riot ID before starting Backfill.",
+    );
     expect(screen.getByTestId("input-riot-key")).toHaveAttribute(
       "placeholder",
       "saved — leave blank to keep",
     );
+
+    // blurring an invalid value reveals exactly one associated error
+    fireEvent.blur(riotId);
+    expect(screen.getByTestId("riot-id-error")).toHaveTextContent("GameName#TAG");
+    expect(riotId).toHaveAttribute("aria-invalid", "true");
+    expect(riotId).toHaveAttribute("aria-describedby", "riot-id-error");
+
+    // entering a valid id clears it immediately
+    fireEvent.change(riotId, { target: { value: "Player#1234" } });
+    expect(screen.queryByTestId("riot-id-error")).toBeNull();
+    expect(riotId).toHaveAttribute("aria-invalid", "false");
+    expect(riotId).not.toHaveAttribute("aria-describedby");
   });
 
-  it("starts a sync only after an explicit identity is entered", async () => {
+  it("starts a sync only after an explicit identity is saved", async () => {
     vi.mocked(api.startSync).mockResolvedValue(running);
+    vi.mocked(api.updateSettings).mockResolvedValue(savedSettings);
     renderPage(<HistoryPage />);
 
     const startBtn = await screen.findByTestId("start-sync");
     expect(startBtn).toBeDisabled();
+
+    // typing alone leaves local edits unsaved: clicking Start must not fire against stale settings
     fireEvent.change(screen.getByTestId("input-riot-id"), {
       target: { value: "Player#1234" },
     });
+    expect(startBtn).toBeDisabled();
+    expect(screen.getByTestId("start-disabled-reason")).toHaveTextContent(
+      "Save settings before starting Backfill.",
+    );
+    fireEvent.click(startBtn);
+    expect(api.startSync).not.toHaveBeenCalled();
+
+    // saving persists the identity and unlocks Backfill
+    fireEvent.click(screen.getByTestId("save-settings"));
+    await waitFor(() => expect(api.updateSettings).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(startBtn).not.toBeDisabled());
+    expect(await screen.findByTestId("save-ok")).toBeInTheDocument();
 
     fireEvent.click(startBtn);
-
     await waitFor(() => expect(api.startSync).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(startBtn).toBeDisabled());
+    await waitFor(() =>
+      expect(screen.getByTestId("start-disabled-reason")).toHaveTextContent(
+        "Backfill is running.",
+      ),
+    );
+    expect(startBtn).toBeDisabled();
     expect(screen.getByText(/Current-patch games download first/)).toBeInTheDocument();
   });
 
 
   it("updates the progress bar from SSE sync.progress events", async () => {
     vi.mocked(api.startSync).mockResolvedValue(running);
+    vi.mocked(api.updateSettings).mockResolvedValue(savedSettings);
     renderPage(<HistoryPage />);
 
-    fireEvent.change(screen.getByTestId("input-riot-id"), {
+    fireEvent.change(await screen.findByTestId("input-riot-id"), {
       target: { value: "Player#1234" },
     });
+    fireEvent.click(screen.getByTestId("save-settings"));
+    await waitFor(() => expect(api.updateSettings).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getByTestId("start-sync")).not.toBeDisabled());
     fireEvent.click(screen.getByTestId("start-sync"));
     await waitFor(() => expect(api.startSync).toHaveBeenCalled());
