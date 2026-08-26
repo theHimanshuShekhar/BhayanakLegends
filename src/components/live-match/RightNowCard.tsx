@@ -1,5 +1,5 @@
 import type { FindingsPack } from "../../api/types";
-import { formatRate } from "../format";
+import { formatEffectPerSd, formatRate } from "../format";
 import { SectionHead } from "../ui";
 
 /**
@@ -27,10 +27,10 @@ export function RightNowCard({ pack }: { pack: FindingsPack | undefined }) {
           boxShadow: "0 3px 0 rgba(0,0,0,.5),0 0 0 1.5px rgba(145,132,217,.5)",
         }}
       >
-        <span className="pill" style={{ alignSelf: "flex-start", background: "var(--color-accent)", color: "#0e1020" }}>
+        <span className="pill" style={{ alignSelf: "flex-start", background: "var(--color-accent)", color: "var(--color-bg)" }}>
           Act
         </span>
-        <p style={{ margin: 0, fontSize: 10.5, lineHeight: 1.5, color: "#e0ddf5" }}>
+        <p style={{ margin: 0, fontSize: 10.5, lineHeight: 1.5, color: "var(--color-soft-lavender)" }}>
           Act-level nudges read the live game state — they land with the :2999 bridge.
         </p>
       </div>
@@ -50,12 +50,12 @@ export function RightNowCard({ pack }: { pack: FindingsPack | undefined }) {
           >
             <span
               className="pill"
-              style={{ alignSelf: "flex-start", background: "var(--color-info-low)", color: "#cfe3f9" }}
+              style={{ alignSelf: "flex-start", background: "var(--color-info-low)", color: "var(--color-soft-blue)" }}
             >
               Habit
             </span>
-            <p style={{ margin: 0, fontSize: 10.5, lineHeight: 1.5, color: "#cfd3e5" }}>
-              {h.label} — worth ×{h.effect_per_sd.toFixed(2)} per SD.
+            <p style={{ margin: 0, fontSize: 10.5, lineHeight: 1.5, color: "var(--color-soft-text)" }}>
+              {h.label} — worth {formatEffectPerSd(h.effect_per_sd)}.
             </p>
           </li>
         ))}
@@ -77,7 +77,7 @@ export function RightNowCard({ pack }: { pack: FindingsPack | undefined }) {
             >
               Trap
             </span>
-            <p style={{ margin: 0, fontSize: 10.5, lineHeight: 1.5, color: "#cfd3e5" }}>
+            <p style={{ margin: 0, fontSize: 10.5, lineHeight: 1.5, color: "var(--color-soft-text)" }}>
               Trap picks this patch —{" "}
               {traps.map((t, index) => (
                 <span key={t.champion} style={{ color: "var(--color-soft-blue)" }}>
