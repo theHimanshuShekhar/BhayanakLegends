@@ -15,6 +15,7 @@ use uuid::Uuid;
 const MAX_LAUNCHES: u8 = 3;
 const READINESS_TIMEOUT: Duration = Duration::from_secs(5);
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(5);
+const STARTUP_RETRY_BACKOFF: Duration = Duration::from_millis(100);
 
 const NORMAL_MIN_SIZE: WindowSize = WindowSize {
     width: 980,
@@ -366,9 +367,8 @@ impl Proc {
         self.reap();
     }
 }
-
 enum OutputEvents {
-    Lines(mpsc::Receiver<Result<Vec<u8>, String>>),
+    Lines(Option<mpsc::Receiver<Result<Vec<u8>, String>>>),
 }
 
 struct Spawned {
@@ -682,6 +682,7 @@ impl SidecarProcessAdapter for ProductionSidecarAdapter {
                 .current_dir(backend_dir)
                 .env("BHAYANAK_TOKEN", token)
                 .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
                 .spawn()
                 .map_err(|e| format!("sidecar spawn failed: {e}"))?;
             let stdout = match child.stdout.take() {
@@ -692,6 +693,7 @@ impl SidecarProcessAdapter for ProductionSidecarAdapter {
                     return Err("sidecar stdout was not captured".into());
                 }
             };
+            let stderr = child.stderr.take();
             let (tx, rx) = mpsc::channel();
             thread::spawn(move || {
                 for line in BufReader::new(stdout).lines() {
@@ -703,9 +705,14 @@ impl SidecarProcessAdapter for ProductionSidecarAdapter {
                     }
                 }
             });
+            if let Some(stderr) = stderr {
+                thread::spawn(move || {
+                    for _ in BufReader::new(stderr).lines() {}
+                });
+            }
             Ok(Spawned {
                 proc: Proc::Std(child),
-                output: OutputEvents::Lines(rx),
+                output: OutputEvents::Lines(Some(rx)),
             })
         } else {
             let sidecar = self
@@ -736,7 +743,7 @@ impl SidecarProcessAdapter for ProductionSidecarAdapter {
             });
             Ok(Spawned {
                 proc: Proc::Plugin(Some(child)),
-                output: OutputEvents::Lines(rx),
+                output: OutputEvents::Lines(Some(rx)),
             })
         }
     }
@@ -770,28 +777,38 @@ impl SidecarProcessAdapter for ProductionSidecarAdapter {
     }
 }
 
-fn spawn_sidecar(app: &tauri::AppHandle) -> Result<SidecarHandle, SidecarStartupError> {
-    let mut supervisor = SidecarSupervisor::new(ProductionSidecarAdapter { app: app.clone() });
+fn sanitize_startup_message(message: String, token: &str) -> String {
+    let message = message.replace(token, "[redacted]");
+    let mut bounded = message.chars().take(256).collect::<String>();
+    if message.chars().count() > 256 {
+        bounded.push_str("...");
+    }
+    bounded
+}
+
+fn run_startup_cycle<A, F>(
+    mut supervisor: SidecarSupervisor<A>,
+    mut token_factory: F,
+    retry_backoff: Duration,
+) -> Result<(A, u64, A::Handle, SidecarInfo), SidecarStartupError>
+where
+    A: SidecarProcessAdapter,
+    F: FnMut() -> String,
+{
     let mut last_error = String::from("sidecar did not start");
     for attempt in 1..=MAX_LAUNCHES {
         if attempt > 1 {
             supervisor.restart()?;
         }
-        let token = Uuid::new_v4().simple().to_string();
-        match supervisor.launch(token) {
-            Ok(_) => {
-                let (_, generation, spawned, info) = supervisor.take_running()?;
-                return Ok(SidecarHandle {
-                    proc: spawned.proc,
-                    generation,
-                    port: info.port,
-                    token: info.token,
-                    status: info.status,
-                });
-            }
+        let token = token_factory();
+        match supervisor.launch(token.clone()) {
+            Ok(_) => return supervisor.take_running(),
             Err(error) => {
-                last_error = error.message;
+                last_error = sanitize_startup_message(error.message, &token);
                 eprintln!("sidecar launch attempt {attempt}/{MAX_LAUNCHES} failed: {last_error}");
+                if attempt < MAX_LAUNCHES {
+                    thread::sleep(retry_backoff);
+                }
             }
         }
     }
@@ -802,14 +819,44 @@ fn spawn_sidecar(app: &tauri::AppHandle) -> Result<SidecarHandle, SidecarStartup
     })
 }
 
+fn spawn_sidecar(app: &tauri::AppHandle) -> Result<SidecarHandle, SidecarStartupError> {
+    let supervisor = SidecarSupervisor::new(ProductionSidecarAdapter { app: app.clone() });
+    let (_, generation, spawned, info) =
+        run_startup_cycle(supervisor, || Uuid::new_v4().simple().to_string(), STARTUP_RETRY_BACKOFF)?;
+    Ok(SidecarHandle {
+        proc: spawned.proc,
+        generation,
+        port: info.port,
+        token: info.token,
+        status: info.status,
+    })
+}
+fn spawn_output_drain(
+    events: mpsc::Receiver<Result<Vec<u8>, String>>,
+) -> thread::JoinHandle<()> {
+    thread::spawn(move || {
+        while events.recv().is_ok() {}
+    })
+}
+
 fn wait_for_readiness_until(spawned: &mut Spawned, deadline: Instant) -> Result<u16, String> {
+    let events = match &mut spawned.output {
+        OutputEvents::Lines(events) => events
+            .take()
+            .ok_or_else(|| "sidecar output consumer already started".to_string())?,
+    };
     loop {
         if Instant::now() >= deadline {
             return Err("sidecar readiness timed out".into());
         }
-        let OutputEvents::Lines(events) = &mut spawned.output;
         match events.recv_timeout(Duration::from_millis(50)) {
-            Ok(Ok(line)) => return parse_readiness(&line),
+            Ok(Ok(line)) => match parse_readiness(&line) {
+                Ok(port) => {
+                    let _ = spawn_output_drain(events);
+                    return Ok(port);
+                }
+                Err(error) => return Err(error),
+            },
             Ok(Err(error)) => return Err(format!("sidecar readiness read failed: {error}")),
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 if let Proc::Std(child) = &mut spawned.proc {
@@ -909,6 +956,49 @@ fn parse_health_response(response: &[u8]) -> Result<SidecarHealth, String> {
     }
 }
 
+fn start_sidecar_supervisor(app: tauri::AppHandle) {
+    let state = app.state::<SidecarState>();
+    if let Ok(mut guard) = state.0.lock() {
+        guard.lifecycle = SidecarLifecycle::Starting { generation: 1 };
+        guard.handle = None;
+        guard.startup_error = None;
+    }
+    let worker_app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let result = tauri::async_runtime::spawn_blocking(move || spawn_sidecar(&worker_app)).await;
+        let result = result.unwrap_or_else(|_error| {
+            Err(SidecarStartupError {
+                code: "sidecar_startup_failed".into(),
+                message: "sidecar startup worker failed".into(),
+                attempts: MAX_LAUNCHES,
+            })
+        });
+        {
+            let state = app.state::<SidecarState>();
+            let lock_result = state.0.lock();
+            if let Ok(mut guard) = lock_result {
+                match result {
+                    Ok(sidecar) => {
+                        guard.lifecycle = SidecarLifecycle::Running {
+                            generation: sidecar.generation,
+                        };
+                        guard.handle = Some(sidecar);
+                        guard.startup_error = None;
+                    }
+                    Err(error) => {
+                        eprintln!("sidecar startup failed: {}", error.message);
+                        guard.lifecycle = SidecarLifecycle::Failed {
+                            generation: u64::from(error.attempts.max(1)),
+                        };
+                        guard.handle = None;
+                        guard.startup_error = Some(error);
+                    }
+                }
+            }
+        }
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -922,29 +1012,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
-            let handle = app.handle().clone();
-            let state = handle.state::<SidecarState>();
-            if let Ok(mut guard) = state.0.lock() {
-                guard.lifecycle = SidecarLifecycle::Starting { generation: 1 };
-            }
-            match spawn_sidecar(&handle) {
-                Ok(sidecar) => {
-                    if let Ok(mut guard) = state.0.lock() {
-                        guard.lifecycle = SidecarLifecycle::Running {
-                            generation: sidecar.generation,
-                        };
-                        guard.handle = Some(sidecar);
-                        guard.startup_error = None;
-                    }
-                }
-                Err(error) => {
-                    eprintln!("sidecar startup failed: {}", error.message);
-                    if let Ok(mut guard) = state.0.lock() {
-                        guard.lifecycle = SidecarLifecycle::Failed { generation: 1 };
-                        guard.startup_error = Some(error);
-                    }
-                }
-            }
+            start_sidecar_supervisor(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![sidecar_info, set_live_companion_mode])
@@ -1011,7 +1079,7 @@ mod tests {
         tx.send(Err("sidecar exited before readiness".into())).unwrap();
         let mut spawned = Spawned {
             proc: Proc::Plugin(None),
-            output: OutputEvents::Lines(rx),
+            output: OutputEvents::Lines(Some(rx)),
         };
         let result = wait_for_readiness_until(&mut spawned, Instant::now() + Duration::from_secs(1));
         assert!(result.unwrap_err().contains("exited before readiness"));
@@ -1022,7 +1090,7 @@ mod tests {
         let (_tx, rx) = mpsc::channel();
         let mut spawned = Spawned {
             proc: Proc::Plugin(None),
-            output: OutputEvents::Lines(rx),
+            output: OutputEvents::Lines(Some(rx)),
         };
         let result = wait_for_readiness_until(&mut spawned, Instant::now() + Duration::from_millis(1));
         assert_eq!(result.unwrap_err(), "sidecar readiness timed out");
