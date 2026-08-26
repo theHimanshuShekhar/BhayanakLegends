@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PostGamePage } from "../postgame";
 import { api } from "../../api/client";
 import { makePack } from "./fixtures";
+import { matchComebackBucket } from "../../components/postgame/ComebackOddsCard";
+import { pct } from "../../components/ui";
 
 vi.mock("../../api/client", () => ({
   eventsUrl: vi.fn(
@@ -115,12 +117,87 @@ describe("PostGamePage — digest rendered into the design", () => {
 
     expect(await screen.findByText("denial 95.4%")).toBeInTheDocument();
     expect(screen.getByTestId("read-baron")).toHaveTextContent("+29.5pp lift");
-    // gold@15 -1,200 → nearest shipped anchor -2,000g → 42% until #76 ships domain gating
-    expect(await screen.findByText("42.0%")).toBeInTheDocument();
-    expect(screen.getByTestId("comeback-note")).toHaveTextContent("down 1,200g at 15");
+    // gold@15 -1,200 is milder than the 2,000g anchor → outside the contracted domain.
+    expect(await screen.findByTestId("comeback-value")).toHaveTextContent("—");
+    expect(screen.getByTestId("comeback-note")).toHaveTextContent(
+      "outside the Findings Pack's supported population domain",
+    );
     expect(screen.getByText("Backfill context")).toBeInTheDocument();
   });
 
+describe("comeback bucket contract", () => {
+  const pack = makePack();
+  const base = { ...digest };
+
+  function reasonFor(gold15: number | null) {
+    return matchComebackBucket(pack, {
+      ...base,
+      checkpoints: { ...base.checkpoints, gold_diff_15: gold15 },
+    });
+  }
+
+  it.each([
+    [-2000, "42.0%", "[2,000g, 3,500g)" ],
+    [-3499.5, "42.0%", "[2,000g, 3,500g)"],
+    [-3500, "21.0%", "[3,500g, 6,000g)"],
+    [-5999.5, "21.0%", "[3,500g, 6,000g)"],
+    [-6000, "11.0%", "[6,000g, 7,000g]"],
+    [-7000, "11.0%", "[6,000g, 7,000g]"],
+  ])("deficit %j maps to %s in %s", (gold15, rate, range) => {
+    const result = reasonFor(gold15);
+    expect(result.reason).toBeNull();
+    if (result.match === null) throw new Error("expected a bucket match");
+    expect(pct(result.match.winRate)).toBe(rate);
+    expect(result.match.rangeLabel).toBe(range);
+  });
+
+  it.each([
+    [null, "missing-personal-history"],
+    [0, "not-a-deficit"],
+    [1500, "not-a-deficit"],
+    [-1999.5, "outside-domain"],
+    [-7000.5, "outside-domain"],
+  ] as const)("suppresses %j (%s)", (gold15, reason) => {
+    const result = reasonFor(gold15 as number | null);
+    expect(result).toEqual({ match: null, reason });
+  });
+
+  it("treats non-finite deficits as missing input rather than a cohort", () => {
+    const result = matchComebackBucket(pack, {
+      ...base,
+      checkpoints: { ...base.checkpoints, gold_diff_15: Number.NaN },
+    });
+    expect(result).toEqual({ match: null, reason: "not-a-deficit" });
+  });
+
+  it("suppresses when the declaration names a different canonical feature", () => {
+    // Simulate wire data violating the typed literal: a pack declaring cs10.
+    const mismatched = makePack();
+    const declaration: { feature: string; feature_contract_version: string } = {
+      feature: "cs10",
+      feature_contract_version: "loltrends-parity-v1",
+    };
+    mismatched.comeback_feature_contract =
+      declaration as typeof mismatched.comeback_feature_contract;
+    const result = matchComebackBucket(mismatched, { ...base, checkpoints: { ...base.checkpoints, gold_diff_15: -3500 } });
+    expect(result).toEqual({ match: null, reason: "incompatible-declaration" });
+  });
+
+  it("renders the population range separately from the Personal History checkpoint", async () => {
+    vi.mocked(api.postgameLatest).mockResolvedValue({
+      ...digest,
+      checkpoints: { ...digest.checkpoints, gold_diff_15: -3500 },
+    });
+    vi.mocked(api.pack).mockResolvedValue(makePack());
+    renderPage();
+
+    expect(await screen.findByText("21.0%")).toBeInTheDocument();
+    expect(screen.getByTestId("comeback-range")).toHaveTextContent("[3,500g, 6,000g)");
+    expect(screen.getByTestId("personal-checkpoint-note")).toHaveTextContent("down 3,500g at 15");
+  });
+});
+
+describe("comeback bucket contract — page level", () => {
   it("keeps the surrender read as a structure-only placeholder", async () => {
     renderPage();
 
@@ -129,4 +206,5 @@ describe("PostGamePage — digest rendered into the design", () => {
     expect(card).toHaveTextContent(/surrender advisor ships with the next Findings Pack/);
     expect(card).toHaveTextContent(/survivorship bias/);
   });
+});
 });
