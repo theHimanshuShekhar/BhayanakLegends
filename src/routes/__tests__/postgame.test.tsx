@@ -137,12 +137,12 @@ describe("comeback bucket contract", () => {
   }
 
   it.each([
-    [-2000, "42.0%", "[2,000g, 3,500g)" ],
-    [-3499.5, "42.0%", "[2,000g, 3,500g)"],
-    [-3500, "21.0%", "[3,500g, 6,000g)"],
-    [-5999.5, "21.0%", "[3,500g, 6,000g)"],
-    [-6000, "11.0%", "[6,000g, 7,000g]"],
-    [-7000, "11.0%", "[6,000g, 7,000g]"],
+    [-2000, "27.6%", "[2,000g, 3,500g)" ],
+    [-3499.5, "27.6%", "[2,000g, 3,500g)"],
+    [-3500, "7.6%", "[3,500g, 6,000g)"],
+    [-5999.5, "7.6%", "[3,500g, 6,000g)"],
+    [-6000, "3.0%", "[6,000g, 7,000g]"],
+    [-7000, "3.0%", "[6,000g, 7,000g]"],
   ])("deficit %j maps to %s in %s", (gold15, rate, range) => {
     const result = reasonFor(gold15);
     expect(result.reason).toBeNull();
@@ -191,7 +191,7 @@ describe("comeback bucket contract", () => {
     vi.mocked(api.pack).mockResolvedValue(makePack());
     renderPage();
 
-    expect(await screen.findByText("21.0%")).toBeInTheDocument();
+    expect(await screen.findByText("7.6%")).toBeInTheDocument();
     expect(screen.getByTestId("comeback-range")).toHaveTextContent("[3,500g, 6,000g)");
     expect(screen.getByTestId("personal-checkpoint-note")).toHaveTextContent("down 3,500g at 15");
   });

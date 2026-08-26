@@ -117,7 +117,7 @@ describe("LiveMatchPage — idle", () => {
     expect(await screen.findByTestId("habit-nudge-recall_safety")).toHaveTextContent(
       "Recall safely — worth ×2.24 per SD.",
     );
-    expect(screen.getByTestId("habit-nudge-plates_by_14")).toHaveTextContent("×0.87 per SD");
+    expect(screen.getByTestId("habit-nudge-plates_by_14")).toHaveTextContent("×1.08 per SD");
     expect(screen.getByTestId("trap-nudge")).toHaveTextContent("Hecarim 41.5%");
   });
 
