@@ -82,9 +82,10 @@ export function deriveChampSelectSessionView(
 function findingsPackState(query: {
   data: unknown;
   isLoading: boolean;
+  isPending: boolean;
   isError: boolean;
 }): FindingsPackState {
-  if (query.isLoading) return "loading";
+  if (query.isLoading || query.isPending) return "loading";
   if (query.isError) return "error";
   return query.data ? "available" : "missing";
 }
@@ -167,7 +168,7 @@ export function ChampSelectPage() {
             state={sessionView.localCell?.state}
             locked={sessionView.locked}
           />
-          <MasteryCard pack={packQuery.data} session={sessionView} packState={packState} />
+          <MasteryCard pack={packQuery.data} packState={packState} />
           <HowToPlayCard session={sessionView} packState={packState} />
         </div>
 

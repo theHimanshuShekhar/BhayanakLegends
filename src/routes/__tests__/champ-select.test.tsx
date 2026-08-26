@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ChampSelectSnapshot, LiveStatus } from "../../api/types";
+import type { ChampSelectSnapshot, FindingsPack, LiveStatus } from "../../api/types";
 import type { SseMessage } from "../../api/sse";
 import { ChampSelectPage } from "../champ-select";
 import {
@@ -87,7 +87,7 @@ describe("ChampSelectPage — idle", () => {
     expect(screen.queryByTestId("cs-hero-pick")).toBeNull();
     expect(screen.getByTestId("card-mastery")).toBeInTheDocument();
     expect(screen.getByTestId("card-ban-advisor")).toBeInTheDocument();
-    expect(screen.getByTestId("cs-lock-button")).toBeDisabled();
+    expect(screen.getByTestId("cs-lock-status")).toHaveTextContent(/choose a pick/i);
   });
 
   it("shows the read-only loadout state without champion recommendations", async () => {
@@ -217,6 +217,29 @@ describe("ChampSelectPage — active session", () => {
     expect(screen.getByTestId("card-how-to-play")).toHaveTextContent(/Findings Pack could not be loaded/i);
     expect(screen.getByTestId("card-loadout")).toHaveTextContent(/unavailable/i);
   });
+  it("keeps session facts visible while the Findings Pack is loading", async () => {
+    const promise = new Promise<FindingsPack>(() => undefined);
+    vi.mocked(api.pack).mockReturnValue(promise);
+    renderPage();
+
+    await waitFor(() => expect(screen.getByTestId("card-comp-read")).toHaveTextContent("2/5 picked"));
+    expect(screen.getByTestId("cs-your-side")).toHaveTextContent("Xayah");
+    expect(screen.getByTestId("card-mastery")).toHaveTextContent(/Loading Findings Pack/i);
+    expect(screen.getByTestId("card-how-to-play")).toHaveTextContent(/Loading Findings Pack/i);
+    expect(screen.getByTestId("card-loadout")).toHaveTextContent(/Loading Findings Pack/i);
+  });
+
+  it("keeps session facts visible when the Findings Pack is missing", async () => {
+    vi.mocked(api.pack).mockResolvedValue(null as never);
+    renderPage();
+
+    await screen.findByTestId("cs-ban-strip");
+    expect(screen.getByTestId("card-comp-read")).toHaveTextContent("2/5 picked");
+    expect(screen.getByTestId("cs-your-side")).toHaveTextContent("Xayah");
+    expect(screen.getByTestId("card-how-to-play")).toHaveTextContent(/Findings Pack is missing/i);
+    expect(screen.getByTestId("card-loadout")).toHaveTextContent(/Findings Pack is missing/i);
+    expect(screen.getByTestId("card-mastery")).toHaveTextContent(/cohort result is missing/i);
+  });
 
   it("renders enemy champion-level intel with the Champion {id} fallback for unmapped ids", async () => {
     renderPage();
@@ -259,6 +282,27 @@ describe("ChampSelectPage — active session", () => {
     expect(comp).not.toHaveTextContent(/damage mix|%/i);
     expect(comp).not.toHaveTextContent(/Findings Pack|Personal History|advice/i);
   });
+  it("shows zero allied picks without inventing a champion or role", async () => {
+    liveState.session = {
+      ...champSelectSession,
+      local_assigned_role: null,
+      ally: champSelectSession.ally.map((cell) => ({
+        ...cell,
+        champion_id: 0,
+        champion: null,
+        name: null,
+        state: "none",
+      })),
+    };
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByTestId("card-comp-read")).toHaveTextContent("0/5 picked"));
+    expect(screen.getByTestId("card-comp-read")).toHaveTextContent(/No allied champion picks known/i);
+    expect(screen.getByTestId("cs-your-side")).toHaveTextContent("0/5 PICKED");
+    expect(screen.getByTestId("card-how-to-play")).toHaveTextContent(/Session champion is not selected/i);
+    expect(screen.getByTestId("cs-session-status")).toHaveTextContent(/Assigned role pending/i);
+  });
 
   it("labels mastery numbers as Findings Pack cohort data without personal claims", async () => {
     renderPage();
@@ -298,7 +342,7 @@ describe("ChampSelectPage — active session", () => {
     expect(screen.getByTestId("card-suggested-picks")).toHaveTextContent(/pre-lock/i);
     expect(screen.getByTestId("cs-your-side")).toHaveTextContent("2/5 PICKED");
     expect(screen.getByTestId("your-lane-tier")).toHaveTextContent(/not locked/i);
-    expect(screen.getByTestId("cs-lock-button")).toBeInTheDocument();
+    expect(screen.getByTestId("cs-lock-status")).toHaveTextContent(/lock Sett in the League client/i);
     expect(screen.getByTestId("cs-session-status")).toHaveTextContent(/picked — not locked/i);
   });
 
@@ -349,7 +393,6 @@ describe("ChampSelectPage — active session", () => {
     };
 
     renderPage();
-    await screen.findByTestId("cs-lock-button");
     await waitFor(() => expect(screen.getByTestId("card-comp-read")).toHaveTextContent("Sett"));
     expect(screen.getByTestId("card-how-to-play")).toHaveTextContent("Sett");
     expect(screen.getByTestId("card-loadout")).toHaveTextContent("Sett");
@@ -387,8 +430,7 @@ describe("ChampSelectPage — active session", () => {
     };
 
     renderPage();
-    await screen.findByTestId("cs-lock-button");
-    await waitFor(() => expect(pushSse).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId("card-comp-read")).toHaveTextContent("Sett"));
     pushSse!({
       type: "champselect.state",
       ts: "t",
