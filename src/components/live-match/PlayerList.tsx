@@ -55,7 +55,13 @@ function PlayerRow({ player, side, local }: { player: PlayerLive; side: string; 
         {player.champion ?? <span aria-label="Unavailable">Unavailable</span>}
       </td>
       <td style={{ padding: "4px 8px", textAlign: "right" }}><Scalar value={player.level} /></td>
-      <td data-testid="row-kda" style={{ padding: "4px 8px", textAlign: "right" }}><Scalar value={`${player.kills}/${player.deaths}/${player.assists}`} /></td>
+      <td
+        data-testid="row-kda"
+        aria-label={`Kills ${player.kills}; deaths (cumulative) ${player.deaths}; assists ${player.assists}`}
+        style={{ padding: "4px 8px", textAlign: "right" }}
+      >
+        <Scalar value={`${player.kills}/${player.deaths}/${player.assists}`} />
+      </td>
       <td data-testid="row-cs" style={{ padding: "4px 8px", textAlign: "right" }}><Scalar value={player.cs} /></td>
       <td data-testid="row-ward" style={{ padding: "4px 8px", textAlign: "right" }}><Scalar value={player.ward_score.toFixed(1)} /></td>
     </tr>
@@ -70,6 +76,8 @@ export function PlayerList({ snapshot }: { snapshot: InGameSnapshot | undefined 
   const active = !!snapshot?.active;
   const order = snapshot?.teams.order ?? [];
   const chaos = snapshot?.teams.chaos ?? [];
+  const hasRoster = order.length > 0 || chaos.length > 0;
+  const rosterAvailable = active && hasRoster;
   const kills = [...order, ...chaos].reduce((sum, p) => sum + p.kills, 0);
   const turrets = (snapshot?.events ?? []).filter((e) => e.name === "TurretKilled").length;
 
@@ -78,30 +86,20 @@ export function PlayerList({ snapshot }: { snapshot: InGameSnapshot | undefined 
       className="card3b"
       data-testid="player-list"
       aria-labelledby="player-roster-heading"
-      aria-busy={!active}
+      aria-busy={!rosterAvailable}
       style={{ flex: "none", padding: "11px 13px", background: "linear-gradient(180deg,var(--color-surface-2),var(--color-surface))" }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 9 }}>
-        <Dot color="var(--color-teal)" />
+        <Dot color={rosterAvailable ? "var(--color-teal)" : "var(--color-dimmer)"} />
         <h2 id="player-roster-heading" style={{ margin: 0, font: "700 9.5px var(--font-mono)", letterSpacing: ".13em", color: "var(--color-dim)" }}>
           PLAYER ROSTER
         </h2>
-        <span className="mono-n" data-testid="score-strip" style={{ marginLeft: "auto", fontSize: 10, color: active ? "var(--color-text)" : "var(--color-dimmer)" }}>
-          {active ? `${kills} kills · ${turrets} turrets` : "Unavailable kills · Unavailable turrets"}
+        <span className="mono-n" data-testid="score-strip" style={{ marginLeft: "auto", fontSize: 10, color: rosterAvailable ? "var(--color-text)" : "var(--color-dimmer)" }}>
+          {rosterAvailable ? `${kills} kills · ${turrets} turrets` : "Unavailable kills · Unavailable turrets"}
         </span>
       </div>
-      {!active && (
-        <p
-          role="status"
-          aria-live="polite"
-          data-testid="waiting-pill"
-          style={{ margin: "0 0 9px", textAlign: "center", fontSize: 10, color: "var(--color-amber)" }}
-        >
-          waiting for :2999
-        </p>
-      )}
-      <div className="live-table-scroll" aria-label="Player roster table">
-        <table aria-label="Player roster" style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+      <div className="live-table-scroll">
+        <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
           <caption style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0, 0, 0, 0)", whiteSpace: "nowrap", border: 0 }}>Player roster</caption>
           <thead>
             <tr>
@@ -109,12 +107,22 @@ export function PlayerList({ snapshot }: { snapshot: InGameSnapshot | undefined 
               <th scope="col" style={{ padding: "0 8px 5px", fontSize: 8, color: "var(--color-dimmer)", textAlign: "left" }}>Player</th>
               <th scope="col" style={{ padding: "0 8px 5px", fontSize: 8, color: "var(--color-dimmer)", textAlign: "left" }}>Champion</th>
               <th scope="col" style={{ padding: "0 8px 5px", fontSize: 8, color: "var(--color-dimmer)", textAlign: "right" }}>Level</th>
-              <th scope="col" style={{ padding: "0 8px 5px", fontSize: 8, color: "var(--color-dimmer)", textAlign: "right" }}>K/D/A</th>
+              <th scope="col" style={{ padding: "0 8px 5px", fontSize: 8, color: "var(--color-dimmer)", textAlign: "right" }}>
+                K/D/A <span className="sr-only">Deaths (cumulative)</span>
+              </th>
               <th scope="col" style={{ padding: "0 8px 5px", fontSize: 8, color: "var(--color-dimmer)", textAlign: "right" }}>CS</th>
               <th scope="col" style={{ padding: "0 8px 5px", fontSize: 8, color: "var(--color-dimmer)", textAlign: "right" }}>Ward</th>
             </tr>
           </thead>
-          {active ? (
+          {active && !hasRoster ? (
+            <tbody>
+              <tr>
+                <td colSpan={7} style={{ padding: "12px 8px", color: "var(--color-dimmer)", fontSize: 10, textAlign: "center" }}>
+                  Player roster unavailable
+                </td>
+              </tr>
+            </tbody>
+          ) : !active ? <SkeletonTableBody /> : (
             <>
               <tbody data-testid="team-order">
                 {order.map((p) => (
@@ -127,7 +135,7 @@ export function PlayerList({ snapshot }: { snapshot: InGameSnapshot | undefined 
                 ))}
               </tbody>
             </>
-          ) : <SkeletonTableBody />}
+          )}
         </table>
       </div>
     </section>

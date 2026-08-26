@@ -74,15 +74,15 @@ beforeEach(() => {
 });
 
 describe("LiveMatchPage — idle", () => {
-  it("renders the design chrome: waiting pill, 0:00 clock and dash-only player rows", async () => {
+  it("renders the design chrome and a neutral roster skeleton", async () => {
     renderPage();
-    expect(await screen.findByTestId("waiting-pill")).toHaveTextContent("waiting for :2999");
+    expect(await screen.findByTestId("bridge-status")).toHaveTextContent("waiting for :2999");
     expect(screen.getByTestId("game-clock")).toHaveTextContent("0:00");
-    expect(screen.getByTestId("bridge-status")).toHaveTextContent("waiting for :2999");
 
     const list = screen.getByTestId("player-list");
     expect(list).toHaveTextContent("PLAYER ROSTER");
     expect(screen.getByTestId("score-strip")).toHaveTextContent("Unavailable kills · Unavailable turrets");
+    expect(screen.queryByTestId("waiting-pill")).not.toBeInTheDocument();
     // Skeleton rows carry no roster names — enemy or ally.
     expect(within(list).queryByText(/ornn|viego|taliyah|syndra/i)).not.toBeInTheDocument();
     expect(within(list).queryByText(forbiddenEnemyName)).not.toBeInTheDocument();
@@ -101,7 +101,6 @@ describe("LiveMatchPage — idle", () => {
     expect(band).not.toHaveTextContent(/bottom quartile|top quartile/i);
     expect(screen.getByTestId("wp-value")).toHaveTextContent("—");
   });
-
 
   it("binds the objectives cards to real pack numbers", async () => {
     renderPage();
@@ -201,6 +200,7 @@ describe("LiveMatchPage — active game", () => {
     };
     renderPage();
     await screen.findByTestId("team-order");
+    expect(within(screen.getByTestId("team-order")).getByTestId("row-kda")).toHaveTextContent("0/0/4");
     const totals = screen.getByTestId("team-totals");
     expect(within(totals).getByTestId("team-total-order-cs")).toHaveTextContent("0");
     expect(within(totals).getByTestId("team-total-order-level")).toHaveTextContent("0");
@@ -217,6 +217,45 @@ describe("LiveMatchPage — active game", () => {
     expect(screen.getByTestId("active-stat-cs")).toHaveTextContent("213");
     expect(screen.getByTestId("active-stat-level")).toHaveTextContent("12");
   });
+  it("labels roster deaths as cumulative and keeps active fields contract-truthful", async () => {
+    renderPage();
+    await screen.findByTestId("player-row-local");
+    const list = screen.getByTestId("player-list");
+    expect(list).toHaveTextContent(/deaths \(cumulative\)/i);
+    expect(list).toHaveTextContent("5/1/3");
+    const active = screen.getByTestId("active-player");
+    expect(active).toHaveTextContent("FixturePlayer03 · Viktor");
+    expect(active).toHaveTextContent("12");
+    expect(active).toHaveTextContent("4 / 2 / 7");
+    expect(active).toHaveTextContent("213");
+    expect(active).toHaveTextContent("1.4");
+    expect(active).not.toHaveTextContent(/health|held gold|current.dead|respawn|role|spell/i);
+  });
+
+  it.each([
+    ["null", null],
+    ["unmatched", "MissingPlayer"],
+  ] as const)("shows one unavailable state for a %s local summoner without a roster substitution", async (_, localSummoner) => {
+    liveState.ingame = { ...ingameSnapshot, local_summoner: localSummoner };
+    renderPage();
+    await screen.findByTestId("player-list");
+    const active = screen.getByTestId("active-player");
+    expect(within(active).getByText("Local player unavailable")).toBeInTheDocument();
+    expect(within(active).getAllByText("Local player unavailable")).toHaveLength(1);
+    expect(within(active).queryByText("FixturePlayer03")).not.toBeInTheDocument();
+    expect(within(active).queryByText("SacredButtholio")).not.toBeInTheDocument();
+    expect(active).not.toHaveTextContent(/health|held gold|current.dead|respawn|role|spell/i);
+  });
+
+  it("keeps an active empty roster neutral and does not announce bridge waiting twice", async () => {
+    liveState.ingame = { ...ingameSnapshot, teams: { order: [], chaos: [] }, local_summoner: null };
+    renderPage();
+    const list = await screen.findByTestId("player-list");
+    expect(await within(list).findByText("Player roster unavailable")).toBeInTheDocument();
+    expect(list).not.toHaveTextContent("waiting for :2999");
+    expect(screen.getByTestId("bridge-status")).toHaveTextContent(":2999 · 1s poll");
+  });
+
 
   it("suppresses unsupported live probability for any active-game clock", async () => {
     renderPage();
@@ -248,7 +287,8 @@ describe("LiveMatchPage — active game", () => {
     await screen.findByTestId("player-row-local");
     await waitFor(() => expect(pushSse).toBeTruthy());
     pushSse!({ type: "live.state", ts: "t", data: idleIngame });
-    await screen.findByTestId("waiting-pill");
+    await screen.findByTestId("player-list");
+    expect(screen.queryByTestId("waiting-pill")).not.toBeInTheDocument();
     expect(screen.queryByTestId("player-row-local")).toBeNull();
   });
 });
