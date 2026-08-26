@@ -117,7 +117,7 @@ function renderRoute(page: ReactElement) {
 
 const routes = [
   ["champ-select", <ChampSelectPage />, () => screen.findByTestId("card-ban-advisor")],
-  ["live-match", <LiveMatchPage />, () => screen.findByTestId("waiting-pill")],
+  ["live-match", <LiveMatchPage />, () => screen.findByTestId("bridge-status")],
   ["postgame", <PostGamePage />, () => screen.findByTestId("verdict-header")],
   ["progress", <ProgressPage />, () => screen.findByRole("heading", { name: "Benchmarks" })],
   ["champions", <ChampionsPage />, () => screen.findByTestId("role-MIDDLE")],
