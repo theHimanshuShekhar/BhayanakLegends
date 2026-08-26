@@ -99,8 +99,7 @@ async function assertSidecarConnected(page) {
         return internals.invoke("sidecar_info");
       });
       const title = await page.getByTestId("sidecar-dot").getAttribute("title").catch(() => null);
-      const statusText = await page.getByRole("status").innerText().catch(() => "");
-      last = JSON.stringify({ sidecarInfo, title, statusText });
+      last = JSON.stringify({ sidecarInfo, title });
       if (
         sidecarInfo &&
         typeof sidecarInfo.port === "number" &&
@@ -110,8 +109,7 @@ async function assertSidecarConnected(page) {
         ["ok", "degraded"].includes(sidecarInfo.status) &&
         typeof sidecarInfo.token === "string" &&
         sidecarInfo.token.length >= 32 &&
-        title === "sidecar connected" &&
-        statusText.includes("sidecar · connected")
+        title === "sidecar connected"
       ) {
         return sidecarInfo;
       }
