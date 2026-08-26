@@ -56,6 +56,65 @@ jobs:
         shell: bash
         run: uv run --project backend --locked python tools/build_windows_sidecar.py
 
+      - name: Probe the frozen sidecar directly for environment delivery
+        shell: pwsh
+        run: |
+          # Isolate whether the frozen PyInstaller --onefile sidecar exe
+          # actually receives a custom parent environment variable at all,
+          # independent of the Tauri app entirely. Onefile bootloaders on
+          # some platforms respawn a child process to run the real
+          # interpreter, which could drop custom parent env even though the
+          # bootloader exe (our direct child here) receives it fine.
+          $sidecarExe = "src-tauri/binaries/bhayanak-legends-sidecar-x86_64-pc-windows-msvc.exe"
+          if (-not (Test-Path $sidecarExe)) { throw "frozen sidecar binary not found at $sidecarExe" }
+          $stdoutLog = Join-Path $env:RUNNER_TEMP "sidecar-probe-stdout.log"
+          $stderrLog = Join-Path $env:RUNNER_TEMP "sidecar-probe-stderr.log"
+          Remove-Item $stdoutLog, $stderrLog -ErrorAction SilentlyContinue
+
+          # Throwaway 32+ char literal generated inline; never a secret.
+          $probeToken = "sidecar-probe-token-" + ([guid]::NewGuid().ToString("N"))
+          $env:BHAYANAK_TOKEN = $probeToken
+          $probe = Start-Process -FilePath $sidecarExe -PassThru `
+            -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
+          Start-Sleep -Seconds 5
+          $probe.Refresh()
+
+          Write-Output "=== sidecar probe: process alive after 5s = $(-not $probe.HasExited) ==="
+          foreach ($log in @($stdoutLog, $stderrLog)) {
+            Write-Output "--- $log ---"
+            if (Test-Path $log) {
+              if ((Get-Item $log).Length -gt 0) {
+                Get-Content $log | ForEach-Object { Write-Output $_ }
+              } else {
+                Write-Output "(empty)"
+              }
+            } else {
+              Write-Output "(absent)"
+            }
+          }
+          if ($probe.HasExited) {
+            Write-Output "sidecar probe process exited with code $($probe.ExitCode)"
+          }
+
+          $ready = Select-String -Path $stdoutLog -Pattern '"type":\s*"ready"' -Quiet -ErrorAction SilentlyContinue
+          $tokenMissing = Select-String -Path $stderrLog -Pattern "BHAYANAK_TOKEN was not provided" -Quiet -ErrorAction SilentlyContinue
+          if ($ready) {
+            Write-Output "sidecar probe verdict: READY - the frozen exe received BHAYANAK_TOKEN directly; PyInstaller onefile is NOT dropping custom parent env"
+          } elseif ($tokenMissing) {
+            Write-Output "sidecar probe verdict: TOKEN NOT DELIVERED - the frozen exe reports the exact same missing-token error even when launched directly with the token set, isolated from the Tauri app"
+          } else {
+            Write-Output "sidecar probe verdict: INCONCLUSIVE - neither the ready line nor the known missing-token message was observed; inspect the logs above"
+          }
+
+          # Clean up: the bootloader may have spawned a child interpreter
+          # process, which Stop-Process on the parent would not reach.
+          Get-CimInstance Win32_Process -Filter "ParentProcessId = $($probe.Id)" -ErrorAction SilentlyContinue |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+          if (-not $probe.HasExited) {
+            Stop-Process -Id $probe.Id -Force -ErrorAction SilentlyContinue
+          }
+          $env:BHAYANAK_TOKEN = $null
+
       - name: Compute smoke update versions
         shell: bash
         run: |
