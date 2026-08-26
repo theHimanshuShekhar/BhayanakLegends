@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -18,9 +19,15 @@ vi.mock("../api/sse", () => ({
   useEvents: () => false,
 }));
 
+function renderWithProviders(ui: ReactNode) {
+  return render(
+    <QueryClientProvider client={new QueryClient()}>{ui}</QueryClientProvider>,
+  );
+}
+
 describe("Layout accessibility", () => {
   it("exposes landmarks, current navigation, and the offline connection state", () => {
-    render(
+    renderWithProviders(
       <Layout>
         <p>Route content</p>
       </Layout>,
@@ -35,7 +42,7 @@ describe("Layout accessibility", () => {
   });
 
   it("moves focus to a destination heading and resets the route scroll position", async () => {
-    const { rerender } = render(
+    const { rerender } = renderWithProviders(
       <Layout>
         <h1 tabIndex={-1}>Progress</h1>
       </Layout>,
@@ -48,9 +55,11 @@ describe("Layout accessibility", () => {
 
     routerState.pathname = "/history";
     rerender(
-      <Layout>
-        <h1 tabIndex={-1}>Improvement Journal</h1>
-      </Layout>,
+      <QueryClientProvider client={new QueryClient()}>
+        <Layout>
+          <h1 tabIndex={-1}>Improvement Journal</h1>
+        </Layout>,
+      </QueryClientProvider>,
     );
 
     await waitFor(() => expect(screen.getByRole("heading", { level: 1 })).toHaveFocus());
@@ -58,7 +67,7 @@ describe("Layout accessibility", () => {
     expect(screen.getByRole("heading", { level: 1 })).toHaveAttribute("tabindex", "-1");
   });
   it("keeps the six route links and shell statuses in stable keyboard order", () => {
-    render(
+    renderWithProviders(
       <Layout>
         <h1 tabIndex={-1}>Trajectory</h1>
       </Layout>,
