@@ -10,8 +10,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::Manager;
-use tauri_plugin_shell::process::{CommandChild, CommandEvent};
-use tauri_plugin_shell::ShellExt;
+use tauri_plugin_shell::process::CommandChild;
 use uuid::Uuid;
 
 const MAX_LAUNCHES: u8 = 3;
@@ -236,6 +235,9 @@ impl Drop for ProcessContainment {
 
 enum Proc {
     Std(Child),
+    // Retained as the mock-construction seam for supervisor tests below;
+    // production spawning no longer goes through tauri_plugin_shell.
+    #[allow(dead_code)]
     Plugin(Option<CommandChild>),
 }
 impl Proc {
@@ -648,112 +650,81 @@ where
     })
 }
 
-struct ProductionSidecarAdapter {
-    app: tauri::AppHandle,
-}
+struct ProductionSidecarAdapter;
 
 impl SidecarProcessAdapter for ProductionSidecarAdapter {
     type Handle = Spawned;
 
     fn spawn(&mut self, token: &str) -> Result<Self::Handle, String> {
-        if cfg!(debug_assertions) {
+        let mut command = if cfg!(debug_assertions) {
             let backend_dir =
                 std::env::var("BL_BACKEND_DIR").unwrap_or_else(|_| "../backend".into());
             let launcher = std::env::var("BL_PY_LAUNCHER").unwrap_or_else(|_| "uv".into());
-            let mut child = Command::new(launcher)
+            let mut command = Command::new(launcher);
+            command
                 .args(["run", "python", "-m", "bhayanak_legends.sidecar"])
                 .current_dir(backend_dir)
-                .env("BHAYANAK_TOKEN", token)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .map_err(|e| format!("sidecar spawn failed: {e}"))?;
-            let containment = match ProcessContainment::attach(child.id()) {
-                Ok(containment) => containment,
-                Err(error) => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(error);
-                }
-            };
-            let stdout = match child.stdout.take() {
-                Some(stdout) => stdout,
-                None => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err("sidecar stdout was not captured".into());
-                }
-            };
-            let stderr = child.stderr.take();
-            let (tx, rx) = mpsc::channel();
-            thread::spawn(move || {
-                for line in BufReader::new(stdout).lines() {
-                    let result = line
-                        .map(|line| line.into_bytes())
-                        .map_err(|error| error.to_string());
-                    if tx.send(result).is_err() {
-                        break;
-                    }
-                }
-            });
-            if let Some(stderr) = stderr {
-                thread::spawn(move || for _ in BufReader::new(stderr).lines() {});
-            }
-            Ok(Spawned {
-                proc: Proc::Std(child),
-                output: OutputEvents::Lines(Some(rx)),
-                exit: None,
-                containment,
-            })
-        } else {
-            let sidecar = self
-                .app
-                .shell()
-                .sidecar("bhayanak-legends-sidecar")
-                .map_err(|e| format!("sidecar command unavailable: {e}"))?
                 .env("BHAYANAK_TOKEN", token);
-            let (mut events, child) = sidecar
-                .spawn()
-                .map_err(|e| format!("sidecar spawn failed: {e}"))?;
-            let containment = match ProcessContainment::attach(child.pid()) {
-                Ok(containment) => containment,
-                Err(error) => {
-                    let _ = child.kill();
-                    return Err(error);
+            command
+        } else {
+            // The bundled sidecar sits next to the installed executable and is
+            // spawned directly: tauri_plugin_shell's Windows sidecar spawn does
+            // not deliver custom environment variables, which stranded the
+            // sidecar without its BHAYANAK_TOKEN.
+            let exe =
+                std::env::current_exe().map_err(|e| format!("sidecar spawn failed: {e}"))?;
+            let install_dir = exe
+                .parent()
+                .ok_or_else(|| "sidecar spawn failed: no install directory".to_string())?;
+            let mut command = Command::new(
+                install_dir
+                    .join(format!("bhayanak-legends-sidecar{}", std::env::consts::EXE_SUFFIX)),
+            );
+            command.env("BHAYANAK_TOKEN", token);
+            command
+        };
+        let mut child = command
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("sidecar spawn failed: {e}"))?;
+        let containment = match ProcessContainment::attach(child.id()) {
+            Ok(containment) => containment,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error);
+            }
+        };
+        let stdout = match child.stdout.take() {
+            Some(stdout) => stdout,
+            None => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("sidecar stdout was not captured".into());
+            }
+        };
+        let stderr = child.stderr.take();
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            for line in BufReader::new(stdout).lines() {
+                let result = line
+                    .map(|line| line.into_bytes())
+                    .map_err(|error| error.to_string());
+                if tx.send(result).is_err() {
+                    break;
                 }
-            };
-            let (tx, rx) = mpsc::channel();
-            let (exit_tx, exit_rx) = mpsc::channel();
-            tauri::async_runtime::spawn(async move {
-                while let Some(event) = events.recv().await {
-                    match event {
-                        CommandEvent::Stdout(line) => {
-                            if tx.send(Ok(line)).is_err() {
-                                break;
-                            }
-                        }
-                        CommandEvent::Error(error) => {
-                            if tx.send(Err(error)).is_err() {
-                                break;
-                            }
-                        }
-                        CommandEvent::Terminated(_) => {
-                            let _ = tx.send(Err("sidecar exited before readiness".into()));
-                            let _ = exit_tx.send(Ok(()));
-                            break;
-                        }
-                        CommandEvent::Stderr(_) => {}
-                        _ => {}
-                    }
-                }
-            });
-            Ok(Spawned {
-                proc: Proc::Plugin(Some(child)),
-                output: OutputEvents::Lines(Some(rx)),
-                exit: Some(exit_rx),
-                containment,
-            })
+            }
+        });
+        if let Some(stderr) = stderr {
+            thread::spawn(move || for _ in BufReader::new(stderr).lines() {});
         }
+        Ok(Spawned {
+            proc: Proc::Std(child),
+            output: OutputEvents::Lines(Some(rx)),
+            exit: None,
+            containment,
+        })
     }
     fn wait_for_readiness(
         &mut self,
@@ -915,8 +886,8 @@ where
 }
 
 #[allow(dead_code)]
-fn spawn_sidecar(app: &tauri::AppHandle) -> Result<SidecarHandle, SidecarStartupError> {
-    let supervisor = Supervisor::new(ProductionSidecarAdapter { app: app.clone() });
+fn spawn_sidecar(_app: &tauri::AppHandle) -> Result<SidecarHandle, SidecarStartupError> {
+    let supervisor = Supervisor::new(ProductionSidecarAdapter);
     let (_, generation, spawned, info) = run_startup_cycle(
         supervisor,
         || Uuid::new_v4().simple().to_string(),
@@ -1089,8 +1060,7 @@ fn publish_sidecar_state(
 
 fn run_sidecar_supervisor(app: tauri::AppHandle) {
     let shutdown = app.state::<SidecarState>().1.shutdown();
-    let mut supervisor =
-        Supervisor::with_shutdown(ProductionSidecarAdapter { app: app.clone() }, shutdown);
+    let mut supervisor = Supervisor::with_shutdown(ProductionSidecarAdapter, shutdown);
     loop {
         if supervisor.shutdown.is_requested() {
             let _ = supervisor.stop();
