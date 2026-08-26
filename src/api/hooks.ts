@@ -15,6 +15,11 @@ interface LiveStatusArbiter {
   wasConnected: boolean;
 }
 
+const IDLE_LIVE_STATUS: LiveStatus = {
+  champ_select: { active: false, phase: null },
+  ingame: { active: false, game_id: null, mode: null, clock_s: 0 },
+  last_error: null,
+};
 const liveStatusArbiters = new WeakMap<object, LiveStatusArbiter>();
 
 function liveStatusArbiterFor(queryClient: QueryClient): LiveStatusArbiter {
@@ -49,29 +54,28 @@ function applyLiveStatusEvent(
     arbiter.champSelectRevision += 1;
     arbiter.champSelectActive = message.data.active;
     arbiter.champSelectPhase = message.data.phase;
-    if (arbiter.latest) {
-      arbiter.latest = {
-        ...arbiter.latest,
-        champ_select: {
-          ...arbiter.latest.champ_select,
-          active: message.data.active,
-          phase: message.data.phase,
-        },
-      };
-      queryClient.setQueryData(["live-status"], arbiter.latest);
-    }
+    arbiter.latest = {
+      ...(arbiter.latest ?? IDLE_LIVE_STATUS),
+      champ_select: {
+        ...(arbiter.latest?.champ_select ?? IDLE_LIVE_STATUS.champ_select),
+        active: message.data.active,
+        phase: message.data.phase,
+      },
+    };
+    queryClient.setQueryData(["live-status"], arbiter.latest);
     return;
   }
   if (message.type === "live.state") {
     arbiter.inGameRevision += 1;
     arbiter.inGameActive = message.data.active;
-    if (arbiter.latest) {
-      arbiter.latest = {
-        ...arbiter.latest,
-        ingame: { ...arbiter.latest.ingame, active: message.data.active },
-      };
-      queryClient.setQueryData(["live-status"], arbiter.latest);
-    }
+    arbiter.latest = {
+      ...(arbiter.latest ?? IDLE_LIVE_STATUS),
+      ingame: {
+        ...(arbiter.latest?.ingame ?? IDLE_LIVE_STATUS.ingame),
+        active: message.data.active,
+      },
+    };
+    queryClient.setQueryData(["live-status"], arbiter.latest);
   }
 }
 export function useHealth() {

@@ -1,8 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState } from "react";
 import { useLiveStatus } from "../api/hooks";
-import { useEvents } from "../api/sse";
-import type { SseMessage } from "../api/sse";
 type LivePhase = "idle" | "champ-select" | "in-game";
 type CompanionModeRequest =
   | { mode: "idle" }
@@ -31,7 +29,6 @@ export function LiveCompanion() {
   const [expanded, setExpanded] = useState(false);
   const phaseRef = useRef<LivePhase>("idle");
   const expandedRef = useRef(false);
-  const sourcesRef = useRef({ champSelect: false, inGame: false });
 
   const applyPhase = (nextPhase: LivePhase) => {
     const nextExpanded = nextPhase === "in-game" ? expandedRef.current : false;
@@ -43,25 +40,10 @@ export function LiveCompanion() {
     syncWindowMode(requestFor(nextPhase, nextExpanded));
   };
 
-  useEvents((message: SseMessage) => {
-    if (message.type === "champselect.state") {
-      sourcesRef.current.champSelect = message.data.active;
-    } else if (message.type === "live.state") {
-      sourcesRef.current.inGame = message.data.active;
-    } else if (message.type === "live.status") {
-      sourcesRef.current.champSelect = message.data.champ_select.active;
-      sourcesRef.current.inGame = message.data.ingame.active;
-    } else {
-      return;
-    }
-    applyPhase(modeFromSources(sourcesRef.current.champSelect, sourcesRef.current.inGame));
-  });
 
   useEffect(() => {
     const status = liveStatus.data;
     if (!status) return;
-    sourcesRef.current.champSelect = status.champ_select.active;
-    sourcesRef.current.inGame = status.ingame.active;
     applyPhase(modeFromSources(status.champ_select.active, status.ingame.active));
   }, [liveStatus.data]);
 
