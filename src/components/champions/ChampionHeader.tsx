@@ -1,5 +1,5 @@
 import type { TierEntry } from "../../api/types";
-import { pct } from "../ui";
+import { formatRate as pct } from "../format";
 
 export function titleCase(role: string): string {
   return role.charAt(0).toUpperCase() + role.slice(1).toLowerCase();

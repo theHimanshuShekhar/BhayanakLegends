@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import type { TierEntry } from "../../api/types";
-import { pct } from "../ui";
+import { formatRate as pct } from "../format";
 import { KickerRow, captionStyle } from "./bits";
 
 const TIER_PILL: Record<TierEntry["tier"], CSSProperties> = {

@@ -1,5 +1,5 @@
 import type { HistorySummary } from "../../api/types";
-import { pct } from "../ui";
+import { formatRate as pct } from "../format";
 
 export function ProgressSummaryCard({ summary }: { summary: HistorySummary }) {
   const patches = summary.patches;

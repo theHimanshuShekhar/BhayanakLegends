@@ -42,7 +42,7 @@ export function LeverAdoption({ habits }: { habits: HabitDef[] }) {
                 +{h.effect_per_sd.toFixed(2)}% WR per SD
               </div>
             </div>
-            <Unavailable />
+            <Unavailable reason="No habit data" />
           </div>
           <div
             data-testid={`habit-bar-${h.key}`}

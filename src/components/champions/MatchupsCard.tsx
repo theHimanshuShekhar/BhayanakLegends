@@ -1,5 +1,5 @@
 import type { MatchupExample } from "../../api/types";
-import { pct } from "../ui";
+import { formatRate as pct } from "../format";
 import { KickerRow } from "./bits";
 
 function MatchupRow({ m, color }: { m: MatchupExample; color: string }) {
