@@ -1,16 +1,7 @@
-import type { AssignedRole } from "../../api/types";
+import type { ChampSelectSessionView } from "./shared";
 
-export function MatchStartCard({
-  active,
-  pick,
-  role = null,
-  locked = false,
-}: {
-  active: boolean;
-  pick?: string;
-  role?: AssignedRole | null;
-  locked?: boolean;
-}) {
+export function MatchStartCard({ session }: { session: ChampSelectSessionView }) {
+  const { active, localChampion: pick, assignedRole: role, locked } = session;
   const status = locked
     ? `${pick ?? "Champion unavailable"} locked${role ? ` · ${role}` : ""}`
     : pick

@@ -1,6 +1,26 @@
-// Gameplan pills are champion-specific; with no locked pick at v1 the card
-// keeps the design structure in an idle state instead of inventing guidance.
-export function HowToPlayCard() {
+import type { ChampSelectSessionView, FindingsPackState } from "./shared";
+
+export function HowToPlayCard({
+  session,
+  packState,
+}: {
+  session: ChampSelectSessionView;
+  packState: FindingsPackState;
+}) {
+  const context = session.localChampion
+    ? `Session champion: ${session.localChampion}${session.locked ? " · locked" : " · not locked"}.`
+    : session.active
+      ? "Session champion is not selected."
+      : "Waiting for a live session.";
+  const guidance =
+    packState === "loading"
+      ? "Loading Findings Pack — champion-specific gameplan guidance is not available yet."
+      : packState === "error"
+        ? "Unavailable: Findings Pack could not be loaded, so champion-specific gameplan guidance is unavailable."
+        : packState === "missing"
+          ? "Unavailable: Findings Pack is missing, so champion-specific gameplan guidance is unavailable."
+          : "Unavailable: no exact champion-specific gameplan finding exists.";
+
   return (
     <div
       className="card3"
@@ -8,7 +28,7 @@ export function HowToPlayCard() {
       style={{ padding: 12, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 8 }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ width: 6, height: 6, borderRadius: 999, background: "#7a8098" }} />
+        <span style={{ width: 6, height: 6, borderRadius: 999, background: session.locked ? "var(--color-teal)" : "#7a8098" }} />
         <span style={{ font: "700 9.5px var(--font-mono)", letterSpacing: ".11em", color: "var(--color-dim)" }}>
           HOW TO PLAY IT
         </span>
@@ -23,17 +43,10 @@ export function HowToPlayCard() {
           boxShadow: "var(--shadow-z1)",
         }}
       >
-        <span
-          className="pill"
-          style={{ alignSelf: "flex-start", background: "var(--color-surface-3)", color: "var(--color-dim)" }}
-        >
-          Idle
-        </span>
-        <p style={{ margin: 0, fontSize: 11, lineHeight: 1.5, color: "#cfd3e5" }}>
-          Lock a champion and the early / mid / late gameplan pills arrive with the live session.
-        </p>
+        <p style={{ margin: 0, fontSize: 11, lineHeight: 1.5, color: "#cfd3e5" }}>{context}</p>
       </div>
       <div
+        role="status"
         style={{
           marginTop: "auto",
           display: "flex",
@@ -46,9 +59,7 @@ export function HowToPlayCard() {
         }}
       >
         <span style={{ width: 6, height: 6, borderRadius: 999, background: "var(--color-dimmer)", flex: "none" }} />
-        <div style={{ fontSize: 9.5, lineHeight: 1.4, color: "var(--color-dim)" }}>
-          Gameplan guidance is champion-specific — it needs a locked pick, not pack averages.
-        </div>
+        <div style={{ fontSize: 9.5, lineHeight: 1.4, color: "var(--color-dim)" }}>{guidance}</div>
       </div>
     </div>
   );
