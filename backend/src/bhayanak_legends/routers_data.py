@@ -8,9 +8,10 @@ import re
 import statistics
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 
 from .models import (
+    BenchmarkResponse,
     Checkpoints,
     HabitOutcome,
     HistorySummary,
@@ -206,15 +207,17 @@ def postgame_latest(request: Request) -> dict | None:
 
 @router.get(
     "/benchmarks",
-    response_model=list[RoleBenchmark],
+    response_model=BenchmarkResponse,
     response_model_exclude_none=True,
 )
-def benchmarks(request: Request) -> list[dict]:
+def benchmarks(request: Request) -> dict:
     try:
         pack = request.app.state.pack.load()
     except PackError:
-        return []
+        raise HTTPException(status_code=503, detail="Findings Pack validation failed") from None
+
     personal = _personal_medians(request.app.state.store.all_matches())
+    compatible_cells = 0
     result: list[dict] = []
     for entry in pack.get("benchmarks", []):
         role = str(entry.get("role"))
@@ -232,9 +235,12 @@ def benchmarks(request: Request) -> list[dict]:
             population_column = definition["population_column"]
             if feature_contract.get(population_column) != definition["population_feature"]:
                 continue
-            personal_value = mine.get(definition["canonical_name"])
             population_value = entry.get(population_column)
-            if not _finite_number(personal_value) or not _finite_number(population_value):
+            if not _finite_number(population_value):
+                continue
+            compatible_cells += 1
+            personal_value = mine.get(definition["canonical_name"])
+            if not _finite_number(personal_value):
                 continue
             personal_values[definition["canonical_name"]] = float(personal_value)
             population_values[population_column] = float(population_value)
@@ -248,7 +254,14 @@ def benchmarks(request: Request) -> list[dict]:
                 population=RoleBenchmarkPopulation.model_validate(population_values),
             ).model_dump(exclude_none=True)
         )
-    return result
+    state = (
+        "available"
+        if result
+        else "insufficient-personal-history"
+        if compatible_cells
+        else "contract-suppressed"
+    )
+    return BenchmarkResponse(state=state, rows=result).model_dump(exclude_none=True)
 
 
 def _personal_medians(rows: list[dict[str, Any]]) -> dict[str, dict[str, float]]:

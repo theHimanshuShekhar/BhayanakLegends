@@ -228,6 +228,10 @@ export interface HabitOutcome {
 }
 
 export type BenchmarkMetric = "cs10" | "level10" | "gold_diff_10";
+export type BenchmarkState =
+  | "available"
+  | "contract-suppressed"
+  | "insufficient-personal-history";
 
 export interface RoleBenchmark {
   role: Role;
@@ -235,6 +239,11 @@ export interface RoleBenchmark {
   population: Partial<Record<`${BenchmarkMetric}_median`, number>> & {
     sample: number;
   };
+}
+
+export interface BenchmarkResponse {
+  state: BenchmarkState;
+  rows: RoleBenchmark[];
 }
 
 export interface LiveStatus {

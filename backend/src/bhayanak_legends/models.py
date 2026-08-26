@@ -7,6 +7,7 @@ frontend crashes, so response models reject unknown states and shapes.
 
 import math
 from math import isfinite
+import math
 from typing import Any, Literal
 
 from pydantic import (
@@ -61,6 +62,7 @@ GameMode = Literal[
 CellState = Literal["intent", "picked", "hover", "none"]
 HabitVerdict = Literal["good", "bad", "neutral", "n/a"]
 BenchmarkMetric = Literal["cs10", "level10", "gold_diff_10"]
+BenchmarkState = Literal["available", "contract-suppressed", "insufficient-personal-history"]
 LiveEventName = Literal[
     "GameStart",
     "MinionsSpawning",
@@ -178,6 +180,10 @@ class RoleBenchmark(ContractModel):
     personal: RoleBenchmarkPersonal
     population: RoleBenchmarkPopulation
 
+
+class BenchmarkResponse(ContractModel):
+    state: BenchmarkState
+    rows: list[RoleBenchmark]
 
 class LiveState(ContractModel):
     """Legacy internal state shape used by callers that need both fields."""
