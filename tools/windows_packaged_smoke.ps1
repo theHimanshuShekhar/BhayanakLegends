@@ -13,7 +13,9 @@ param(
 # produced from $InstallerPath:
 #   1. update-available: the app sees the fixture's real signed higher-version
 #      offer and clicks the existing "Install update" action. The Windows
-#      updater plugin spawns the extracted NSIS installer and calls
+#      updater plugin writes the downloaded installer (the signed NSIS setup
+#      .exe itself, served directly with no zip wrapping) into a temp file
+#      named "<app>-<version>-installer.exe", spawns it, and calls
 #      std::process::exit(0) before the JS promise resolves (no /R flag is
 #      passed), so the app exits on its own; this harness waits for that exit
 #      and then for the detached installer process to finish.
@@ -140,7 +142,11 @@ try {
     $state.owned_sidecars += $strandedSidecars
     $strandedSidecars | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
   }
-  if (-not (Wait-ProcessGoneByName -NameLike "*$HigherVersion*x64-setup*" -TimeoutSeconds 120)) {
+  # The plugin writes the downloaded setup .exe to a temp file named
+  # "<app_name>-<version>-installer.exe" (app.package_info().name + version),
+  # spawns it, and exits, so wait on that exact shape rather than the bundle
+  # filename.
+  if (-not (Wait-ProcessGoneByName -NameLike "*$HigherVersion*installer*" -TimeoutSeconds 120)) {
     throw "updater-spawned NSIS installer did not finish applying the signed update"
   }
   Start-Sleep -Seconds 1
