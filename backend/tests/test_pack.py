@@ -8,14 +8,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-from pydantic import ValidationError as PydanticValidationError
-
-from bhayanak_legends.pack import PackError, PackStore
 import pytest
 from jsonschema import Draft202012Validator, ValidationError
 from pydantic import ValidationError as PydanticValidationError
 
 from bhayanak_legends.models import FindingsPack
+from bhayanak_legends.pack import PackError, PackStore
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PACK_DIR = REPO_ROOT / "pack"
@@ -33,11 +31,6 @@ def generator():
     spec.loader.exec_module(module)
     return module
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-PACK_DIR = REPO_ROOT / "pack"
-SCHEMA = json.loads((PACK_DIR / "pack.schema.json").read_text())
-PACK = json.loads((PACK_DIR / "findings-pack.v1.json").read_text())
-
 
 def finding(key: str) -> dict:
     return next(f for f in PACK["findings"] if f["key"] == key)
@@ -54,8 +47,6 @@ IMPERATIVE = re.compile(
 )
 
 
-
-
 def test_schema_accepts_unknown_future_tables_only_as_objects():
     future = copy.deepcopy(PACK)
     future["future_table"] = {"new_metric": 1}
@@ -64,6 +55,8 @@ def test_schema_accepts_unknown_future_tables_only_as_objects():
     future["future_table"] = ["not", "a", "table"]
     with pytest.raises(ValidationError):
         Draft202012Validator(SCHEMA).validate(future)
+
+
 def test_pack_matches_schema_and_strict_model():
     Draft202012Validator.check_schema(SCHEMA)
     Draft202012Validator(SCHEMA).validate(PACK)
@@ -71,7 +64,6 @@ def test_pack_matches_schema_and_strict_model():
     model = FindingsPack.model_validate(PACK)
 
     assert model.pack_version == "v1"
-
 
 
 def test_pack_store_wraps_unreadable_json_as_pack_error(tmp_path: Path):
@@ -457,6 +449,43 @@ def test_matchup_validator_rejects_exact_duplicate_but_allows_reverse_and_role(g
     with pytest.raises(ValueError, match="duplicate matchup direction"):
         generator.validate_matchup_examples([*rows, rows[0]])
 
+def test_matchup_validator_rejects_self_rows(generator):
+    with pytest.raises(ValueError, match="self-matchup"):
+        generator.validate_matchup_examples(
+            [{"champion": "Darius", "opponent": "Darius", "role": "TOP"}]
+        )
+
+
+def test_matchup_builder_returns_no_rows_for_empty_and_all_self_input(generator):
+    pd = pytest.importorskip("pandas")
+    columns = ["champion_name", "opponent_champion_name", "role", "win"]
+    assert generator.build_matchup_examples(pd.DataFrame({c: [] for c in columns}), wanted=8, min_games=1) == []
+
+    all_self = pd.DataFrame(
+        [
+            {"champion_name": "Darius", "opponent_champion_name": "Darius", "role": role, "win": True}
+            for role in ("TOP", "JUNGLE")
+        ]
+    )
+    assert generator.build_matchup_examples(all_self, wanted=8, min_games=1) == []
+
+
+def test_matchup_builder_preserves_reverse_only_input_without_synthesis(generator):
+    pd = pytest.importorskip("pandas")
+    frame = pd.DataFrame(
+        [
+            {"champion_name": "Garen", "opponent_champion_name": "Darius", "role": "TOP", "win": True},
+            {"champion_name": "Garen", "opponent_champion_name": "Darius", "role": "TOP", "win": False},
+        ]
+    )
+
+    matchups = generator.build_matchup_examples(frame, wanted=8, min_games=1)
+
+    assert [(row["champion"], row["opponent"], row["role"]) for row in matchups] == [
+        ("Garen", "Darius", "TOP")
+    ]
+    assert matchups[0]["wr"] == 0.5
+
 
 def test_shipped_darius_garen_rows_are_independently_oriented():
     rows = {
@@ -475,6 +504,7 @@ def test_shipped_darius_garen_rows_are_independently_oriented():
         [{"role": "TOP", "sample": 1, "cs10_median": 60.0, "feature_contract": {}}],
         [{"role": "TOP", "sample": 1, "cs10_median": None, "feature_contract": {"cs10_median": "cs10"}}],
         [{"role": "TOP", "sample": 1, "cs10_median": float("nan"), "feature_contract": {"cs10_median": "cs10"}}],
+        [{"role": "TOP", "sample": 1, "cs10_median": float("inf"), "feature_contract": {"cs10_median": "cs10"}}],
     ],
 )
 def test_benchmark_validator_rejects_untruthful_sparse_pairs(generator, rows):
@@ -513,6 +543,13 @@ def test_sparse_schema_accepts_truthful_pair_and_rejects_unpaired_median():
     with pytest.raises(ValidationError):
         Draft202012Validator(SCHEMA).validate(broken)
 
+    unpaired_declaration = {
+        **sparse,
+        "benchmarks": [{k: v for k, v in benchmark.items() if k != "cs10_median"}],
+    }
+    with pytest.raises(ValidationError):
+        Draft202012Validator(SCHEMA).validate(unpaired_declaration)
+
 
 def test_benchmarks_cover_all_roles_with_sample():
     roles = {b["role"]: b for b in PACK["benchmarks"]}
@@ -527,3 +564,17 @@ def test_benchmark_pack_fields_declare_only_computed_source_features():
         assert "gold_diff_10_median" not in bench
         assert bench["feature_contract"] == {"cs10_median": "lane_minions_first_10m"}
         assert isinstance(bench["cs10_median"], (int, float))
+
+
+def test_shipped_pack_passes_generator_boundary_semantic_validation(generator):
+    generator.validate_matchup_examples(PACK["matchup_examples"])
+    generator.validate_benchmarks(PACK["benchmarks"])
+
+
+def test_shipped_benchmark_declaration_stays_incompatible_with_total_cs10():
+    # docs/CONTRACT.md: lane-only CS is not total cs10 even when similarly
+    # named, so the shipped declaration must never claim the canonical feature.
+    for bench in PACK["benchmarks"]:
+        declared = bench["feature_contract"]["cs10_median"]
+        assert declared == "lane_minions_first_10m"
+        assert declared != "cs10"
