@@ -126,7 +126,7 @@ jobs:
           $probeSource = Join-Path $env:RUNNER_TEMP "env_probe.rs"
           $probeExe = Join-Path $env:RUNNER_TEMP "env_probe.exe"
           $probeLines = @(
-            'use std::io::{BufRead, BufReader};',
+            'use std::io::{BufRead, BufReader, Write};',
             'use std::process::{Command, Stdio};',
             'use std::sync::mpsc;',
             'use std::thread;',
@@ -157,8 +157,8 @@ jobs:
             '    let err_line = err_rx.recv_timeout(Duration::from_secs(5)).unwrap_or_else(|_| "(no stderr within 5s)".to_string());',
             '    println!("PROBE_STDOUT_LINE: {:?}", out_line);',
             '    println!("PROBE_STDERR_LINE: {:?}", err_line);',
-            '    let _ = child.kill();',
-            '    let _ = child.wait();',
+            '    let _ = std::io::stdout().flush();',
+            '    std::process::exit(0);',
             '}'
           )
           Set-Content -Path $probeSource -Value $probeLines -Encoding utf8
@@ -166,9 +166,22 @@ jobs:
           rustc $probeSource -o $probeExe
           if ($LASTEXITCODE -ne 0) { throw "rustc failed to compile the env-delivery probe" }
 
-          $output = & $probeExe 2>&1
-          if ($LASTEXITCODE -ne 0) { Write-Output "env_probe.exe exited with code $LASTEXITCODE" }
+          $probeStdout = Join-Path $env:RUNNER_TEMP "rust-env-probe-stdout.log"
+          $probeStderr = Join-Path $env:RUNNER_TEMP "rust-env-probe-stderr.log"
+          Remove-Item $probeStdout, $probeStderr -ErrorAction SilentlyContinue
+          $probeProcess = Start-Process -FilePath $probeExe -PassThru `
+            -RedirectStandardOutput $probeStdout -RedirectStandardError $probeStderr
+          if (-not $probeProcess.WaitForExit(15000)) {
+            Stop-Process -Id $probeProcess.Id -Force -ErrorAction SilentlyContinue
+            throw "env_probe.exe did not finish within 15 seconds"
+          }
+          $output = @()
+          if (Test-Path $probeStdout) { $output += @(Get-Content $probeStdout) }
+          if (Test-Path $probeStderr) { $output += @(Get-Content $probeStderr) }
           $output | ForEach-Object { Write-Output $_ }
+          Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -like "bhayanak-legends-sidecar*" } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
           $outLine = ($output | Select-String 'PROBE_STDOUT_LINE:' | Select-Object -First 1).ToString()
           $errLine = ($output | Select-String 'PROBE_STDERR_LINE:' | Select-Object -First 1).ToString()
