@@ -176,6 +176,40 @@ async function expectReducedMotion(page: Page) {
   );
   expect(moving, `animated elements under prefers-reduced-motion: ${moving.join(", ")}`).toEqual([]);
 }
+async function waitForPreloadedStatus(
+  request: APIRequestContext,
+  expected: { champSelect?: boolean; inGame?: boolean },
+) {
+  await expect
+    .poll(async () => {
+      const response = await request.get(`${SIDECAR}/live/status`, { headers: AUTH });
+      expect(response.ok()).toBeTruthy();
+      const status = (await response.json()) as {
+        champ_select: { active: boolean };
+        ingame: { active: boolean };
+      };
+      return (
+        (expected.champSelect === undefined || status.champ_select.active === expected.champSelect) &&
+        (expected.inGame === undefined || status.ingame.active === expected.inGame)
+      );
+    })
+    .toBe(true);
+}
+
+function countEventStreams(page: Page) {
+  // Counts every EventSource construction so a flow can prove all subscribers
+  // share exactly one stream instead of leaking duplicates per route/mount.
+  return page.addInitScript(() => {
+    class CountedEventSource extends EventSource {
+      constructor(...args: ConstructorParameters<typeof EventSource>) {
+        super(...args);
+        const host = window as typeof window & { blEventStreams?: number };
+        host.blEventStreams = (host.blEventStreams ?? 0) + 1;
+      }
+    }
+    window.EventSource = CountedEventSource;
+  });
+}
 
 test.describe("active Live Companion replay", () => {
   test("in-game replay proves idle → active → update → reconnect without reload", async ({ page, request }, testInfo) => {
@@ -366,5 +400,104 @@ test.describe("active Live Companion replay", () => {
     await expect(page.getByRole("alert")).toHaveCount(1);
     await captureState(page, testInfo, "error");
     expectNoBrowserErrors(browserErrors.filter((error) => !error.includes("ERR_FAILED")));
+  });
+  test("startup hydration through champ select, in-game, game end, and reconnect is one continuous flow", async ({ page, request }, testInfo) => {
+    test.setTimeout(180_000);
+    const browserErrors = collectBrowserErrors(page);
+    countEventStreams(page);
+
+    for (const viewport of VIEWPORTS) {
+      await page.setViewportSize(viewport);
+
+      // Startup hydration: preload an active champ select before navigation so
+      // no change frame can arrive during load — only the preloaded /live/status
+      // fetch can explain the companion entering champ select mode.
+      await setScenario(request, LCU, "champ-select");
+      await setScenario(request, LIVE, "champ-select");
+      await waitForPreloadedStatus(request, { champSelect: true });
+      await page.goto("/champ-select");
+      await expect(page.getByTestId("live-companion-mode")).toHaveText("champ select");
+      await expect(page.getByTestId("champ-select-page")).toBeVisible();
+      await expect(page.getByTestId("your-lane-champion")).toHaveText("Annie");
+      await page.evaluate(() => {
+        (window as typeof window & { blContinuousFlow?: boolean }).blContinuousFlow = true;
+      });
+      await captureState(page, testInfo, `flow-hydrated-${viewport.width}`);
+
+      // Champ select → in-game happens reactively on the same document.
+      await setScenario(request, LCU, "in-game");
+      await setScenario(request, LIVE, "in-game");
+      const expand = page.getByRole("button", { name: "Expand Live Companion" });
+      await expect(expand).toBeVisible();
+      await expect(page.getByTestId("live-companion-mode")).toHaveText("in-game");
+      await expect(expand).toHaveAttribute("aria-expanded", "false");
+      await expect(page.getByTestId("live-companion")).toContainText(
+        "Borderless-windowed mode required; this companion is not click-through.",
+      );
+      await expect(page).toHaveURL(/\/champ-select$/);
+
+      await expand.click();
+      const collapse = page.getByRole("button", { name: "Collapse Live Companion" });
+      await expect(collapse).toBeVisible();
+
+      // Client-side route change keeps the same document and the expanded widget.
+      await page.getByTestId("nav-live").click();
+      await expect(page).toHaveURL(/\/live$/);
+      await expect(collapse).toBeVisible();
+      await expect(page.getByTestId("live-route-status")).toHaveText("Live Companion game data active");
+      await expect(page.getByTestId("bridge-status")).toContainText(":2999 · 1s poll");
+
+      const initial = await readIngame(request);
+      await expect(initial.teams.order.flatMap((player) => player.items)).not.toHaveLength(0);
+      await expectRenderedSnapshot(page, initial);
+      await expectLiveDataContractDetector(page, initial);
+      await expect(page.getByTestId("wp-value")).toHaveText("—");
+      await expect(page.getByTestId("wp-band")).toContainText(
+        "The current Findings Pack lacks the compatible live input, quartile boundaries, and model inputs needed to map this game.",
+      );
+      await expect(page.getByTestId("wp-band")).not.toContainText(/bottom quartile|top quartile/i);
+      await expectNoHorizontalClipping(page);
+      await captureState(page, testInfo, `flow-in-game-${viewport.width}`);
+
+      // Repeated frames leave expansion untouched while the game continues.
+      await setScenario(request, LCU, "in-game-update");
+      await setScenario(request, LIVE, "in-game-update");
+      await expect(page.getByTestId("event-feed")).toContainText("BaronKill");
+      await expect(page.getByTestId("active-kda")).toContainText("5 / 2 / 7");
+      await expect(page.getByTestId("game-clock")).toContainText("13:32");
+      const updated = await readIngame(request);
+      await expectRenderedSnapshot(page, updated);
+      await expectLiveDataContractDetector(page, updated);
+      await expect(collapse).toBeVisible();
+      await captureState(page, testInfo, `flow-in-game-update-${viewport.width}`);
+
+      // Authoritative game end returns the route to waiting and resets the widget.
+      await setScenario(request, LCU, "idle");
+      await setScenario(request, LIVE, "idle");
+      await expect(page.getByTestId("live-route-status")).toHaveText("Waiting for Live Companion game data");
+      await expect(page.getByTestId("live-companion-mode")).toHaveText("idle");
+      await expect(page.getByRole("button", { name: /(?:Expand|Collapse) Live Companion/ })).toHaveCount(0);
+      await expect(page.getByTestId("player-row-local")).toHaveCount(0);
+      await expect(page.getByTestId("team-totals-unavailable")).toContainText("No snapshot");
+      await expect(page.getByTestId("items-unavailable")).toContainText("No snapshot");
+      await captureState(page, testInfo, `flow-game-end-${viewport.width}`);
+
+      // Reconnect keeps the reconciled waiting state on the same single stream,
+      // with no reload and no browser errors across the whole lifecycle.
+      await setScenario(request, LCU, "reconnect");
+      await setScenario(request, LIVE, "reconnect");
+      await expect(page.getByTestId("live-route-status")).toHaveText("Waiting for Live Companion game data");
+      await expect(page.getByTestId("live-companion-mode")).toHaveText("idle");
+      await expect(page.getByTestId("bridge-status")).toContainText("Live Companion idle");
+      await expect(page).toHaveURL(/\/live$/);
+      await expectNoHorizontalClipping(page);
+      await expectLiveDataContractDetector(page);
+      await captureState(page, testInfo, `flow-reconnect-${viewport.width}`);
+      expect(
+        await page.evaluate(() => (window as typeof window & { blContinuousFlow?: boolean }).blContinuousFlow),
+      ).toBe(true);
+      expect(await page.evaluate(() => (window as typeof window & { blEventStreams?: number }).blEventStreams)).toBe(1);
+      expectNoBrowserErrors(browserErrors);
+    }
   });
 });
