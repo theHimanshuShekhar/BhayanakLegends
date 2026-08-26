@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { Layout } from "./Layout";
@@ -34,7 +34,7 @@ describe("Layout accessibility", () => {
     expect(screen.getByRole("status")).toHaveTextContent("sidecar · offline");
   });
 
-  it("moves focus to a destination heading and resets the route scroll position", () => {
+  it("moves focus to a destination heading and resets the route scroll position", async () => {
     const { rerender } = render(
       <Layout>
         <h1 tabIndex={-1}>Progress</h1>
@@ -53,8 +53,8 @@ describe("Layout accessibility", () => {
       </Layout>,
     );
 
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1 })).toHaveFocus());
     expect(screenRegion.scrollTop).toBe(0);
-    expect(screen.getByRole("heading", { level: 1 })).toHaveFocus();
     expect(screen.getByRole("heading", { level: 1 })).toHaveAttribute("tabindex", "-1");
   });
   it("keeps the six route links and shell statuses in stable keyboard order", () => {
