@@ -93,6 +93,12 @@ describe("LiveMatchPage — idle", () => {
     const bridgeDot = within(screen.getByTestId("bridge-status")).getByTestId("bridge-dot");
     expect(bridgeDot).toHaveStyle({ background: "var(--color-dimmer)" });
     expect(bridgeDot).not.toHaveStyle({ boxShadow: "0 0 8px var(--color-teal)" });
+    const skeletons = list.querySelectorAll<HTMLElement>(".live-skeleton");
+    expect(skeletons.length).toBeGreaterThan(0);
+    for (const shape of skeletons) {
+      expect(shape).toHaveStyle({ background: "var(--color-surface-3)" });
+    }
+    expect(skeletons[0].closest("tbody")).toHaveAttribute("aria-hidden", "true");
     expect(within(list).queryByText(/ornn|viego|taliyah|syndra/i)).not.toBeInTheDocument();
     expect(within(list).queryByText(forbiddenEnemyName)).not.toBeInTheDocument();
     expect(screen.queryByText(forbiddenEnemyName)).not.toBeInTheDocument();
@@ -208,6 +214,7 @@ describe("LiveMatchPage — active game", () => {
     renderPage();
     await screen.findByTestId("team-order");
     expect(within(screen.getByTestId("team-order")).getByTestId("row-kda")).toHaveTextContent("0/0/4");
+    expect(screen.getByTestId("player-list")).toHaveTextContent(/deaths \(cumulative\)/i);
     const totals = screen.getByTestId("team-totals");
     expect(within(totals).getByTestId("team-total-order-cs")).toHaveTextContent("0");
     expect(within(totals).getByTestId("team-total-order-level")).toHaveTextContent("0");
@@ -223,6 +230,7 @@ describe("LiveMatchPage — active game", () => {
     expect(screen.getByTestId("active-kda")).toHaveTextContent("4 / 2 / 7");
     expect(screen.getByTestId("active-stat-cs")).toHaveTextContent("213");
     expect(screen.getByTestId("active-stat-level")).toHaveTextContent("12");
+    expect(screen.getByTestId("active-stat-ward")).toHaveTextContent("1.4");
   });
   it("labels roster deaths as cumulative and keeps active fields contract-truthful", async () => {
     renderPage();
@@ -251,6 +259,8 @@ describe("LiveMatchPage — active game", () => {
     expect(within(active).getAllByText("Local player unavailable")).toHaveLength(1);
     expect(within(active).queryByText("FixturePlayer03")).not.toBeInTheDocument();
     expect(within(active).queryByText("SacredButtholio")).not.toBeInTheDocument();
+    expect(active).not.toHaveTextContent("—");
+    expect(within(active).queryByTestId("active-player-sub")).not.toBeInTheDocument();
     expect(active).not.toHaveTextContent(/health|held gold|current.dead|respawn|role|spell/i);
   });
 
@@ -259,6 +269,7 @@ describe("LiveMatchPage — active game", () => {
     renderPage();
     const list = await screen.findByTestId("player-list");
     expect(await within(list).findByText("Player roster unavailable")).toBeInTheDocument();
+    expect(screen.getByTestId("active-player")).toHaveTextContent("Local player unavailable");
     expect(list).not.toHaveTextContent("waiting for :2999");
     expect(screen.getByTestId("bridge-status")).toHaveTextContent(":2999 · 1s poll");
   });
