@@ -53,9 +53,13 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     try:
         config = SidecarConfig()
-    except ValidationError:
+    except ValidationError as exc:
+        # Never log the value itself (contract: no tokens in diagnostics);
+        # only whether the variable was absent or failed the startup policy.
+        missing = any(error["type"] == "missing" for error in exc.errors())
+        reason = "BHAYANAK_TOKEN was not provided" if missing else "startup policy rejected the provided configuration"
         logging.getLogger("bhayanak_legends.sidecar").error(
-            "invalid sidecar token configuration"
+            "invalid sidecar token configuration: %s", reason
         )
         raise SystemExit(1) from None
     app = create_app(config)
