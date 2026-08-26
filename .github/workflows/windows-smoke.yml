@@ -115,6 +115,71 @@ jobs:
           }
           $env:BHAYANAK_TOKEN = $null
 
+      - name: Probe plain Rust Command::env delivery to the frozen sidecar
+        shell: pwsh
+        run: |
+          # Isolates one further layer: does std::process::Command::env() +
+          # Stdio::piped() deliver a custom env var to this exact frozen exe
+          # at all, with zero Tauri and zero PowerShell $env: involvement?
+          # Mirrors src-tauri/src/sidecar.rs's packaged spawn branch
+          # (Command::new(<exe>).env("BHAYANAK_TOKEN", token).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()).
+          $probeSource = Join-Path $env:RUNNER_TEMP "env_probe.rs"
+          $probeExe = Join-Path $env:RUNNER_TEMP "env_probe.exe"
+          $probeLines = @(
+            'use std::io::{BufRead, BufReader};',
+            'use std::process::{Command, Stdio};',
+            'use std::sync::mpsc;',
+            'use std::thread;',
+            'use std::time::Duration;',
+            '',
+            'fn main() {',
+            '    let mut child = Command::new("src-tauri/binaries/bhayanak-legends-sidecar-x86_64-pc-windows-msvc.exe")',
+            '        .env("BHAYANAK_TOKEN", "env-probe-rustc-token-0123456789abcdef")',
+            '        .stdout(Stdio::piped())',
+            '        .stderr(Stdio::piped())',
+            '        .spawn()',
+            '        .expect("spawn failed");',
+            '    let stdout = child.stdout.take().expect("no stdout");',
+            '    let stderr = child.stderr.take().expect("no stderr");',
+            '    let (out_tx, out_rx) = mpsc::channel();',
+            '    thread::spawn(move || {',
+            '        let mut line = String::new();',
+            '        let _ = BufReader::new(stdout).read_line(&mut line);',
+            '        let _ = out_tx.send(line);',
+            '    });',
+            '    let (err_tx, err_rx) = mpsc::channel();',
+            '    thread::spawn(move || {',
+            '        let mut line = String::new();',
+            '        let _ = BufReader::new(stderr).read_line(&mut line);',
+            '        let _ = err_tx.send(line);',
+            '    });',
+            '    let out_line = out_rx.recv_timeout(Duration::from_secs(5)).unwrap_or_else(|_| "(no stdout within 5s)".to_string());',
+            '    let err_line = err_rx.recv_timeout(Duration::from_secs(5)).unwrap_or_else(|_| "(no stderr within 5s)".to_string());',
+            '    println!("PROBE_STDOUT_LINE: {:?}", out_line);',
+            '    println!("PROBE_STDERR_LINE: {:?}", err_line);',
+            '    let _ = child.kill();',
+            '    let _ = child.wait();',
+            '}'
+          )
+          Set-Content -Path $probeSource -Value $probeLines -Encoding utf8
+
+          rustc $probeSource -o $probeExe
+          if ($LASTEXITCODE -ne 0) { throw "rustc failed to compile the env-delivery probe" }
+
+          $output = & $probeExe 2>&1
+          if ($LASTEXITCODE -ne 0) { Write-Output "env_probe.exe exited with code $LASTEXITCODE" }
+          $output | ForEach-Object { Write-Output $_ }
+
+          $outLine = ($output | Select-String 'PROBE_STDOUT_LINE:' | Select-Object -First 1).ToString()
+          $errLine = ($output | Select-String 'PROBE_STDERR_LINE:' | Select-Object -First 1).ToString()
+          if ($errLine -match "BHAYANAK_TOKEN was not provided") {
+            Write-Output "rustc probe verdict: TOKEN NOT DELIVERED via plain Command::env()+Stdio::piped() - reproduces with zero Tauri/PowerShell involvement"
+          } elseif ($outLine -match '"type":\s*"ready"') {
+            Write-Output "rustc probe verdict: READY - plain Command::env()+Stdio::piped() delivers the token fine in isolation; the bug is specific to the app's actual call site or its surrounding process context, not this pattern alone"
+          } else {
+            Write-Output "rustc probe verdict: INCONCLUSIVE - inspect PROBE_STDOUT_LINE/PROBE_STDERR_LINE above"
+          }
+
       - name: Compute smoke update versions
         shell: bash
         run: |
