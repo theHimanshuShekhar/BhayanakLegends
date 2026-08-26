@@ -301,7 +301,13 @@ class PackFinding(PackModel):
 class HabitDefinition(PackModel):
     key: str
     label: str
-    effect_per_sd: float
+    effect_per_sd: float = Field(
+        description=(
+            "Normative unit: multiplier effect on the outcome for one "
+            "standard-deviation change of the underlying feature; clients render "
+            "×{value} effect per SD (never %, WR, or pp)."
+        )
+    )
 
 
 class BanAdvice(PackModel):

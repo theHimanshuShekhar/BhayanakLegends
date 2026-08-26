@@ -113,6 +113,11 @@ export interface PackFinding {
 export interface HabitDef {
   key: string;
   label: string;
+  /**
+   * Normative unit: multiplier effect on the outcome for one standard-deviation
+   * change of the underlying feature (per backend/tools/build_pack.py). Render
+   * exactly as `×{value} effect per SD` — never as %, WR, or pp.
+   */
   effect_per_sd: number;
 }
 
