@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import { actionableErrorMessage } from "../../api/client";
 import { useCancelSync, useSaveSettings, useSettings, useStartSync, useSyncStatus } from "../../api/hooks";
 import { useEvents } from "../../api/sse";
 import type { SseMessage } from "../../api/sse";
@@ -34,9 +35,12 @@ function isSyncStatus(value: unknown): value is SyncStatus {
     (typeof value.started_at === "string" || value.started_at === null)
   );
 }
-
 const REGIONS: readonly RegionRoute[] = ["sea", "europe", "americas", "asia"];
 const DEFAULT_RIOT_ID = "";
+
+function formatCount(value: number): string {
+  return value.toLocaleString("en-US");
+}
 
 function isTerminal(state: SyncStatus["state"]): boolean {
   return state !== "running";
@@ -82,7 +86,6 @@ export function SyncPanel() {
   useEffect(() => {
     if (!live && polled.data) setLive(polled.data);
   }, [polled.data, live]);
-
   const status = live ?? polled.data ?? null;
   const running = status?.state === "running";
 
@@ -91,27 +94,77 @@ export function SyncPanel() {
   const [key, setKey] = useState("");
   const [autoSync, setAutoSync] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [riotIdEdited, setRiotIdEdited] = useState(false);
+  const [regionEdited, setRegionEdited] = useState(false);
+  const [autoSyncEdited, setAutoSyncEdited] = useState(false);
+  const [riotIdTouched, setRiotIdTouched] = useState(false);
+  const [attempted, setAttempted] = useState(false);
   const riotIdValid = isValidRiotId(riotId);
+  const showRiotIdError = !riotIdValid && (riotIdTouched || attempted);
 
   useEffect(() => {
-    if (settings.data && !dirty) {
-      setRiotId(settings.data.riot_id ?? DEFAULT_RIOT_ID);
-      setRegion(settings.data.region_route);
-      setAutoSync(settings.data.auto_sync);
+    if (settings.data) {
+      if (!riotIdEdited) setRiotId(settings.data.riot_id ?? DEFAULT_RIOT_ID);
+      if (!regionEdited) setRegion(settings.data.region_route);
+      if (!autoSyncEdited) setAutoSync(settings.data.auto_sync);
     }
-  }, [settings.data, dirty]);
+  }, [settings.data, riotIdEdited, regionEdited, autoSyncEdited]);
 
   function onSave(e: FormEvent) {
     e.preventDefault();
+    setAttempted(true);
+    setRiotIdTouched(true);
+    if (!riotIdValid) return;
+
     const patch: SettingsPatch = {
       riot_id: riotId.trim() || null,
       region_route: region,
       auto_sync: autoSync,
     };
     if (key) patch.riot_key = key;
-    save.mutate(patch, { onSuccess: () => setDirty(false) });
+    save.mutate(patch, {
+      onSuccess: () => {
+        setDirty(false);
+        setRiotIdEdited(false);
+        setRegionEdited(false);
+        setAutoSyncEdited(false);
+      },
+    });
   }
 
+  const requestPending = save.isPending || start.isPending || cancel.isPending;
+  const startDisabledReason = running
+    ? "Backfill is running."
+    : requestPending
+      ? "Loading…"
+      : !riotIdValid
+        ? "Enter a valid Riot ID before starting Backfill."
+        : dirty
+          ? "Save settings before starting Backfill."
+          : !settings.data
+            ? settings.isError
+              ? "Unavailable: saved settings could not be loaded."
+              : "Waiting for saved settings"
+            : !settings.data.riot_id
+              ? "Save a Riot ID before starting Backfill."
+              : null;
+  const startDisabled = startDisabledReason !== null;
+  const sourceCopy = requestPending
+    ? "Loading…"
+    : polled.isPending && !status
+      ? "Loading…"
+      : polled.isError && !status
+        ? "Unavailable: Backfill status could not be loaded."
+        : !status
+          ? "Waiting for Backfill status"
+          : null;
+
+  function onStart() {
+    setAttempted(true);
+    setRiotIdTouched(true);
+    if (startDisabled) return;
+    start.mutate(undefined, { onSuccess: (next) => setLive(next) });
+  }
   const total = status?.total_queued ?? 0;
   const doneCount = status?.downloaded ?? 0;
   const progressPct = total > 0 ? Math.min(100, Math.round((doneCount / total) * 100)) : 0;
@@ -123,13 +176,22 @@ export function SyncPanel() {
       style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-        <span className="kicker">SYNC · BACKFILL</span>
         <span
           className="mono-n"
           style={{ fontSize: 10, color: running ? "var(--color-accent)" : "var(--color-dimmer)" }}
         >
           {running ? "· running" : `· ${status?.state ?? "idle"}`}
         </span>
+        {sourceCopy && (
+          <span
+            data-testid="backfill-source-status"
+            role="status"
+            aria-live="polite"
+            style={{ fontSize: 10, color: "var(--color-dimmer)" }}
+          >
+            {sourceCopy}
+          </span>
+        )}
       </div>
       <p style={{ margin: 0, fontSize: 10, lineHeight: 1.5, color: "var(--color-dim)" }}>
         Current-patch games download first; older history fills in across sessions.
@@ -142,14 +204,18 @@ export function SyncPanel() {
             value={riotId}
             onChange={(e) => {
               setRiotId(e.target.value);
+              setRiotIdEdited(true);
               setDirty(true);
             }}
+            onBlur={() => setRiotIdTouched(true)}
             data-testid="input-riot-id"
+            aria-invalid={showRiotIdError}
+            aria-describedby={showRiotIdError ? "riot-id-error" : undefined}
             style={inputStyle}
             className="rounded-[10px] border border-line bg-deep px-2.5 py-1.5 font-mono text-[11px] outline-none focus:border-accent"
           />
-          {!riotIdValid && (
-            <span data-testid="riot-id-error" className="text-[10px] text-amber">
+          {showRiotIdError && (
+            <span id="riot-id-error" data-testid="riot-id-error" className="text-[10px] text-amber">
               Enter a valid GameName#TAG before starting Backfill.
             </span>
           )}
@@ -160,6 +226,7 @@ export function SyncPanel() {
             value={region}
             onChange={(e) => {
               setRegion(e.target.value as RegionRoute);
+              setRegionEdited(true);
               setDirty(true);
             }}
             data-testid="input-region"
@@ -178,7 +245,10 @@ export function SyncPanel() {
           <input
             type="password"
             value={key}
-            onChange={(e) => setKey(e.target.value)}
+            onChange={(e) => {
+              setKey(e.target.value);
+              setDirty(true);
+            }}
             placeholder={
               settings.data?.has_key ? "saved — leave blank to keep" : "paste a Riot API key"
             }
@@ -201,6 +271,7 @@ export function SyncPanel() {
             checked={autoSync}
             onChange={(e) => {
               setAutoSync(e.target.checked);
+              setAutoSyncEdited(true);
               setDirty(true);
             }}
             data-testid="input-auto-sync"
@@ -212,15 +283,15 @@ export function SyncPanel() {
           <button
             type="submit"
             disabled={save.isPending}
+            aria-busy={save.isPending}
             data-testid="save-settings"
             className="pill"
             style={{
-              background: "var(--color-accent)",
-              color: "#0e1020",
-              border: "none",
-              cursor: "pointer",
+              background: "var(--color-surface-2)",
+              color: "var(--color-dim)",
+              border: "1px solid var(--color-line)",
+              cursor: save.isPending ? "default" : "pointer",
               opacity: save.isPending ? 0.4 : undefined,
-              boxShadow: "0 3px 0 var(--color-accent-low),0 8px 16px -6px rgba(145,132,217,.6)",
             }}
           >
             Save settings
@@ -231,7 +302,9 @@ export function SyncPanel() {
             </span>
           )}
           {save.isError && (
-            <span className="text-xs text-danger">Couldn't save — is the sidecar running?</span>
+            <span data-testid="save-error" role="alert" className="text-xs text-danger">
+              {actionableErrorMessage(save.error, "sync")}
+            </span>
           )}
         </div>
       </form>
@@ -251,19 +324,22 @@ export function SyncPanel() {
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={() => start.mutate(undefined, { onSuccess: (next) => setLive(next) })}
-              disabled={running || start.isPending || !riotIdValid}
+              onClick={onStart}
+              disabled={startDisabled}
+              aria-describedby={startDisabled ? "start-disabled-reason" : undefined}
+              aria-busy={start.isPending}
               data-testid="start-sync"
               className="pill"
               style={{
-                background: "var(--color-teal-low)",
-                color: "var(--color-teal)",
+                background: "var(--color-accent)",
+                color: "#0e1020",
                 border: "none",
-                cursor: "pointer",
-                opacity: running || start.isPending || !riotIdValid ? 0.4 : undefined,
+                cursor: startDisabled ? "default" : "pointer",
+                opacity: startDisabled ? 0.4 : undefined,
+                boxShadow: "0 3px 0 var(--color-accent-low),0 8px 16px -6px rgba(145,132,217,.6)",
               }}
             >
-              Start sync
+              Start Backfill
             </button>
             <button
               type="button"
@@ -272,10 +348,10 @@ export function SyncPanel() {
               data-testid="cancel-sync"
               className="pill"
               style={{
-                background: "var(--color-surface-3)",
+                background: "transparent",
                 color: "var(--color-dim)",
-                border: "none",
-                cursor: "pointer",
+                border: "1px solid var(--color-line)",
+                cursor: !running || cancel.isPending ? "default" : "pointer",
                 opacity: !running || cancel.isPending ? 0.4 : undefined,
               }}
             >
@@ -283,6 +359,26 @@ export function SyncPanel() {
             </button>
           </div>
         </div>
+        {startDisabledReason && (
+          <p
+            id="start-disabled-reason"
+            data-testid="start-disabled-reason"
+            role="status"
+            style={{ margin: "6px 0 0", fontSize: 10, color: "var(--color-dimmer)" }}
+          >
+            {startDisabledReason}
+          </p>
+        )}
+        {start.isError && (
+          <p data-testid="start-error" role="alert" style={{ margin: "6px 0 0", fontSize: 10, color: "var(--color-danger)" }}>
+            {actionableErrorMessage(start.error, "sync")}
+          </p>
+        )}
+        {cancel.isError && (
+          <p data-testid="cancel-error" role="alert" style={{ margin: "6px 0 0", fontSize: 10, color: "var(--color-danger)" }}>
+            {actionableErrorMessage(cancel.error, "sync")}
+          </p>
+        )}
 
         {status && (
           <div className="mt-2" data-testid="sync-progress">
@@ -295,9 +391,9 @@ export function SyncPanel() {
             </div>
             <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-0.5 font-mono text-[10px] text-dim">
               <span data-testid="sync-counters">
-                {doneCount} / {total} matches
-                {status.skipped > 0 ? ` · ${status.skipped} skipped` : ""}
-                {status.failed > 0 ? ` · ${status.failed} failed` : ""}
+                {formatCount(doneCount)} / {formatCount(total)} matches
+                {status.skipped > 0 ? ` · ${formatCount(status.skipped)} skipped` : ""}
+                {status.failed > 0 ? ` · ${formatCount(status.failed)} failed` : ""}
               </span>
               {status.current_match_id && (
                 <span data-testid="sync-current" className="text-dimmer">
@@ -308,6 +404,11 @@ export function SyncPanel() {
                 <span className="text-amber">stopped — queue resumes next session</span>
               )}
             </div>
+            {status.state === "error" && (
+              <p data-testid="sync-status-error" role="alert" className="mt-1 text-[10px] text-danger">
+                Unavailable: Backfill stopped before completion; check settings and try again.
+              </p>
+            )}
           </div>
         )}
       </div>
