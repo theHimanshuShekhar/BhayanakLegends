@@ -84,7 +84,7 @@ test.describe("active Live Companion replay", () => {
 
     await setScenario(request, LCU, "reconnect");
     await setScenario(request, LIVE, "reconnect");
-    await expect(page.getByTestId("waiting-pill")).toBeVisible();
+    await expect(page.getByTestId("live-route-status")).toContainText(/waiting/i);
     const status = await request.get(`${SIDECAR}/live/status`, { headers: AUTH });
     expect(status.ok()).toBeTruthy();
     expect(containsForbiddenKeys(await status.json())).toBe(false);
