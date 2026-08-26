@@ -1,4 +1,16 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type APIRequestContext } from "@playwright/test";
+
+const LCU = "http://127.0.0.1:23123";
+const SIDECAR = "http://127.0.0.1:23122";
+const AUTH = {
+  "X-BL-Token": "local-sidecar-development-token-32chars",
+  Host: "127.0.0.1:23122",
+};
+
+async function setScenario(request: APIRequestContext, scenario: string) {
+  const response = await request.post(`${LCU}/control`, { data: { scenario } });
+  expect(response.ok()).toBeTruthy();
+}
 
 const VIEWPORTS = [
   { width: 1280, height: 820 },
@@ -39,6 +51,55 @@ test.describe("Bhayanak Legends v1 smoke", () => {
     await expect(page.getByText("champion-level intel only").first()).toBeVisible();
     await expect(page.getByText("Recommend ban").first()).toBeVisible();
   });
+  for (const viewport of VIEWPORTS) {
+    test(`champ-select replay lock flow is truthful at ${viewport.width}x${viewport.height}`, async ({ page, request }) => {
+      await page.setViewportSize(viewport);
+      await page.emulateMedia({ reducedMotion: "reduce" });
+
+      await setScenario(request, "champ-select-assigned-unlocked");
+      await page.goto("/champ-select");
+      await expect(page.getByTestId("champ-select-page")).toBeVisible();
+      await expect(page.getByTestId("your-lane-tier")).toHaveText(/TOP · AWAITING PICK/);
+      await expect(page.getByTestId("suggested-role")).toHaveText("TOP");
+      const suggestions = page.getByTestId("card-suggested-picks");
+      await expect(suggestions).toBeVisible();
+      await expect(suggestions).not.toContainText("MIDDLE");
+      await expect(page.getByTestId("cs-lock-status")).toContainText("Choose a pick");
+
+      // The route keeps semantic keyboard order and a visible focus target while
+      // the replay transitions underneath it.
+      const liveNav = page.getByTestId("nav-live");
+      const champSelectNav = page.getByTestId("nav-champ-select");
+      await liveNav.focus();
+      await expect(liveNav).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(champSelectNav).toBeFocused();
+
+      await setScenario(request, "champ-select-picked-not-locked");
+      await expect(page.getByTestId("your-lane-champion")).toHaveText("Annie");
+      await expect(page.getByTestId("your-lane-tier")).toHaveText(/not locked/i);
+      await expect(page.getByTestId("cs-session-status")).toContainText("Annie picked — not locked");
+      await expect(page.getByTestId("cs-lock-status")).toContainText("Lock Annie");
+      await expect(suggestions).toBeVisible();
+
+      await setScenario(request, "champ-select-completed-lock");
+      await expect(page.getByTestId("cs-session-status")).toHaveText(/Annie locked · MIDDLE/i);
+      await expect(page.getByTestId("your-lane-champion")).toHaveText("Annie");
+      await expect(page.getByTestId("card-suggested-picks")).toHaveCount(0);
+      await expect(page.getByTestId("cs-lock-status")).toHaveCount(0);
+      await expect(page.getByText("Malzahar", { exact: false })).toHaveCount(0);
+
+      const sessionResponse = await request.get(`${SIDECAR}/live/session`, { headers: AUTH });
+      expect(sessionResponse.ok()).toBeTruthy();
+      const session = await sessionResponse.json();
+      expect(session.local_assigned_role).toBe("MIDDLE");
+      expect(session.ally.find((cell: { is_local: boolean }) => cell.is_local).state).toBe("locked");
+      expect(session.enemy.every((cell: { name: string | null }) => cell.name === null)).toBe(true);
+      const rendered = await page.locator("body").innerText();
+      expect(rendered).not.toContain("FixturePlayer06");
+      expect(rendered).not.toContain("FixturePlayer07");
+    });
+  }
 
   for (const viewport of VIEWPORTS) {
     test(`champions shipped-pack directional flow at ${viewport.width}x${viewport.height}`, async ({ page }) => {
