@@ -14,14 +14,13 @@ export function ActivePlayerCard({ player }: { player: PlayerLive | null }) {
       }}
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 9 }}>
-        <span className="pill" style={{ background: "var(--color-teal-low)", color: "var(--color-teal)" }}>
-          <Dot color="var(--color-teal)" />
+        <h2 style={{ margin: 0, font: "700 9.5px var(--font-mono)", letterSpacing: ".11em", color: "var(--color-dim)" }}>
           Active player
-        </span>
+        </h2>
         <span className="mono-n" data-testid="active-player-sub" style={{ fontSize: 10, color: player ? "var(--color-text)" : "var(--color-dimmer)" }}>
           {player
-            ? `${player.summoner} · ${player.champion ?? "?"}`
-            : "level — · —g held"}
+            ? `${player.summoner} · ${player.champion ?? "Unavailable"}`
+            : "Unavailable level · Unavailable gold"}
         </span>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
@@ -37,7 +36,7 @@ export function ActivePlayerCard({ player }: { player: PlayerLive | null }) {
             color: player ? "#e9e9ed" : "var(--color-dimmer)",
           }}
         >
-          {player?.champion ? player.champion.replace(/[^a-zA-Z]/g, "").slice(0, 2).toUpperCase() : "—"}
+          {player?.champion ? player.champion.replace(/[^a-zA-Z]/g, "").slice(0, 2).toUpperCase() : <span aria-label="Unavailable">Unavailable</span>}
         </div>
         <div style={{ flex: 1 }}>
           <div
@@ -45,7 +44,7 @@ export function ActivePlayerCard({ player }: { player: PlayerLive | null }) {
           >
             <span>K / D / A</span>
             <span className="mono-n" data-testid="active-kda">
-              {player ? `${player.kills} / ${player.deaths} / ${player.assists}` : "— / —"}
+              {player ? `${player.kills} / ${player.deaths} / ${player.assists}` : <span aria-label="Unavailable">Unavailable</span>}
             </span>
           </div>
           <div
@@ -67,9 +66,9 @@ export function ActivePlayerCard({ player }: { player: PlayerLive | null }) {
               ["WARD", player.ward_score.toFixed(1)],
             ] as const)
           : ([
-              ["LEVEL", "—"],
-              ["CS", "—"],
-              ["WARD", "—"],
+              ["LEVEL", "Unavailable"],
+              ["CS", "Unavailable"],
+              ["WARD", "Unavailable"],
             ] as const)
         ).map(([label, value]) => (
           <div
@@ -113,8 +112,11 @@ export function ActivePlayerCard({ player }: { player: PlayerLive | null }) {
 
 export function CheatSheetCard() {
   return (
-    <section className="card3" style={{ padding: "10px 12px", display: "flex", alignItems: "center", gap: 9 }}>
+    <section className="card3" aria-labelledby="cheat-sheet-heading" style={{ padding: "10px 12px", display: "flex", alignItems: "center", gap: 9 }}>
       <Dot color="var(--color-info)" />
+      <h2 id="cheat-sheet-heading" style={{ margin: 0, font: "700 9.5px var(--font-mono)", letterSpacing: ".11em", color: "var(--color-dim)" }}>
+        ROLE CHEAT-SHEET
+      </h2>
       <div style={{ fontSize: 10, lineHeight: 1.4, color: "#cfd3e5" }}>
         <b style={{ color: "#e9e9ed" }}>Role cheat-sheet:</b> the per-role lever list (lane gold,
         plates, show timing) is pulled from the Findings Pack once the live bridge names your role.
@@ -160,9 +162,9 @@ export function TeamVsTeamCard({ pack }: { pack: FindingsPack | undefined }) {
       style={{ padding: 12, display: "flex", flexDirection: "column", gap: 9 }}
     >
       <CardHead color="var(--color-teal)" label="TEAM VS TEAM" />
-      <TeamBar left="—" label="CS" right="—" />
-      <TeamBar left="—" label="LEVELS" right="—" />
-      <TeamBar left="—" label="LANES AHEAD" right="—" />
+      <TeamBar left="Unavailable" label="CS" right="Unavailable" />
+      <TeamBar left="Unavailable" label="LEVELS" right="Unavailable" />
+      <TeamBar left="Unavailable" label="LANES AHEAD" right="Unavailable" />
       {lanesAhead && (
         <p
           data-testid="lanes-ahead"
@@ -195,12 +197,13 @@ export function EventFeedCard({ events }: { events: LiveEvent[] }) {
         }
       />
       {events.length ? (
-        <div
+        <ul
+          aria-label="Live events"
           data-testid="event-feed-rows"
-          style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 168, overflowY: "auto" }}
+          style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 168, overflowY: "auto", listStyle: "none", margin: 0, padding: 0 }}
         >
           {events.map((event, i) => (
-            <div
+            <li
               key={`${event.name}-${event.t_s}-${i}`}
               data-testid={`event-row-${i}`}
               style={{
@@ -239,9 +242,9 @@ export function EventFeedCard({ events }: { events: LiveEvent[] }) {
                   {event.victim ? ` → ${event.victim}` : ""}
                 </span>
               )}
-            </div>
+            </li>
           ))}
-        </div>
+        </ul>
       ) : (
         <div
           style={{
@@ -278,27 +281,27 @@ export function ItemValueCard() {
           </span>
         }
       />
-      {[0, 1, 2].map((i) => (
-        <div key={i} style={{ display: "flex", alignItems: "center", gap: 9 }}>
-          <div style={{ width: 20, height: 20, flex: "none", borderRadius: 7, background: "var(--color-surface-3)" }} />
-          <span style={{ width: 54, fontSize: 10, color: "var(--color-dimmer)" }}>—</span>
-          <div
-            style={{
-              flex: 1,
-              height: 8,
-              borderRadius: 999,
-              background: "var(--color-deep)",
-              boxShadow: "inset 0 2px 4px rgba(0,0,0,.75)",
-            }}
-          />
-          <span
-            className="mono-n"
-            style={{ width: 42, textAlign: "right", fontSize: 10, color: "var(--color-dimmer)" }}
-          >
-            —
-          </span>
-        </div>
-      ))}
+      <ul aria-label="Item values" style={{ display: "flex", flexDirection: "column", gap: 7, listStyle: "none", margin: 0, padding: 0 }}>
+        {[0, 1, 2].map((i) => (
+          <li key={i} style={{ display: "flex", alignItems: "center", gap: 9 }}>
+            <div aria-hidden="true" style={{ width: 20, height: 20, flex: "none", borderRadius: 7, background: "var(--color-surface-3)" }} />
+            <span aria-label="Unavailable" style={{ width: 54, fontSize: 10, color: "var(--color-dimmer)" }}>Unavailable</span>
+            <div
+              aria-hidden="true"
+              style={{
+                flex: 1,
+                height: 8,
+                borderRadius: 999,
+                background: "var(--color-deep)",
+                boxShadow: "inset 0 2px 4px rgba(0,0,0,.75)",
+              }}
+            />
+            <span aria-label="Unavailable" className="mono-n" style={{ width: 42, textAlign: "right", fontSize: 10, color: "var(--color-dimmer)" }}>
+              Unavailable
+            </span>
+          </li>
+        ))}
+      </ul>
       <p style={{ margin: "auto 0 0", fontSize: 9.5, color: "var(--color-dimmer)" }}>
         Item values land with the LCU bridge.
       </p>

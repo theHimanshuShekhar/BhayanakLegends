@@ -101,6 +101,10 @@ export function LiveMatchPage() {
 
   return (
     <div
+      className="live-match-layout"
+      role="region"
+      aria-label="Live Companion: In Game"
+      aria-busy={ingameQuery.isLoading || packQuery.isLoading}
       style={{
         margin: "0 -14px -14px",
         padding: "12px 14px 14px",
@@ -111,6 +115,11 @@ export function LiveMatchPage() {
       }}
     >
       <PageHeader title="Live Companion: In Game" />
+      {(ingameQuery.isLoading || packQuery.isLoading) && (
+        <p role="status" aria-live="polite" style={{ margin: "0 0 10px", fontSize: 10, color: "var(--color-dim)" }}>
+          Loading Live Companion data
+        </p>
+      )}
       <GameClockSource active={active} serverClock={ingame?.clock_s ?? 0} />
       <div style={{ flex: "none", display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}>
         <span
@@ -160,12 +169,12 @@ export function LiveMatchPage() {
         <GameClockDisplay />
       </div>
       {packQuery.isError && (
-        <div style={{ fontSize: 10.5, color: "var(--color-danger)" }}>
+        <div role="alert" style={{ fontSize: 10.5, color: "var(--color-danger)" }}>
           {actionableErrorMessage(packQuery.error, "pack")}
         </div>
       )}
       {ingameQuery.isError && (
-        <div data-testid="ingame-error" style={{ fontSize: 10.5, color: "var(--color-amber)" }}>
+        <div role="alert" data-testid="ingame-error" style={{ fontSize: 10.5, color: "var(--color-amber)" }}>
           {actionableErrorMessage(ingameQuery.error)}
         </div>
       )}
@@ -173,6 +182,7 @@ export function LiveMatchPage() {
       <PlayerList snapshot={ingame} />
 
       <div
+        className="live-match-columns"
         style={{
           flex: 1,
           display: "grid",
@@ -182,15 +192,15 @@ export function LiveMatchPage() {
           minHeight: 0,
         }}
       >
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, minHeight: 0 }}>
+        <div className="live-match-column" style={{ display: "flex", flexDirection: "column", gap: 10, minHeight: 0 }}>
           <ActivePlayerCard player={findLocalPlayer(ingame)} />
           <CheatSheetCard />
           <RightNowCard pack={renderPack} />
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
+        <div className="live-match-column" style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
           <LiveWinProbabilityCard pack={renderPack} active={active} packVersion={activePackVersion} />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div className="live-match-middle-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <TeamVsTeamCard pack={renderPack} />
             <EventFeedCard events={ingame?.events ?? []} />
           </div>
