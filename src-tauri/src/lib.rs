@@ -1,3 +1,4 @@
+use tauri::Manager;
 pub(crate) mod companion;
 pub(crate) mod ipc;
 mod sidecar;
@@ -21,12 +22,18 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app_handle, event| {
-            if matches!(
-                event,
-                tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
-            ) {
+        .run(|app_handle, event| match event {
+            tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
                 sidecar::request_shutdown(app_handle);
             }
+            tauri::RunEvent::WindowEvent { label, event, .. } => {
+                let state = app_handle.state::<companion::CompanionState>();
+                if let Err(error) =
+                    companion::handle_window_event(app_handle, &state, &label, &event)
+                {
+                    eprintln!("companion geometry correction failed: {error}");
+                }
+            }
+            _ => {}
         });
 }
