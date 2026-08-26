@@ -87,7 +87,7 @@ describe("PostGamePage — digest rendered into the design", () => {
     expect(await screen.findByText("+450")).toBeInTheDocument();
     expect(screen.getByTestId("checkpoint-15")).toHaveTextContent("-1,200");
     expect(screen.getByTestId("checkpoint-20")).toHaveTextContent("—");
-    expect(screen.getByText("Diagnostic")).toBeInTheDocument();
+    expect(screen.getByTestId("checkpoint-source")).toHaveTextContent("Diagnostic");
   });
 
   it("renders habit rows with verdict tags and the headline in the accent box", async () => {
@@ -118,7 +118,7 @@ describe("PostGamePage — digest rendered into the design", () => {
     // gold@15 -1,200 → nearest shipped anchor -2,000g → 42% until #76 ships domain gating
     expect(await screen.findByText("42.0%")).toBeInTheDocument();
     expect(screen.getByTestId("comeback-note")).toHaveTextContent("down 1,200g at 15");
-    expect(screen.getByText("Backfill")).toBeInTheDocument();
+    expect(screen.getByText("Backfill context")).toBeInTheDocument();
   });
 
   it("keeps the surrender read as a structure-only placeholder", async () => {

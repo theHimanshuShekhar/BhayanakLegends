@@ -1,6 +1,6 @@
 import type { FindingsPack, PostGameDigest } from "../../api/types";
 import { pct } from "../ui";
-import { CardHead } from "./bits";
+import { PanelHeading, Subheading, UnavailableValue } from "./bits";
 import { fmtK } from "./format";
 
 function nearestDeficit(
@@ -37,9 +37,13 @@ export function ComebackOddsCard({
     <section
       className="card3b"
       data-testid="comeback-odds"
+      aria-labelledby="postgame-comeback-heading"
       style={{ padding: 13, display: "flex", flexDirection: "column", gap: 8 }}
     >
-      <CardHead color="var(--color-info)" label="COMEBACK ODDS" />
+      <PanelHeading color="var(--color-info)">
+        <span id="postgame-comeback-heading">Comeback odds</span>
+      </PanelHeading>
+      <Subheading>Checkpoint chance</Subheading>
       <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
         <span
           className="mono-n"
@@ -50,7 +54,7 @@ export function ComebackOddsCard({
               row && gold15 != null && gold15 < 0 ? "var(--color-danger)" : "var(--color-dimmer)",
           }}
         >
-          {row ? pct(row.win_rate) : "—"}
+          {row ? pct(row.win_rate) : <UnavailableValue />}
         </span>
         <span style={{ fontSize: 10, color: "var(--color-dimmer)" }}>
           {row && gold15 != null

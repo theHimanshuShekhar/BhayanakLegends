@@ -19,6 +19,7 @@ export function VerdictHeader({ digest }: { digest: PostGameDigest | null }) {
     <section
       className="card3b"
       data-testid="verdict-header"
+      aria-labelledby="postgame-verdict-heading"
       style={{
         flex: "none",
         display: "flex",
@@ -33,6 +34,7 @@ export function VerdictHeader({ digest }: { digest: PostGameDigest | null }) {
       }}
     >
       <div
+        aria-hidden="true"
         style={{
           width: 44,
           height: 44,
@@ -49,12 +51,24 @@ export function VerdictHeader({ digest }: { digest: PostGameDigest | null }) {
         {digest ? initials(digest.champion) : "—"}
       </div>
       <div>
-        <div
+        <h2
+          id="postgame-verdict-heading"
+          style={{
+            margin: "0 0 4px",
+            font: "700 9.5px var(--font-mono)",
+            letterSpacing: ".11em",
+            color: "var(--color-dim)",
+            textTransform: "uppercase",
+          }}
+        >
+          Verdict
+        </h2>
+        <h3
           data-testid="verdict"
-          style={{ font: "700 17px var(--font-mono)", color: titleColor }}
+          style={{ margin: 0, font: "700 17px var(--font-mono)", color: titleColor }}
         >
           {idle ? "No game analyzed" : win ? "Victory" : "Defeat"}
-        </div>
+        </h3>
         <div className="mono-n" data-testid="verdict-sub" style={{ fontSize: 10, color: subColor }}>
           {digest
             ? `${digest.champion} · ${digest.role} · ${fmtDuration(digest.duration_s)}`

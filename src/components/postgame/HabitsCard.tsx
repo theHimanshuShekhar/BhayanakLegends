@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import type { HabitOutcome, PostGameDigest } from "../../api/types";
+import { PanelHeading, Subheading } from "./bits";
 
 const VERDICT_PILL: Record<HabitOutcome["verdict"], CSSProperties> = {
   good: { background: "var(--color-teal-low)", color: "var(--color-teal)" },
@@ -16,6 +17,7 @@ export function HabitsCard({ digest }: { digest: PostGameDigest | null }) {
   return (
     <section
       className="card3b"
+      aria-labelledby="postgame-habits-heading"
       style={{
         padding: 14,
         display: "flex",
@@ -28,20 +30,11 @@ export function HabitsCard({ digest }: { digest: PostGameDigest | null }) {
             : "linear-gradient(165deg,#2d1c28,var(--color-surface-2) 65%)",
       }}
     >
+      <PanelHeading color={win && !idle ? "var(--color-teal)" : "var(--color-info)"}>
+        <span id="postgame-habits-heading">Game habits</span>
+      </PanelHeading>
       <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-        <span
-          className="pill"
-          style={
-            idle
-              ? { background: "var(--color-surface-3)", color: "var(--color-dim)" }
-              : {
-                  background: win ? "var(--color-teal-low)" : "var(--color-danger-low)",
-                  color: win ? "var(--color-teal)" : "#f4c3ce",
-                }
-          }
-        >
-          Habits
-        </span>
+        <Subheading>Habit verdicts</Subheading>
         <span className="mono-n" style={{ marginLeft: "auto", fontSize: 10, color: "var(--color-dimmer)" }}>
           verdicts from this game
         </span>
@@ -80,9 +73,13 @@ export function HabitsCard({ digest }: { digest: PostGameDigest | null }) {
           pack.
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }} data-testid="habit-outcomes">
+        <ul
+          aria-label="Habit verdicts"
+          data-testid="habit-outcomes"
+          style={{ display: "flex", flexDirection: "column", gap: 6, listStyle: "none", margin: 0, padding: 0 }}
+        >
           {digest.habits.map((h) => (
-            <div
+            <li
               key={h.key}
               data-testid={`habit-${h.key}`}
               style={{
@@ -102,10 +99,11 @@ export function HabitsCard({ digest }: { digest: PostGameDigest | null }) {
               <span className="pill" style={{ ...VERDICT_PILL[h.verdict], fontSize: 8, padding: "2px 7px" }}>
                 {h.verdict}
               </span>
-            </div>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
+      <Subheading>Digest headline</Subheading>
       <div
         style={{
           marginTop: "auto",

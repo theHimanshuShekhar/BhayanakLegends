@@ -1,6 +1,7 @@
 import type { PostGameDigest } from "../../api/types";
-import { CardHead } from "./bits";
+import { PanelHeading, Subheading, UnavailableValue } from "./bits";
 import { signed } from "./format";
+
 
 /**
  * Checkpoint strip: signed gold deltas at 10/15/20, green when ahead, red
@@ -17,25 +18,36 @@ export function CheckpointStrip({ digest }: { digest: PostGameDigest | null }) {
     <section
       className="card3b"
       data-testid="checkpoint-strip"
+      aria-labelledby="postgame-checkpoints-heading"
       style={{ flex: "none", marginTop: 12, padding: 14 }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 8 }}>
-        <CardHead
-          color="var(--color-info)"
-          label="CHECKPOINTS · GOLD DIFFERENCE"
-          right={
-            <span style={{ font: "700 8px var(--font-mono)", letterSpacing: ".1em", color: "var(--color-dimmer)" }}>
-              Diagnostic
-            </span>
-          }
-        />
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+      <PanelHeading color="var(--color-info)">
+        <span id="postgame-checkpoints-heading">Checkpoints</span>
+        <span
+          data-testid="checkpoint-source"
+          style={{ font: "400 8.5px var(--font-mono)", letterSpacing: ".08em", color: "var(--color-dimmer)", textTransform: "none" }}
+        >
+          Diagnostic · Personal History
+        </span>
+      </PanelHeading>
+      <Subheading>Gold difference checkpoints</Subheading>
+      <ul
+        aria-label="Gold difference checkpoints"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+          gap: 8,
+          listStyle: "none",
+          margin: 0,
+          padding: 0,
+        }}
+      >
         {cells.map((cell) => (
-          <div
+          <li
             key={cell.key}
             data-testid={`checkpoint-${cell.key}`}
             style={{
+              minWidth: 0,
               padding: "8px 9px",
               borderRadius: 12,
               background: "var(--color-surface-2)",
@@ -55,11 +67,11 @@ export function CheckpointStrip({ digest }: { digest: PostGameDigest | null }) {
                       : "var(--color-danger)",
               }}
             >
-              {signed(cell.value == null ? null : Math.round(cell.value))}
+              {cell.value == null ? <UnavailableValue /> : signed(Math.round(cell.value))}
             </div>
-          </div>
+          </li>
         ))}
-      </div>
+      </ul>
     </section>
   );
 }
