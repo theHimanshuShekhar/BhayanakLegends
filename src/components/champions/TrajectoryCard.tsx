@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { PatchAggregate, TrajectoryPoint } from "../../api/types";
-import { pct } from "../ui";
+import { formatRate as pct } from "../format";
 import { KickerRow } from "./bits";
 
 function chronological(points: TrajectoryPoint[]): TrajectoryPoint[] {

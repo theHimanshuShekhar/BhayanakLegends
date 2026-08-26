@@ -2,7 +2,8 @@ import { useHistorySummary } from "../api/hooks";
 import { classifyApiError } from "../api/client";
 import { CaveatFooter } from "../components/journal/CaveatFooter";
 import { SyncPanel } from "../components/journal/SyncPanel";
-import { Unavailable, pct } from "../components/ui";
+import { Unavailable } from "../components/ui";
+import { formatRate as pct } from "../components/format";
 import { PageHeader } from "../components/Layout";
 import type { ReactNode } from "react";
 
@@ -114,7 +115,7 @@ export function HistoryPage() {
                 label="Win rate"
                 value={
                   summary.data.matches === 0 || summary.data.win_rate == null ? (
-                    <Unavailable testId="summary-win-rate" />
+                    <Unavailable testId="summary-win-rate" reason="No games tracked yet" />
                   ) : (
                     pct(summary.data.win_rate)
                   )
@@ -126,7 +127,7 @@ export function HistoryPage() {
                   summary.data.patches.length > 0 ? (
                     `${summary.data.patches[0]} → ${summary.data.patches[summary.data.patches.length - 1]}`
                   ) : (
-                    <Unavailable testId="summary-patches" />
+                    <Unavailable testId="summary-patches" reason="No patches in history" />
                   )
                 }
               />
@@ -174,7 +175,7 @@ export function HistoryPage() {
                           <td style={{ padding: "5px 0", color: "var(--color-dim)" }}>{r.games}</td>
                           <td style={{ padding: "5px 0", color: "var(--color-dim)" }}>{r.wins}</td>
                           <td style={{ padding: "5px 0" }}>
-                            {r.games > 0 ? pct(r.wins / r.games) : <Unavailable />}
+                            {r.games > 0 ? pct(r.wins / r.games) : <Unavailable reason="No games in this role" />}
                           </td>
                         </tr>
                       ))}
