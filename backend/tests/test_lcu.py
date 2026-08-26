@@ -796,3 +796,39 @@ def test_production_transports_are_constructible():
     conn = HttpxLcuConnection()
     assert conn._client is None  # lazily built once the lockfile appears
     assert HttpxIngameTransport() is not None
+
+
+async def test_live_tick_publishes_all_streams_with_unknown_riot_values():
+    data = load_json("allgamedata.json")
+    data["gameData"]["gameMode"] = "PRACTICETOOL"
+    events = data["events"]["Events"]
+    events.insert(2, {"EventName": "FirstBlood", "EventTime": 2.5})
+    events.insert(4, {"EventName": "Ace", "EventTime": 3.5})
+    # malformed siblings alongside valid ones
+    data["allPlayers"].append("not-a-player")
+    valid_player = data["allPlayers"][0]
+    valid_player.setdefault("items", []).insert(0, "not-an-item")
+
+    hub = Hub()
+    queue = hub.subscribe()
+    service, _lcu, _ig = _service(["InProgress", "InProgress"], hub, game_payloads=[data, data])
+
+    await service.tick()
+
+    frames = drain(queue)
+    assert [frame["type"] for frame in frames] == ["champselect.state", "live.state", "live.status"]
+
+    live_frame = next(frame for frame in frames if frame["type"] == "live.state")["data"]
+    assert live_frame["active"] is True
+    assert live_frame["mode"] is None
+    assert all(event["name"] not in ("FirstBlood", "Ace") for event in live_frame["events"])
+    names = [player["summoner"] for player in live_frame["teams"]["order"] + live_frame["teams"]["chaos"]]
+    assert "FixturePlayer03" in names
+    assert "not-a-player" not in json.dumps(live_frame)
+
+    status_frame = next(frame for frame in frames if frame["type"] == "live.status")["data"]
+    assert status_frame["last_error"] is None
+
+    # Unchanged raw payload: normalization makes it equal, so no duplicate frames.
+    await service.tick()
+    assert drain(queue) == []
