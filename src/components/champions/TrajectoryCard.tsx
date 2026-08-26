@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type { PatchAggregate, TrajectoryPoint } from "../../api/types";
-import { formatRate as pct } from "../format";
-import { KickerRow } from "./bits";
+import { formatCount, formatRate } from "../format";
+import { SectionHead } from "../ui";
 
 function chronological(points: TrajectoryPoint[]): TrajectoryPoint[] {
   return [...points].sort(
@@ -62,7 +62,8 @@ export function TrajectoryCard({
       data-testid="trajectory-card"
       style={{ padding: 13, display: "flex", flexDirection: "column", gap: 8 }}
     >
-      <KickerRow label="TRAJECTORY · PERSONAL HISTORY" />
+      {/* Personal History surface: teal per the Two-Data-Worlds rule. */}
+      <SectionHead label="TRAJECTORY · PERSONAL HISTORY" color="var(--color-teal)" />
       {!champion ? (
         <p
           style={{ margin: 0, fontSize: 9.5, lineHeight: 1.5, color: "var(--color-dim)" }}
@@ -75,7 +76,7 @@ export function TrajectoryCard({
           style={{ margin: 0, fontSize: 9.5, lineHeight: 1.5, color: "var(--color-dim)" }}
           data-testid="trajectory-loading"
         >
-          Loading Personal History…
+          Loading… Personal History.
         </p>
       ) : trajectoryError ? (
         <ErrorLine source="Trajectory" message={trajectoryError} />
@@ -95,15 +96,15 @@ export function TrajectoryCard({
             data-testid="trajectory-svg"
           >
             {single ? (
-              <circle cx={single.x} cy={single.y} r="4.5" fill="#57cfb4" />
+              <circle cx={single.x} cy={single.y} r="4.5" style={{ fill: "var(--color-teal)" }} />
             ) : (
               <polyline
                 points={poly}
                 fill="none"
-                stroke="#57cfb4"
                 strokeWidth="2.5"
                 strokeLinecap="round"
                 strokeLinejoin="round"
+                style={{ stroke: "var(--color-teal)" }}
               />
             )}
           </svg>
@@ -141,7 +142,7 @@ export function TrajectoryCard({
             >
               <span className="mono-n">{aggregate.patch}</span>
               <span className="mono-n" style={{ color: "var(--color-dim)" }}>
-                {aggregate.wins} wins · {aggregate.games} games · {pct(aggregate.win_rate)}
+                {formatCount(aggregate.wins, "wins")} · {formatCount(aggregate.games, "games")} · {formatRate(aggregate.win_rate)}
               </span>
             </div>
           ))}

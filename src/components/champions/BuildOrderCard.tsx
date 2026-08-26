@@ -1,4 +1,4 @@
-import { KickerRow } from "./bits";
+import { SectionHead } from "../ui";
 
 export function BuildOrderCard() {
   return (
@@ -14,10 +14,9 @@ export function BuildOrderCard() {
         gap: 8,
       }}
     >
-      <KickerRow label="BUILD ORDER · BETA-BINOMIAL SHRUNK" />
+      <SectionHead label="BUILD ORDER · BETA-BINOMIAL SHRUNK" />
       <p style={{ margin: 0, fontSize: 10, lineHeight: 1.5, color: "var(--color-dim)" }}>
-        Build analytics land after the Data-Dragon item refresh — the pack carries no item
-        sequences yet, so treat as approximate v1.
+        Unavailable: the Findings Pack carries no item-sequence features.
       </p>
     </div>
   );

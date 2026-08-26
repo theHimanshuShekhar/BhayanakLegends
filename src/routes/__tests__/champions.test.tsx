@@ -104,8 +104,15 @@ describe("ChampionsPage", () => {
 
     expect(row).toHaveFocus();
     expect(row).toHaveAttribute("aria-pressed", "true");
-    expect(await screen.findByTestId("champion-header")).toHaveTextContent("Ahri");
+    const header = await screen.findByTestId("champion-header");
+    expect(header).toHaveTextContent("Ahri");
     expect(screen.getByText("Ahri selected for MIDDLE")).toBeInTheDocument();
+    // Champion Evidence header rates are Findings Pack population data: blue.
+    for (const stat of within(header).getAllByText(/^\d+(?:\.\d)%$/)) {
+      expect(stat).toHaveStyle({ color: "var(--color-info)" });
+    }
+    // A missing population ban rate names its unavailability instead of a dash.
+    expect(within(header).getByText("Unavailable: ban rate unavailable")).toBeInTheDocument();
   });
 
   it("clears selected champion and claims when the role changes", async () => {
@@ -131,10 +138,14 @@ describe("ChampionsPage", () => {
     expect(card).toHaveTextContent("FAVORABLE EXAMPLES FOR DARIUS");
     expect(card).toHaveTextContent("DIFFICULT EXAMPLES FOR DARIUS");
     expect(card).toHaveTextContent("Darius vs Garen");
-    expect(card).toHaveTextContent("41.0% ±8.7 · 42g");
+    expect(card).toHaveTextContent("41.0% ±8.7 pp · 42 games");
     expect(card).not.toHaveTextContent("Garen vs Darius");
     expect(card).not.toHaveTextContent("Darius vs Darius");
     expect(card).toHaveTextContent("Findings Pack · matchup_examples");
+    // Both directions are population evidence: blue rows, outcome words only.
+    for (const bar of within(card).getAllByTestId(/^matchup-bar-/)) {
+      expect(bar).toHaveStyle({ background: "var(--color-info)" });
+    }
   });
 
   it("shows directional empty copy without numbers for a champion with no direction", async () => {
@@ -191,5 +202,15 @@ describe("ChampionsPage", () => {
     fireEvent.click(await screen.findByTestId("tier-row-Ahri"));
     const card = await screen.findByTestId("matchups-card");
     expect(card.textContent).not.toMatch(IMPERATIVE_RE);
+  });
+
+  it("names the build-order gap as an unavailable pack feature, not roadmap speculation", async () => {
+    renderPage(<ChampionsPage />);
+
+    const card = await screen.findByTestId("build-order-card");
+    expect(card).toHaveTextContent(
+      "Unavailable: the Findings Pack carries no item-sequence features",
+    );
+    expect(card).not.toHaveTextContent(/lands after|arrives|ships/);
   });
 });

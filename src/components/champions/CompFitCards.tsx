@@ -1,8 +1,11 @@
 import type { PackFinding } from "../../api/types";
-import { KickerRow } from "./bits";
+import { formatGold, formatRate } from "../format";
+import { SectionHead } from "../ui";
 
-function pctLabel(v: number): string {
-  return v <= 1 ? `${Math.round(v * 100)}%` : `${v}%`;
+function findingRate(value: number | null): string {
+  // Findings values arrive either as a fraction (<=1) or an already-scaled
+  // percent (>1); normalize both through the shared rate formatter.
+  return formatRate(value == null ? null : value > 1 ? value / 100 : value, "finding value unavailable");
 }
 
 export function CompCard({ findings }: { findings: PackFinding[] }) {
@@ -13,44 +16,31 @@ export function CompCard({ findings }: { findings: PackFinding[] }) {
       data-testid="comp-card"
       style={{ padding: 13, display: "flex", flexDirection: "column", gap: 9 }}
     >
-      <KickerRow label="WHEN THE ENEMY TEAM HAS…" />
+      <SectionHead label="WHEN THE ENEMY TEAM HAS…" />
       <div style={{ display: "grid", gridTemplateColumns: `repeat(${n},1fr)`, gap: 9 }}>
-        {findings.map((f, i) => {
-          const first = i === 0 && n > 1;
-          const last = i === n - 1 && n > 2;
-          const background = first
-            ? "linear-gradient(150deg,#2b4a44,var(--color-surface-2) 78%)"
-            : last
-              ? "linear-gradient(150deg,#4d2436,var(--color-surface-2) 78%)"
-              : "var(--color-surface-2)";
-          const color = first
-            ? "var(--color-teal)"
-            : last
-              ? "var(--color-danger)"
-              : undefined;
-          return (
+        {findings.map((f) => (
+          <div
+            key={f.key}
+            style={{
+              padding: 11,
+              borderRadius: 14,
+              background: "var(--color-surface-2)",
+              boxShadow: "var(--shadow-z1)",
+              textAlign: "center",
+            }}
+          >
+            {/* Findings Pack population value: blue, regardless of framing. */}
             <div
-              key={f.key}
-              style={{
-                padding: 11,
-                borderRadius: 14,
-                background,
-                boxShadow: "var(--shadow-z1)",
-                textAlign: "center",
-              }}
+              className="mono-n"
+              style={{ font: "700 21px var(--font-mono)", color: "var(--color-info)" }}
             >
-              <div
-                className="mono-n"
-                style={{ font: "700 21px var(--font-mono)", color }}
-              >
-                {f.value != null ? pctLabel(f.value) : "—"}
-              </div>
-              <div style={{ fontSize: 9, color: "var(--color-dimmer)", marginTop: 3 }}>
-                {f.title}
-              </div>
+              {findingRate(f.value)}
             </div>
-          );
-        })}
+            <div style={{ fontSize: 9, color: "var(--color-dimmer)", marginTop: 3 }}>
+              {f.title}
+            </div>
+          </div>
+        ))}
       </div>
       <p style={{ margin: 0, fontSize: 10, lineHeight: 1.5, color: "var(--color-dim)" }}>
         Directionally useful, not gospel — comp damage-share splits are approximate.
@@ -62,19 +52,20 @@ export function CompCard({ findings }: { findings: PackFinding[] }) {
 export function DamageFitCard({ finding }: { finding: PackFinding }) {
   const v = finding.value;
   const norm = v == null ? 0 : v <= 1 ? v : Math.min(v, 100) / 100;
-  const label = v == null ? "—" : v <= 1 ? v.toFixed(2) : String(v);
+  const label = v == null ? "Unavailable: damage-fit score is missing" : v <= 1 ? v.toFixed(2) : String(v);
   return (
     <div
       className="card3b"
       data-testid="damage-fit-card"
       style={{ padding: 13, display: "flex", flexDirection: "column", gap: 9 }}
     >
-      <KickerRow
+      <SectionHead
         label="DAMAGE-FIT SCORE"
+        color="var(--color-info)"
         right={
           <span
             className="mono-n"
-            style={{ font: "700 16px var(--font-mono)", color: "var(--color-teal)" }}
+            style={{ font: "700 16px var(--font-mono)", color: "var(--color-info)" }}
           >
             {label}
           </span>
@@ -94,11 +85,11 @@ export function DamageFitCard({ finding }: { finding: PackFinding }) {
             width: `${Math.round(norm * 100)}%`,
             height: "100%",
             borderRadius: 999,
-            background: "linear-gradient(90deg,#2f7f6d,var(--color-teal))",
+            background: "linear-gradient(90deg,var(--color-info-low),var(--color-info))",
           }}
         />
       </div>
-      <p style={{ margin: 0, fontSize: 10, lineHeight: 1.5, color: "#cfd3e5" }}>
+      <p style={{ margin: 0, fontSize: 10, lineHeight: 1.5, color: "var(--color-soft-text)" }}>
         {finding.statement}
       </p>
     </div>
@@ -106,16 +97,16 @@ export function DamageFitCard({ finding }: { finding: PackFinding }) {
 }
 
 export function GoldWasteCard({ finding }: { finding: PackFinding }) {
-  const v = finding.value ?? 0;
-  const width = Math.min(100, Math.round((v / 550) * 100));
-  const label = `${v}${finding.unit ?? ""}`;
+  const value = finding.value;
+  const width = value == null ? 0 : Math.min(100, Math.round((value / 550) * 100));
+  const label = value == null ? "Unavailable: gold waste value is missing" : formatGold(value);
   return (
     <div
       className="card3"
       data-testid="gold-waste-card"
       style={{ padding: 13, display: "flex", flexDirection: "column", gap: 8 }}
     >
-      <KickerRow label="GOLD WASTE" dot="#7a8098" />
+      <SectionHead label="GOLD WASTE" color="var(--color-amber)" />
       <div style={{ display: "flex", alignItems: "baseline", gap: 7 }}>
         <span
           className="mono-n"
