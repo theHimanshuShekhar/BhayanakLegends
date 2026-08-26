@@ -1,6 +1,7 @@
 export type FindingTier = "actionable" | "diagnostic" | "a-lite";
 export type RegionRoute = "sea" | "americas" | "europe" | "asia";
 export type Role = "TOP" | "JUNGLE" | "MIDDLE" | "BOTTOM" | "UTILITY" | "UNKNOWN";
+export type AssignedRole = "TOP" | "JUNGLE" | "MIDDLE" | "BOTTOM" | "UTILITY";
 export type HealthStatus = "ok" | "degraded";
 export type SyncState = "idle" | "running" | "cancelled" | "error";
 export type SyncMode = "era_first" | "import";
@@ -265,7 +266,7 @@ export interface ChampSelectBan {
   champion: string | null; // null → UI renders "Champion {id}"
 }
 
-export type CellState = "intent" | "picked" | "hover" | "none";
+export type CellState = "intent" | "picked" | "hover" | "locked" | "none";
 
 export interface ChampSelectAllyCell {
   cell_id: number;
@@ -288,6 +289,7 @@ export interface ChampSelectSnapshot {
   active: boolean;
   phase: GameflowPhase | null;
   timer_sec: number | null;
+  local_assigned_role: AssignedRole | null;
   bans_ally: ChampSelectBan[];
   bans_enemy: ChampSelectBan[];
   ally: ChampSelectAllyCell[];

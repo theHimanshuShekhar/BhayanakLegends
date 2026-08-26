@@ -27,9 +27,13 @@ from typing import get_args
 from pydantic import BaseModel, Field
 
 from .models import (
+    AllyCell,
     CellState,
     ChampSelectBan,
+    ChampSelectSnapshot,
     ChampSelectStatus,
+    CsBan,
+    EnemyCell,
     GameMode,
     GameflowPhase,
     InGameStatus,
@@ -49,35 +53,6 @@ _GAME_MODES = frozenset(get_args(GameMode))
 _LIVE_EVENT_NAMES = frozenset(get_args(LiveEventName))
 
 
-class CsBan(ChampSelectBan):
-    """Internal name retained for the live bridge's ban collection."""
-
-
-class AllyCell(BaseModel):
-    cell_id: int = 0
-    champion_id: int = 0
-    champion: str | None = None  # Data Dragon display name; None → UI shows "Champion {id}"
-    name: str | None = None
-    is_local: bool = False
-    state: CellState = "none"
-
-
-class EnemyCell(BaseModel):
-    cell_id: int = 0
-    champion_id: int = 0
-    champion: str | None = None
-    name: str | None = None  # COMPLIANCE: always null — enemy summoner names never leave this module
-    state: CellState = "none"
-
-
-class ChampSelectSnapshot(BaseModel):
-    active: bool = False
-    phase: GameflowPhase | None = None
-    timer_sec: int | None = None
-    bans_ally: list[CsBan] = Field(default_factory=list)
-    bans_enemy: list[CsBan] = Field(default_factory=list)
-    ally: list[AllyCell] = Field(default_factory=list)
-    enemy: list[EnemyCell] = Field(default_factory=list)
 
 
 class ItemLive(BaseModel):
@@ -121,12 +96,59 @@ class InGameSnapshot(BaseModel):
     teams: LiveTeams = Field(default_factory=LiveTeams)
     events: list[LiveEvent] = Field(default_factory=list)
 
-def _participant_state(participant: dict) -> CellState:
+_ASSIGNED_ROLES = frozenset({"TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"})
+
+
+def _participant_state(participant: dict, *, locked: bool = False) -> CellState:
+    if locked:
+        return "locked"
     if participant.get("championId"):
         return "picked"
     if participant.get("championPickIntent"):
         return "intent"
     return "none"
+
+
+def _assigned_role(participant: dict) -> str | None:
+    raw_role = participant.get("assignedPosition")
+    if not isinstance(raw_role, str):
+        return None
+    role = raw_role.strip().upper()
+    return role if role in _ASSIGNED_ROLES else None
+
+
+def _has_completed_local_pick(
+    actions: object,
+    local_cell: object,
+    local_champion_id: int,
+) -> bool:
+    if not isinstance(local_cell, int) or isinstance(local_cell, bool) or not local_champion_id:
+        return False
+    if not isinstance(actions, list):
+        return False
+    groups = actions if any(isinstance(group, list) for group in actions) else [actions]
+    for group in groups:
+        if not isinstance(group, list):
+            continue
+        for action in group:
+            if not isinstance(action, dict):
+                continue
+            action_cell = action.get("actorCellId")
+            action_champion_id = action.get("championId")
+            if (
+                not isinstance(action_cell, int)
+                or isinstance(action_cell, bool)
+                or not isinstance(action_champion_id, int)
+                or isinstance(action_champion_id, bool)
+                or action_cell != local_cell
+                or action_champion_id != local_champion_id
+                or action_champion_id == 0
+                or action.get("completed") is not True
+                or str(action.get("type") or "").lower() != "pick"
+            ):
+                continue
+            return True
+    return False
 
 def _cs_bans(raw_bans: dict | None, key: str, names: dict[int, str]) -> list[CsBan]:
     bans: list[CsBan] = []
@@ -149,17 +171,32 @@ def build_champ_select_snapshot(
     timer = session.get("timer") or {}
     local_cell = session.get("localTeamCellId")
     raw_bans = session.get("bans") or {}
+    actions = session.get("actions")
     ally: list[AllyCell] = []
+    local_assigned_role: str | None = None
     for participant in sorted(session.get("myTeam") or [], key=lambda p: p.get("cellId", 0)):
         champion_id = int(participant.get("championId") or 0)
+        participant_cell = participant.get("cellId")
+        is_local = (
+            isinstance(local_cell, int)
+            and not isinstance(local_cell, bool)
+            and isinstance(participant_cell, int)
+            and not isinstance(participant_cell, bool)
+            and participant_cell == local_cell
+        )
+        if is_local:
+            local_assigned_role = _assigned_role(participant)
         ally.append(
             AllyCell(
                 cell_id=int(participant.get("cellId") or 0),
                 champion_id=champion_id,
                 champion=names.get(champion_id),
                 name=participant.get("summonerName") or None,
-                is_local=local_cell is not None and participant.get("cellId") == local_cell,
-                state=_participant_state(participant),
+                is_local=is_local,
+                state=_participant_state(
+                    participant,
+                    locked=is_local and _has_completed_local_pick(actions, local_cell, champion_id),
+                ),
             )
         )
     # COMPLIANCE: theirTeam summoner names are dropped here, before any consumer.
@@ -179,6 +216,7 @@ def build_champ_select_snapshot(
         active=True,
         phase=phase,
         timer_sec=int(timer.get("adjustedTimeLeftInSec") or 0),
+        local_assigned_role=local_assigned_role,
         bans_ally=_cs_bans(raw_bans, "myTeamBans", names),
         bans_enemy=_cs_bans(raw_bans, "theirTeamBans", names),
         ally=ally,

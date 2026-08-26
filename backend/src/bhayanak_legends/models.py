@@ -26,6 +26,7 @@ class ContractModel(BaseModel):
 FindingTier = Literal["actionable", "diagnostic", "a-lite"]
 RegionRoute = Literal["sea", "americas", "europe", "asia"]
 Role = Literal["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY", "UNKNOWN"]
+AssignedRole = Literal["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"]
 SyncState = Literal["idle", "running", "cancelled", "error"]
 SyncMode = Literal["era_first", "import"]
 HealthStatus = Literal["ok", "degraded"]
@@ -58,7 +59,7 @@ GameMode = Literal[
     "ULTBOOK",
     "CHERRY",
 ]
-CellState = Literal["intent", "picked", "hover", "none"]
+CellState = Literal["intent", "picked", "hover", "locked", "none"]
 HabitVerdict = Literal["good", "bad", "neutral", "n/a"]
 BenchmarkMetric = Literal["cs10", "level10", "gold_diff_10"]
 BenchmarkState = Literal["available", "contract-suppressed", "insufficient-personal-history"]
@@ -214,6 +215,38 @@ class LiveStatus(ContractModel):
 class ChampSelectBan(ContractModel):
     champion_id: int = 0
     champion: str | None = None
+
+
+class CsBan(ChampSelectBan):
+    """Internal name retained for the live bridge's ban collection."""
+
+
+class AllyCell(ContractModel):
+    cell_id: int = 0
+    champion_id: int = 0
+    champion: str | None = None
+    name: str | None = None
+    is_local: bool = False
+    state: CellState = "none"
+
+
+class EnemyCell(ContractModel):
+    cell_id: int = 0
+    champion_id: int = 0
+    champion: str | None = None
+    name: str | None = None
+    state: CellState = "none"
+
+
+class ChampSelectSnapshot(ContractModel):
+    active: bool = False
+    phase: GameflowPhase | None = None
+    timer_sec: int | None = None
+    local_assigned_role: AssignedRole | None = None
+    bans_ally: list[CsBan] = Field(default_factory=list)
+    bans_enemy: list[CsBan] = Field(default_factory=list)
+    ally: list[AllyCell] = Field(default_factory=list)
+    enemy: list[EnemyCell] = Field(default_factory=list)
 
 
 class PackModel(ContractModel):

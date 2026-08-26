@@ -2,6 +2,7 @@
   "components": {
     "schemas": {
       "AllyCell": {
+        "additionalProperties": false,
         "properties": {
           "cell_id": {
             "type": "integer"
@@ -37,6 +38,7 @@
               "intent",
               "picked",
               "hover",
+              "locked",
               "none"
             ],
             "type": "string"
@@ -97,6 +99,7 @@
         "type": "object"
       },
       "ChampSelectSnapshot": {
+        "additionalProperties": false,
         "properties": {
           "active": {
             "type": "boolean"
@@ -124,6 +127,23 @@
               "$ref": "#/components/schemas/EnemyCell"
             },
             "type": "array"
+          },
+          "local_assigned_role": {
+            "anyOf": [
+              {
+                "enum": [
+                  "TOP",
+                  "JUNGLE",
+                  "MIDDLE",
+                  "BOTTOM",
+                  "UTILITY"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "phase": {
             "anyOf": [
@@ -337,6 +357,7 @@
         "type": "object"
       },
       "EnemyCell": {
+        "additionalProperties": false,
         "properties": {
           "cell_id": {
             "type": "integer"
@@ -369,6 +390,7 @@
               "intent",
               "picked",
               "hover",
+              "locked",
               "none"
             ],
             "type": "string"

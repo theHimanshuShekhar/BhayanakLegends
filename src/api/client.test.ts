@@ -14,6 +14,7 @@ const validChampSelect = {
   active: false,
   phase: null,
   timer_sec: null,
+  local_assigned_role: null,
   bans_ally: [],
   bans_enemy: [],
   ally: [],
