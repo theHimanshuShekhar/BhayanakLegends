@@ -39,7 +39,7 @@ Base URL: `http://127.0.0.1:{port}`
 | GET | /progress/aggregates | `PatchAggregate[]` | true Personal History patch aggregates; query: `patch?`, `role?`, `champion?` |
 | GET | /progress/trajectories | `TrajectoryPoint[]` | per-match rolling line; query: `patch?`, `role?`, `champion?` |
 | GET | /postgame/latest | `PostGameDigest \| null` | null = none yet |
-| GET | /benchmarks | `RoleBenchmark[]` | population medians + personal values |
+| GET | /benchmarks | `BenchmarkResponse` | stateful population/personal comparisons |
 | GET | /live/status | `LiveStatus` | coarse LCU + in-game health |
 | GET | /live/session | `ChampSelectSnapshot` | rich champ-select state; idle → `{active:false,...}` |
 | GET | /live/ingame | `InGameSnapshot` | rich in-game state; idle → `{active:false,...}` |
@@ -107,6 +107,11 @@ latest-at-or-before behavior.
 // that habit evaluation is unavailable.
 interface HabitOutcome { key: string; label: string; value: string; verdict: "good"|"bad"|"neutral"|"n/a"; }
 
+interface BenchmarkResponse {
+  state: "available"|"contract-suppressed"|"insufficient-personal-history";
+  rows: RoleBenchmark[];
+}
+
 interface RoleBenchmark {
   role: Role;
   personal: Partial<Record<"cs10"|"level10"|"gold_diff_10", number>>;
@@ -114,6 +119,14 @@ interface RoleBenchmark {
     sample: number;
   };
 }
+`contract-suppressed` means no finite Findings Pack population cell passes
+the canonical feature, declaration, role, and eligibility checks. When at
+least one compatible cell exists but no same-definition finite Personal
+History median can be emitted, the state is
+`insufficient-personal-history`. `available` requires one or more rows; all
+unavailable states carry `rows: []`. A Findings Pack load or validation
+failure remains the authenticated API's bounded 503 error and is not a
+benchmark state.
 
 ### Benchmark feature contract
 

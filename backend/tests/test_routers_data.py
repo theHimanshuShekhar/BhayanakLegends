@@ -208,19 +208,89 @@ def test_benchmarks_only_join_definition_matching_fields(tmp_path: Path):
     seed(store, "a3", features={"cs10": 70})
 
     with client:
-        rows = client.get("/benchmarks", headers=AUTH).json()
+        body = client.get("/benchmarks", headers=AUTH).json()
 
-    assert rows == [
-        {
-            "role": "MIDDLE",
-            "personal": {"level10": 8.5, "gold_diff_10": 150.0},
-            "population": {
-                "level10_median": 8.0,
-                "gold_diff_10_median": 50.0,
-                "sample": 100,
+    assert body == {
+        "state": "available",
+        "rows": [
+            {
+                "role": "MIDDLE",
+                "personal": {"level10": 8.5, "gold_diff_10": 150.0},
+                "population": {
+                    "level10_median": 8.0,
+                    "gold_diff_10_median": 50.0,
+                    "sample": 100,
+                },
             },
+        ],
+    }
+
+
+def test_benchmarks_contract_suppressed_for_shipped_lane_minions(tmp_path: Path):
+    client = build_client(tmp_path, pack=SHIPPED_PACK)
+    seed(client.app.state.store, "a1", features={"cs10": 50, "level10": 8})
+
+    with client:
+        body = client.get("/benchmarks", headers=AUTH).json()
+
+    assert body == {"state": "contract-suppressed", "rows": []}
+
+
+def test_benchmarks_insufficient_when_compatible_personal_value_missing(tmp_path: Path):
+    pack = {
+        **PACK,
+        "benchmarks": [{
+            "role": "MIDDLE",
+            "level10_median": 8.0,
+            "feature_contract": {"level10_median": "level10"},
+            "sample": 100,
+        }],
+    }
+    client = build_client(tmp_path, pack=pack)
+    seed(client.app.state.store, "a1", features={"cs10": 50})
+
+    with client:
+        body = client.get("/benchmarks", headers=AUTH).json()
+
+    assert body == {"state": "insufficient-personal-history", "rows": []}
+
+
+def test_benchmarks_nonfinite_personal_values_are_omitted(tmp_path: Path):
+    pack = {
+        **PACK,
+        "benchmarks": [{
+            "role": "MIDDLE",
+            "level10_median": 8.0,
+            "feature_contract": {"level10_median": "level10"},
+            "sample": 100,
+        }],
+    }
+    client = build_client(tmp_path, pack=pack)
+    seed(client.app.state.store, "a1", features={"level10": float("nan")})
+
+    with client:
+        body = client.get("/benchmarks", headers=AUTH).json()
+
+    assert body == {"state": "insufficient-personal-history", "rows": []}
+
+
+def test_benchmarks_mixed_compatible_and_incompatible_metrics(tmp_path: Path):
+    client = build_client(tmp_path, pack=PACK)
+    seed(client.app.state.store, "a1", features={"level10": 8.0, "gold_diff_10": 100.0})
+
+    with client:
+        body = client.get("/benchmarks", headers=AUTH).json()
+
+    assert body["state"] == "available"
+    assert body["rows"] == [{
+        "role": "MIDDLE",
+        "personal": {"level10": 8.0, "gold_diff_10": 100.0},
+        "population": {
+            "level10_median": 8.0,
+            "gold_diff_10_median": 50.0,
+            "sample": 100,
         },
-    ]
+    }]
 
 
 def test_benchmarks_join_total_cs_only_when_pack_defines_total_cs(tmp_path: Path):
@@ -232,11 +302,11 @@ def test_benchmarks_join_total_cs_only_when_pack_defines_total_cs(tmp_path: Path
     seed(client.app.state.store, "a1", features={"cs10": 50})
 
     with client:
-        rows = client.get("/benchmarks", headers=AUTH).json()
+        body = client.get("/benchmarks", headers=AUTH).json()
 
-    assert rows[0]["personal"] == {"cs10": 50.0}
-    assert rows[0]["population"] == {"cs10_median": 64.0, "sample": 100}
-
+    assert body["state"] == "available"
+    assert body["rows"][0]["personal"] == {"cs10": 50.0}
+    assert body["rows"][0]["population"] == {"cs10_median": 64.0, "sample": 100}
 
 
 def test_benchmarks_all_roles_use_same_unit_total_cs_fixture(tmp_path: Path):
@@ -258,13 +328,18 @@ def test_benchmarks_all_roles_use_same_unit_total_cs_fixture(tmp_path: Path):
         seed(client.app.state.store, f"match-{role}", role=role, features={"cs10": 50 + index})
 
     with client:
-        rows = client.get("/benchmarks", headers=AUTH).json()
+        body = client.get("/benchmarks", headers=AUTH).json()
 
+    assert body["state"] == "available"
+    rows = body["rows"]
     assert {row["role"] for row in rows} == set(roles)
     assert all(set(row["personal"]) == {"cs10"} for row in rows)
     assert all(set(row["population"]) == {"cs10_median", "sample"} for row in rows)
 
-def test_benchmarks_empty_when_pack_missing(tmp_path: Path):
+
+def test_benchmarks_pack_failure_returns_503(tmp_path: Path):
     client = build_client(tmp_path, pack=None)
     with client:
-        assert client.get("/benchmarks", headers=AUTH).json() == []
+        response = client.get("/benchmarks", headers=AUTH)
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Findings Pack validation failed"}
