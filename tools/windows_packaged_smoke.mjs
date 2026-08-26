@@ -39,17 +39,28 @@ function escapeRegExp(value) {
 }
 
 async function waitForCdp(deadlineMs) {
-  const deadline = Date.now() + deadlineMs;
+  const startedAt = Date.now();
+  const deadline = startedAt + deadlineMs;
+  let nextProgressAt = startedAt + 5_000;
+  let lastProbe = "not probed yet";
   while (Date.now() < deadline) {
+    let ready = false;
     try {
       const response = await fetch(`${endpoint}/json/version`);
-      if (response.ok) return await chromium.connectOverCDP(endpoint);
-    } catch {
-      // The packaged process can take a few seconds to create its WebView2 host.
+      lastProbe = response.ok ? "ok" : `listener answered http status ${response.status}`;
+      ready = response.ok;
+      if (ready) return await chromium.connectOverCDP(endpoint);
+    } catch (error) {
+      const code = error && error.cause && error.cause.code;
+      lastProbe = code ? `connection ${code}` : `fetch error: ${error && error.message}`;
+    }
+    if (Date.now() >= nextProgressAt) {
+      console.error(`cdp-wait: ${Math.round((Date.now() - startedAt) / 1000)}s elapsed (last probe: ${lastProbe})`);
+      nextProgressAt += 5_000;
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  return null;
+  throw new Error(`packaged WebView2 CDP endpoint did not become ready within ${deadlineMs / 1000}s (last probe: ${lastProbe})`);
 }
 
 async function debugPortAlive() {
@@ -198,8 +209,10 @@ async function runInvalidPhase(page) {
   return { sidecar_port: sidecarInfo.port, sidecar_status: sidecarInfo.status, rejected_message: failureText };
 }
 
-let browser = await waitForCdp(45_000);
-if (!browser) throw new Error("packaged WebView2 CDP endpoint did not become ready");
+// First launch can be slow (WebView2 host creation, SmartScan); the PS1
+// harness watches the app process and kills this script early if the app
+// itself dies, so a long wait here only costs time when progress is real.
+const browser = await waitForCdp(120_000);
 
 try {
   const context = browser.contexts()[0];
