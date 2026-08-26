@@ -98,6 +98,15 @@ export function PlayerList({ snapshot }: { snapshot: InGameSnapshot | undefined 
           {rosterAvailable ? `${kills} kills · ${turrets} turrets` : "Unavailable kills · Unavailable turrets"}
         </span>
       </div>
+      {!active && (
+        <p
+          role="status"
+          data-testid="waiting-pill"
+          style={{ margin: "0 0 9px", textAlign: "center", fontSize: 10, color: "var(--color-amber)" }}
+        >
+          waiting for :2999
+        </p>
+      )}
       <div className="live-table-scroll">
         <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
           <caption style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0, 0, 0, 0)", whiteSpace: "nowrap", border: 0 }}>Player roster</caption>
