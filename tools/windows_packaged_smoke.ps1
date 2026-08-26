@@ -275,43 +275,6 @@ try {
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
   $env:BHAYANAK_TOKEN = $null
 
-  # --- Baseline launch: prove whether the packaged app starts at all under a
-  # clean environment (no WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS yet), before
-  # any debug instrumentation is applied. This splits "the packaged app is
-  # broken" from "the CDP debug-arg launch breaks it" whenever an instrumented
-  # phase dies before WebView2 opens. Informational only: recorded and swept,
-  # never fatal.
-  $baselineStdoutLog = Join-Path $env:SMOKE_DIAGNOSTICS "app0-baseline-stdout.log"
-  $baselineStderrLog = Join-Path $env:SMOKE_DIAGNOSTICS "app0-baseline-stderr.log"
-  $baselineApp = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru `
-    -RedirectStandardOutput $baselineStdoutLog -RedirectStandardError $baselineStderrLog
-  $baselineDeadline = (Get-Date).AddSeconds(12)
-  while ((Get-Date) -lt $baselineDeadline) {
-    $baselineApp.Refresh()
-    if ($baselineApp.HasExited) { break }
-    Start-Sleep -Milliseconds 250
-  }
-  $baselineApp.Refresh()
-  if ($baselineApp.HasExited) {
-    Write-Output "baseline launch (clean env, no WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS): exited within the 12s probe (exit code $($baselineApp.ExitCode))"
-    Show-AppLogs -App $baselineApp -Context "baseline launch" `
-      -AppStdoutLog $baselineStdoutLog -AppStderrLog $baselineStderrLog -AppName $appNameForDiagnostics
-    $state.baseline_launch = [ordered]@{ alive_after_12s = $false; exit_code = $baselineApp.ExitCode }
-  } else {
-    Write-Output "baseline launch (clean env, no WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS): alive for the full 12s probe"
-    $state.baseline_launch = [ordered]@{ alive_after_12s = $true }
-  }
-  Save-State
-  Stop-Process -Id $baselineApp.Id -Force -ErrorAction SilentlyContinue
-  # A force-stopped baseline app skips its own sidecar cleanup; sweep anything
-  # it owned so later phases see a clean sidecar baseline.
-  $strandedBaselineSidecars = @(Get-Sidecars | Where-Object { $baseline -notcontains $_ })
-  if ($strandedBaselineSidecars.Count -gt 0) {
-    $state.owned_sidecars += $strandedBaselineSidecars
-    $strandedBaselineSidecars | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
-  }
-  Start-Sleep -Seconds 1
-
 
   $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$DebugPort"
 
