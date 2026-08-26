@@ -42,6 +42,7 @@ export class ApiError extends Error {
 }
 
 let connectionPromise: Promise<SidecarConnection> | null = null;
+let connectionGeneration = 0;
 function browserConnection(): SidecarConnection {
   return {
     base: `http://127.0.0.1:${import.meta.env.VITE_BL_PORT ?? 23110}`,
@@ -52,15 +53,21 @@ function browserConnection(): SidecarConnection {
   };
 }
 
+/** Drop credentials from a terminated sidecar generation before reconnecting. */
+export function invalidateConnection(): void {
+  connectionGeneration += 1;
+  connectionPromise = null;
+}
+
 /**
- * Resolve the sidecar exactly once per frontend lifetime. Keeping this
- * asynchronous is important on a cold Tauri launch: both REST and SSE must
- * await `sidecar_info` before constructing a URL or reading its token.
+ * Resolve the current sidecar generation. A stale in-flight resolution is
+ * redirected to the newer generation instead of being cached or returned.
  */
 export function resolveConnection(): Promise<SidecarConnection> {
   if (!connectionPromise) {
+    const attempt = connectionGeneration;
     const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-    connectionPromise = (
+    const pending = (
       isTauri
         ? invoke<{ port: number; token: string; status: "ok" | "degraded" }>("sidecar_info").then(
             (info) => ({
@@ -70,10 +77,15 @@ export function resolveConnection(): Promise<SidecarConnection> {
             }),
           )
         : Promise.resolve(browserConnection())
-    ).catch((error) => {
-      connectionPromise = null;
-      throw error;
-    });
+    )
+      .then((connection) =>
+        attempt === connectionGeneration ? connection : resolveConnection(),
+      )
+      .catch((error) => {
+        if (connectionPromise === pending) connectionPromise = null;
+        throw error;
+      });
+    connectionPromise = pending;
   }
   return connectionPromise;
 }
@@ -102,17 +114,24 @@ async function responseDetail(res: Response): Promise<string | undefined> {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const { base, token } = await resolveConnection();
-  const res = await fetch(`${base}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      "X-BL-Token": token,
-      ...init?.headers,
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${base}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        "X-BL-Token": token,
+        ...init?.headers,
+      },
+    });
+  } catch (error) {
+    invalidateConnection();
+    throw error;
+  }
   if (!res.ok) throw new ApiError(res.status, await responseDetail(res));
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }
+
 async function liveSession(): Promise<ChampSelectSnapshot> {
   const value = await request<unknown>("/live/session");
   if (!isChampSelectSnapshot(value)) throw new Error("Invalid /live/session response");

@@ -105,4 +105,45 @@ describe("sidecar API boundary", () => {
       expect(error.detail?.length).toBeLessThanOrEqual(240);
     }
   });
+
+  it("does not let an in-flight generation overwrite a newer resolution", async () => {
+    // The configured ES2022 test target does not expose Promise.withResolvers.
+    let resolveFirst!: (value: { port: number; token: string; status: "ok" }) => void;
+    const first = new Promise<{ port: number; token: string; status: "ok" }>((resolve) => {
+      resolveFirst = resolve;
+    });
+    invoke
+      .mockImplementationOnce(() => first)
+      .mockResolvedValueOnce({ port: 24568, token: "fresh-token", status: "ok" });
+    const { resolveConnection, invalidateConnection } = await import("./client");
+
+    const stale = resolveConnection();
+    invalidateConnection();
+    const fresh = resolveConnection();
+    await expect(fresh).resolves.toMatchObject({
+      base: "http://127.0.0.1:24568",
+      token: "fresh-token",
+    });
+    resolveFirst({ port: 24567, token: "stale-token", status: "ok" });
+    await expect(stale).resolves.toMatchObject({
+      base: "http://127.0.0.1:24568",
+      token: "fresh-token",
+    });
+    expect(invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it("invalidates transport failures before the next REST attempt", async () => {
+    invoke
+      .mockResolvedValueOnce({ port: 24567, token: "old-token", status: "ok" })
+      .mockResolvedValueOnce({ port: 24568, token: "fresh-token", status: "ok" });
+    vi.mocked(fetch)
+      .mockRejectedValueOnce(new TypeError("network down"))
+      .mockResolvedValueOnce(response({ status: "ok" }));
+    const { api } = await import("./client");
+
+    await expect(api.health()).rejects.toThrow("network down");
+    await expect(api.health()).resolves.toEqual({ status: "ok" });
+    expect(invoke).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
+  });
 });

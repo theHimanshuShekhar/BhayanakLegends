@@ -2,8 +2,14 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseSseMessage, useEvents, type SseMessage } from "./sse";
 
-const urls = vi.hoisted(() => ({ eventsUrl: vi.fn(async () => "http://sidecar/events") }));
-vi.mock("./client", () => ({ eventsUrl: urls.eventsUrl }));
+const urls = vi.hoisted(() => ({
+  eventsUrl: vi.fn(async () => "http://sidecar/events"),
+  invalidateConnection: vi.fn(),
+}));
+vi.mock("./client", () => ({
+  eventsUrl: urls.eventsUrl,
+  invalidateConnection: urls.invalidateConnection,
+}));
 
 class FakeEventSource {
   static instances: FakeEventSource[] = [];
@@ -212,6 +218,7 @@ describe("shared SSE owner", () => {
     await act(async () => {
       vi.advanceTimersByTime(10_000);
     });
+    expect(urls.invalidateConnection).toHaveBeenCalledOnce();
     expect(source.close).toHaveBeenCalled();
     expect(FakeEventSource.instances).toHaveLength(1);
   });
