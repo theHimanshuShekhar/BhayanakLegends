@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { actionableErrorMessage, api } from "../api/client";
 import { useGameClock, useGameClockSource } from "../api/clock";
@@ -60,25 +60,76 @@ function findLocalPlayer(snapshot: InGameSnapshot | undefined): PlayerLive | nul
   const all = [...snapshot.teams.order, ...snapshot.teams.chaos];
   return all.find((p) => p.summoner === snapshot.local_summoner) ?? null;
 }
+function isRenderableSnapshot(value: unknown): value is InGameSnapshot {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const snapshot = value as Record<string, unknown>;
+  const teams = snapshot.teams;
+  if (typeof teams !== "object" || teams === null || Array.isArray(teams)) return false;
+  const teamRecord = teams as Record<string, unknown>;
+  const isNullableString = (candidate: unknown) => candidate === null || typeof candidate === "string";
+  const isPlayer = (candidate: unknown) => {
+    if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) return false;
+    const player = candidate as Record<string, unknown>;
+    return (
+      typeof player.summoner === "string" &&
+      isNullableString(player.champion) &&
+      ["level", "kills", "deaths", "assists", "cs", "ward_score"].every(
+        (key) => typeof player[key] === "number" && Number.isFinite(player[key]),
+      ) &&
+      Array.isArray(player.items) &&
+      player.items.every(
+        (item) =>
+          typeof item === "object" &&
+          item !== null &&
+          !Array.isArray(item) &&
+          Number.isInteger((item as Record<string, unknown>).id) &&
+          Number.isInteger((item as Record<string, unknown>).count),
+      )
+    );
+  };
+  const isEvent = (candidate: unknown) => {
+    if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) return false;
+    const event = candidate as Record<string, unknown>;
+    return (
+      typeof event.name === "string" &&
+      typeof event.t_s === "number" &&
+      Number.isFinite(event.t_s) &&
+      isNullableString(event.actor) &&
+      isNullableString(event.victim) &&
+      isNullableString(event.detail)
+    );
+  };
+  return (
+    typeof snapshot.active === "boolean" &&
+    typeof snapshot.clock_s === "number" &&
+    Number.isFinite(snapshot.clock_s) &&
+    (snapshot.mode === null || typeof snapshot.mode === "string") &&
+    isNullableString(snapshot.local_summoner) &&
+    isNullableString(snapshot.local_champion) &&
+    Array.isArray(teamRecord.order) &&
+    teamRecord.order.every(isPlayer) &&
+    Array.isArray(teamRecord.chaos) &&
+    teamRecord.chaos.every(isPlayer) &&
+    Array.isArray(snapshot.events) &&
+    snapshot.events.every(isEvent)
+  );
+}
 
 export function LiveMatchPage() {
   const queryClient = useQueryClient();
   const ingameQuery = useLiveIngame();
   const packQuery = useQuery({ queryKey: ["pack"], queryFn: api.pack });
   const [activePackVersion, setActivePackVersion] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!packQuery.isSuccess) return;
-    const version = packQuery.data?.pack_version;
-    setActivePackVersion(typeof version === "string" && version.trim().length > 0 ? version : null);
-  }, [packQuery.data, packQuery.isSuccess]);
-
-  const renderPack =
-    activePackVersion !== null && packQuery.data?.pack_version === activePackVersion ? packQuery.data : undefined;
-
-  useEvents((msg) => {
+  const [liveFrame, setLiveFrame] = useState<{ snapshot?: InGameSnapshot; hidden: boolean } | null>(null);
+  const hadLiveConnection = useRef(false);
+  const liveEventsConnected = useEvents((msg) => {
     if (msg.type === "live.state") {
-      queryClient.setQueryData(["live-ingame"], msg.data);
+      if (isRenderableSnapshot(msg.data)) {
+        setLiveFrame({ snapshot: msg.data, hidden: false });
+        queryClient.setQueryData(["live-ingame"], msg.data);
+      } else {
+        setLiveFrame({ hidden: true });
+      }
     }
     if (msg.type === "hello") {
       const version = msg.data.pack_version;
@@ -93,9 +144,29 @@ export function LiveMatchPage() {
     }
   });
 
+  useEffect(() => {
+    if (liveEventsConnected) {
+      hadLiveConnection.current = true;
+    } else if (hadLiveConnection.current) {
+      setLiveFrame({ hidden: true });
+    }
+  }, [liveEventsConnected]);
 
-  const ingame = ingameQuery.data;
-  const active = !!ingame?.active;
+  useEffect(() => {
+    if (!packQuery.isSuccess) return;
+    const version = packQuery.data?.pack_version;
+    setActivePackVersion(typeof version === "string" && version.trim().length > 0 ? version : null);
+  }, [packQuery.data, packQuery.isSuccess]);
+  const renderPack =
+    activePackVersion !== null && packQuery.data?.pack_version === activePackVersion ? packQuery.data : undefined;
+
+  const querySnapshot = ingameQuery.isError ? undefined : ingameQuery.data;
+  const ingame = ingameQuery.isError || liveFrame?.hidden ? undefined : (liveFrame?.snapshot ?? querySnapshot);
+  const active = ingame?.active === true;
+  const liveStatus = ingameQuery.isError ? "error" : active ? "active" : "waiting";
+
+
+
 
   return (
     <div
@@ -113,9 +184,18 @@ export function LiveMatchPage() {
       }}
     >
       <PageHeader title="Live Companion: In Game" />
-      {(ingameQuery.isLoading || packQuery.isLoading) && (
-        <p role="status" aria-live="polite" style={{ margin: "0 0 10px", fontSize: 10, color: "var(--color-dim)" }}>
-          Loading Live Companion data
+      {liveStatus === "error" ? (
+        <div role="alert" data-testid="ingame-error" aria-live="assertive" style={{ margin: "0 0 10px", fontSize: 10.5, color: "var(--color-amber)" }}>
+          {actionableErrorMessage(ingameQuery.error)}
+        </div>
+      ) : (
+        <p
+          role="status"
+          aria-live="polite"
+          data-testid="live-route-status"
+          style={{ margin: "0 0 10px", fontSize: 10, color: active ? "var(--color-teal)" : "var(--color-dim)" }}
+        >
+          {active ? "Live Companion game data active" : "Waiting for Live Companion game data"}
         </p>
       )}
       <GameClockSource active={active} serverClock={ingame?.clock_s ?? 0} />
@@ -131,22 +211,23 @@ export function LiveMatchPage() {
                   boxShadow: "var(--shadow-z1)",
                 }
               : {
-                  background: "var(--color-amber-low)",
-                  color: "var(--color-amber)",
+                  background: "var(--color-surface-3)",
+                  color: "var(--color-dimmer)",
                   boxShadow: "var(--shadow-z1)",
                 }
           }
         >
           <span
+            data-testid="bridge-dot"
             style={{
               width: 6,
               height: 6,
               borderRadius: 999,
-              background: active ? "var(--color-teal)" : "var(--color-amber)",
+              background: active ? "var(--color-teal)" : "var(--color-dimmer)",
               boxShadow: active ? "0 0 8px var(--color-teal)" : "none",
             }}
           />
-          {active ? ":2999 · 1s poll" : "waiting for :2999"}
+          {active ? ":2999 · 1s poll" : "Live Companion idle"}
         </span>
         {ingame?.mode && (
           <div
@@ -169,11 +250,6 @@ export function LiveMatchPage() {
       {packQuery.isError && (
         <div role="alert" style={{ fontSize: 10.5, color: "var(--color-danger)" }}>
           {actionableErrorMessage(packQuery.error, "pack")}
-        </div>
-      )}
-      {ingameQuery.isError && (
-        <div role="alert" data-testid="ingame-error" style={{ fontSize: 10.5, color: "var(--color-amber)" }}>
-          {actionableErrorMessage(ingameQuery.error)}
         </div>
       )}
 
@@ -200,7 +276,7 @@ export function LiveMatchPage() {
           <LiveWinProbabilityCard pack={renderPack} active={active} packVersion={activePackVersion} />
           <div className="live-match-middle-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <TeamVsTeamCard snapshot={ingame} />
-            <EventFeedCard events={ingame?.events ?? []} />
+            <EventFeedCard snapshot={ingame} />
           </div>
           <ItemsByPlayerCard snapshot={ingame} />
         </div>
