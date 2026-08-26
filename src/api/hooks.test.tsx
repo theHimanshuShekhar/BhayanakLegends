@@ -1,7 +1,13 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ingameSnapshot } from "../routes/__tests__/fixtures";
+import {
+  champSelectSession,
+  idleSession,
+  ingameSnapshot,
+  champSelectActive,
+  ingameActive,
+} from "../routes/__tests__/fixtures";
 import { useLiveStatus } from "./hooks";
 import type { LiveStatus } from "./types";
 const mocks = vi.hoisted(() => ({
@@ -112,6 +118,58 @@ describe("useLiveStatus arbitration", () => {
       await queryClient.invalidateQueries({ queryKey: ["live-status"] });
     });
     await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("true,false"));
+  });
+
+  it("keeps a newer champselect.state over an older poll, then lets a later poll reconcile both fields", async () => {
+    const first = deferred<LiveStatus>();
+    mocks.liveStatus.mockReturnValueOnce(first.promise);
+    const { queryClient } = renderProbe();
+    await waitFor(() => expect(mocks.liveStatus).toHaveBeenCalledOnce());
+    await act(async () => FakeEventSource.instances[0].open());
+
+    FakeEventSource.instances[0].message({
+      type: "champselect.state",
+      ts: "newer",
+      data: champSelectSession,
+    });
+    first.resolve(idleStatus);
+    await act(async () => first.promise);
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("true,false"));
+
+    // A poll begun after the frame reconciles the full coarse status.
+    mocks.liveStatus.mockResolvedValueOnce(ingameActive);
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["live-status"] });
+    });
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("false,true"));
+  });
+
+  it("applies partial frames strictly inside their own field", async () => {
+    mocks.liveStatus.mockResolvedValueOnce(champSelectActive);
+    renderProbe();
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("true,false"));
+    await act(async () => FakeEventSource.instances[0].open());
+
+    // An in-game frame must not disturb the champ-select field; with both
+    // flags raised the component derives in-game from this unified state.
+    await act(async () => {
+      FakeEventSource.instances[0].message({
+        type: "live.state",
+        ts: "newer",
+        data: { ...ingameSnapshot, active: true },
+      });
+    });
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("true,true"));
+
+    // A champ-select frame must not disturb the in-game field.
+    await act(async () => {
+      FakeEventSource.instances[0].message({
+        type: "champselect.state",
+        ts: "newer",
+        data: idleSession,
+      });
+    });
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("false,true"));
   });
 
   it("requests one status refetch on reconnect while sharing one source", async () => {
