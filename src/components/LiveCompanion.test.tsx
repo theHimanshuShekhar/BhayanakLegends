@@ -89,6 +89,13 @@ describe("LiveCompanion", () => {
       "true",
     );
 
+    liveStatusData = { ...inGameStatus, ingame: { ...inGameStatus.ingame, clock_s: 21 } };
+    view.rerender(<LiveCompanion />);
+    expect(await screen.findByRole("button", { name: "Collapse Live Companion" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+
     liveStatusData = idleStatus;
     view.rerender(<LiveCompanion />);
     expect(await screen.findByTestId("live-companion-mode")).toHaveTextContent("idle");
@@ -96,5 +103,64 @@ describe("LiveCompanion", () => {
     view.rerender(<LiveCompanion />);
     const resetToggle = await screen.findByRole("button", { name: "Expand Live Companion" });
     expect(resetToggle).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("stays idle without claiming live activity before any source succeeds", () => {
+    const view = render(<LiveCompanion />);
+    expect(screen.getByTestId("live-companion-mode")).toHaveTextContent("idle");
+    expect(screen.getByTestId("live-companion")).toHaveAttribute("data-phase", "idle");
+    expect(invoke).not.toHaveBeenCalled();
+
+    for (let attempt = 0; attempt < 3; attempt += 1) view.rerender(<LiveCompanion />);
+    expect(screen.getByTestId("live-companion-mode")).toHaveTextContent("idle");
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("keeps the confirmed phase and expansion stable when polls fail and SSE stays offline", async () => {
+    liveStatusData = inGameStatus;
+    const view = render(<LiveCompanion />);
+    const toggle = await screen.findByRole("button", { name: "Expand Live Companion" });
+    toggle.focus();
+    fireEvent.click(toggle);
+    expect(invoke).toHaveBeenLastCalledWith("set_live_companion_mode", {
+      mode: "in-game",
+      expanded: true,
+    });
+
+    // Failed retries retain the last confirmed query data and a disconnected
+    // stream delivers no frames; the next successful poll reconciles the same
+    // phase. Neither may emit another window-mode command.
+    const claimsAfterExpansion = invoke.mock.calls.length;
+    for (let attempt = 0; attempt < 3; attempt += 1) view.rerender(<LiveCompanion />);
+    liveStatusData = { ...inGameStatus, ingame: { ...inGameStatus.ingame, clock_s: 15 } };
+    view.rerender(<LiveCompanion />);
+
+    expect(await screen.findByRole("button", { name: "Collapse Live Companion" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByTestId("live-companion-mode")).toHaveTextContent("in-game");
+    expect(invoke.mock.calls.length).toBe(claimsAfterExpansion);
+  });
+
+  it("toggles once per Enter or Space activation with the matching accessible name", async () => {
+    liveStatusData = inGameStatus;
+    render(<LiveCompanion />);
+    const toggle = await screen.findByRole("button", { name: "Expand Live Companion" });
+    toggle.focus();
+    expect(toggle).toHaveFocus();
+
+    // jsdom does not synthesize the native button activation click for
+    // Enter/Space; pair each keydown with the activation click a real
+    // browser dispatches so each key toggles exactly once.
+    fireEvent.keyDown(toggle, { key: "Enter", code: "Enter" });
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAccessibleName("Collapse Live Companion");
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.keyDown(toggle, { key: " ", code: "Space" });
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAccessibleName("Expand Live Companion");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
   });
 });
