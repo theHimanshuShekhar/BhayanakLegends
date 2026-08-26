@@ -5,12 +5,12 @@ import { LiveCompanion } from "./LiveCompanion";
 import { UpdaterStatus } from "./UpdaterStatus";
 
 const NAV = [
-  { to: "/live", label: "Live match" },
+  { to: "/live", label: "Live Companion" },
   { to: "/champ-select", label: "Champ select" },
   { to: "/postgame", label: "Post-game" },
-  { to: "/progress", label: "Progress" },
+  { to: "/progress", label: "Trajectory" },
   { to: "/champions", label: "Champions" },
-  { to: "/history", label: "History" },
+  { to: "/history", label: "Improvement Journal" },
 ];
 
 export function ConnectionStatus({ connected }: { connected: boolean }) {

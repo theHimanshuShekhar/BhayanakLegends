@@ -36,7 +36,12 @@ describe("Layout accessibility", () => {
     expect(screen.getByRole("banner")).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Primary" })).toBeInTheDocument();
     expect(screen.getByRole("main")).toHaveTextContent("Route content");
-    expect(screen.getByRole("link", { name: "Progress" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Trajectory" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Improvement Journal" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Live Companion" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Progress" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "History" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Live match" })).not.toBeInTheDocument();
     expect(screen.getByText(/sidecar · offline/)).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("sidecar · offline");
   });
@@ -74,12 +79,12 @@ describe("Layout accessibility", () => {
     );
 
     expect(screen.getAllByRole("link").map((link) => link.textContent)).toEqual([
-      "Live match",
+      "Live Companion",
       "Champ select",
       "Post-game",
-      "Progress",
+      "Trajectory",
       "Champions",
-      "History",
+      "Improvement Journal",
     ]);
     expect(screen.getByRole("navigation", { name: "Primary" })).toHaveClass("rc-navbar");
     expect(screen.getByTestId("connection-status")).toBeVisible();
