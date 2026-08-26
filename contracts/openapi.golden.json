@@ -1,0 +1,2021 @@
+{
+  "components": {
+    "schemas": {
+      "AllyCell": {
+        "properties": {
+          "cell_id": {
+            "type": "integer"
+          },
+          "champion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "champion_id": {
+            "type": "integer"
+          },
+          "is_local": {
+            "type": "boolean"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "enum": [
+              "intent",
+              "picked",
+              "hover",
+              "none"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BanAdvice": {
+        "properties": {
+          "ban_rate": {
+            "type": "number"
+          },
+          "champion": {
+            "type": "string"
+          },
+          "recommendation": {
+            "enum": [
+              "real-threat",
+              "fear-ban",
+              "skip"
+            ],
+            "type": "string"
+          },
+          "win_rate": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "champion",
+          "win_rate",
+          "ban_rate",
+          "recommendation"
+        ],
+        "type": "object"
+      },
+      "BenchmarkResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/RoleBenchmark"
+            },
+            "type": "array"
+          },
+          "state": {
+            "enum": [
+              "available",
+              "contract-suppressed",
+              "insufficient-personal-history"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "rows"
+        ],
+        "type": "object"
+      },
+      "ChampSelectSnapshot": {
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "ally": {
+            "items": {
+              "$ref": "#/components/schemas/AllyCell"
+            },
+            "type": "array"
+          },
+          "bans_ally": {
+            "items": {
+              "$ref": "#/components/schemas/CsBan"
+            },
+            "type": "array"
+          },
+          "bans_enemy": {
+            "items": {
+              "$ref": "#/components/schemas/CsBan"
+            },
+            "type": "array"
+          },
+          "enemy": {
+            "items": {
+              "$ref": "#/components/schemas/EnemyCell"
+            },
+            "type": "array"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "enum": [
+                  "None",
+                  "Lobby",
+                  "Matchmaking",
+                  "RankedGame",
+                  "ChampSelect",
+                  "GameStart",
+                  "InProgress",
+                  "WaitingForStats",
+                  "EndOfGame"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timer_sec": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "ChampSelectStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "enum": [
+                  "None",
+                  "Lobby",
+                  "Matchmaking",
+                  "RankedGame",
+                  "ChampSelect",
+                  "GameStart",
+                  "InProgress",
+                  "WaitingForStats",
+                  "EndOfGame"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "CheckpointBucket": {
+        "additionalProperties": false,
+        "properties": {
+          "gold_diff_bucket": {
+            "enum": [
+              "bottom_quartile_@20m",
+              "top_quartile_@20m"
+            ],
+            "type": "string"
+          },
+          "win_rate": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "gold_diff_bucket",
+          "win_rate"
+        ],
+        "type": "object"
+      },
+      "Checkpoints": {
+        "additionalProperties": false,
+        "properties": {
+          "gold_diff_10": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "gold_diff_15": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "gold_diff_20": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "ComebackFeatureContract": {
+        "properties": {
+          "feature": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "feature_contract_version": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "feature",
+          "feature_contract_version"
+        ],
+        "type": "object"
+      },
+      "ComebackOdds": {
+        "additionalProperties": false,
+        "properties": {
+          "gold_deficit_at_15": {
+            "type": "integer"
+          },
+          "win_rate": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "gold_deficit_at_15",
+          "win_rate"
+        ],
+        "type": "object"
+      },
+      "CsBan": {
+        "additionalProperties": false,
+        "properties": {
+          "champion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "champion_id": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "DatasetSummary": {
+        "properties": {
+          "matches": {
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "patches": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "player_games": {
+            "minimum": 0.0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "matches",
+          "player_games",
+          "patches"
+        ],
+        "type": "object"
+      },
+      "DevImportRequest": {
+        "properties": {
+          "dir": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "dir"
+        ],
+        "type": "object"
+      },
+      "EnemyCell": {
+        "properties": {
+          "cell_id": {
+            "type": "integer"
+          },
+          "champion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "champion_id": {
+            "type": "integer"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "enum": [
+              "intent",
+              "picked",
+              "hover",
+              "none"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "FindingsPack": {
+        "properties": {
+          "ban_advisor": {
+            "items": {
+              "$ref": "#/components/schemas/BanAdvice"
+            },
+            "type": "array"
+          },
+          "benchmarks": {
+            "items": {
+              "$ref": "#/components/schemas/PackBenchmark"
+            },
+            "type": "array"
+          },
+          "checkpoints": {
+            "items": {
+              "$ref": "#/components/schemas/CheckpointBucket"
+            },
+            "type": "array"
+          },
+          "comeback_feature_contract": {
+            "$ref": "#/components/schemas/ComebackFeatureContract"
+          },
+          "comeback_odds": {
+            "items": {
+              "$ref": "#/components/schemas/ComebackOdds"
+            },
+            "type": "array"
+          },
+          "dataset": {
+            "$ref": "#/components/schemas/DatasetSummary"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/PackFinding"
+            },
+            "type": "array"
+          },
+          "generated_at": {
+            "type": "string"
+          },
+          "habits": {
+            "items": {
+              "$ref": "#/components/schemas/HabitDefinition"
+            },
+            "type": "array"
+          },
+          "matchup_examples": {
+            "items": {
+              "$ref": "#/components/schemas/MatchupExample"
+            },
+            "type": "array"
+          },
+          "objectives": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object"
+          },
+          "pack_version": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/PackProvenance"
+          },
+          "schema_version": {
+            "const": 1,
+            "type": "integer"
+          },
+          "tier_list": {
+            "items": {
+              "$ref": "#/components/schemas/TierEntry"
+            },
+            "type": "array"
+          },
+          "trap_picks": {
+            "items": {
+              "$ref": "#/components/schemas/TrapPick"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "schema_version",
+          "generated_at",
+          "comeback_feature_contract",
+          "provenance",
+          "dataset",
+          "findings",
+          "habits",
+          "objectives",
+          "comeback_odds",
+          "ban_advisor",
+          "trap_picks",
+          "tier_list",
+          "matchup_examples",
+          "benchmarks",
+          "checkpoints"
+        ],
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "HabitDefinition": {
+        "properties": {
+          "effect_per_sd": {
+            "type": "number"
+          },
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "effect_per_sd"
+        ],
+        "type": "object"
+      },
+      "HabitOutcome": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "verdict": {
+            "enum": [
+              "good",
+              "bad",
+              "neutral",
+              "n/a"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "value",
+          "verdict"
+        ],
+        "type": "object"
+      },
+      "Health": {
+        "additionalProperties": false,
+        "properties": {
+          "app_version": {
+            "type": "string"
+          },
+          "pack_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "degraded"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "app_version"
+        ],
+        "type": "object"
+      },
+      "HistorySummary": {
+        "additionalProperties": false,
+        "properties": {
+          "by_role": {
+            "items": {
+              "$ref": "#/components/schemas/RoleRow"
+            },
+            "type": "array"
+          },
+          "matches": {
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "patches": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "win_rate": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "matches",
+          "patches",
+          "by_role",
+          "win_rate"
+        ],
+        "type": "object"
+      },
+      "InGameSnapshot": {
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "clock_s": {
+            "type": "number"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/LiveEvent"
+            },
+            "type": "array"
+          },
+          "local_champion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "local_summoner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "CLASSIC",
+                  "ODIN",
+                  "ARAM",
+                  "TUTORIAL",
+                  "URF",
+                  "ONEFORALL",
+                  "DOOM_BOTS",
+                  "ASCENSION",
+                  "FIRSTBLOOD",
+                  "KING_PORO",
+                  "SIEGE",
+                  "PROJECT",
+                  "SNOWDOWN",
+                  "NEXUSBLITZ",
+                  "ULTBOOK",
+                  "CHERRY"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "teams": {
+            "$ref": "#/components/schemas/LiveTeams"
+          }
+        },
+        "type": "object"
+      },
+      "InGameStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "clock_s": {
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "game_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "CLASSIC",
+                  "ODIN",
+                  "ARAM",
+                  "TUTORIAL",
+                  "URF",
+                  "ONEFORALL",
+                  "DOOM_BOTS",
+                  "ASCENSION",
+                  "FIRSTBLOOD",
+                  "KING_PORO",
+                  "SIEGE",
+                  "PROJECT",
+                  "SNOWDOWN",
+                  "NEXUSBLITZ",
+                  "ULTBOOK",
+                  "CHERRY"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "ItemLive": {
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "id": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "LiveEvent": {
+        "properties": {
+          "actor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "enum": [
+              "GameStart",
+              "MinionsSpawning",
+              "FirstBrick",
+              "DragonKill",
+              "HeraldKill",
+              "BaronKill",
+              "ChampionKill",
+              "TurretKilled",
+              "InhibKilled",
+              "GameEnd"
+            ],
+            "type": "string"
+          },
+          "t_s": {
+            "type": "number"
+          },
+          "victim": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "LiveStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "champ_select": {
+            "$ref": "#/components/schemas/ChampSelectStatus"
+          },
+          "ingame": {
+            "$ref": "#/components/schemas/InGameStatus"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "champ_select",
+          "ingame"
+        ],
+        "type": "object"
+      },
+      "LiveTeams": {
+        "properties": {
+          "chaos": {
+            "items": {
+              "$ref": "#/components/schemas/PlayerLive"
+            },
+            "type": "array"
+          },
+          "order": {
+            "items": {
+              "$ref": "#/components/schemas/PlayerLive"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "MatchupExample": {
+        "properties": {
+          "champion": {
+            "type": "string"
+          },
+          "ci": {
+            "type": "number"
+          },
+          "games": {
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "opponent": {
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "TOP",
+              "JUNGLE",
+              "MIDDLE",
+              "BOTTOM",
+              "UTILITY",
+              "UNKNOWN"
+            ],
+            "type": "string"
+          },
+          "wr": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "champion",
+          "opponent",
+          "role",
+          "wr",
+          "ci",
+          "games"
+        ],
+        "type": "object"
+      },
+      "PackBenchmark": {
+        "properties": {
+          "cs10_median": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "feature_contract": {
+            "$ref": "#/components/schemas/PackFeatureContract"
+          },
+          "gold_diff_10_median": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "level10_median": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "role": {
+            "enum": [
+              "TOP",
+              "JUNGLE",
+              "MIDDLE",
+              "BOTTOM",
+              "UTILITY",
+              "UNKNOWN"
+            ],
+            "type": "string"
+          },
+          "sample": {
+            "exclusiveMinimum": 0.0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "role",
+          "feature_contract",
+          "sample"
+        ],
+        "type": "object"
+      },
+      "PackFeatureContract": {
+        "properties": {
+          "cs10_median": {
+            "anyOf": [
+              {
+                "enum": [
+                  "cs10",
+                  "lane_minions_first_10m"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "gold_diff_10_median": {
+            "anyOf": [
+              {
+                "const": "gold_diff_10",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "level10_median": {
+            "anyOf": [
+              {
+                "const": "level10",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "PackFinding": {
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "source_ref": {
+            "type": "string"
+          },
+          "statement": {
+            "type": "string"
+          },
+          "tier": {
+            "enum": [
+              "actionable",
+              "diagnostic",
+              "a-lite"
+            ],
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "tier",
+          "title",
+          "statement",
+          "source_ref"
+        ],
+        "type": "object"
+      },
+      "PackProvenance": {
+        "properties": {
+          "ban_advisor": {
+            "$ref": "#/components/schemas/TableProvenance"
+          },
+          "benchmarks": {
+            "$ref": "#/components/schemas/TableProvenance"
+          },
+          "checkpoints": {
+            "$ref": "#/components/schemas/TableProvenance"
+          },
+          "comeback_odds": {
+            "$ref": "#/components/schemas/TableProvenance"
+          },
+          "dataset": {
+            "$ref": "#/components/schemas/TableProvenance"
+          },
+          "findings": {
+            "$ref": "#/components/schemas/TableProvenance"
+          },
+          "habits": {
+            "$ref": "#/components/schemas/TableProvenance"
+          },
+          "matchup_examples": {
+            "$ref": "#/components/schemas/TableProvenance"
+          },
+          "objectives": {
+            "$ref": "#/components/schemas/TableProvenance"
+          },
+          "tier_list": {
+            "$ref": "#/components/schemas/TableProvenance"
+          },
+          "trap_picks": {
+            "$ref": "#/components/schemas/TableProvenance"
+          }
+        },
+        "required": [
+          "dataset",
+          "findings",
+          "habits",
+          "objectives",
+          "comeback_odds",
+          "ban_advisor",
+          "trap_picks",
+          "tier_list",
+          "matchup_examples",
+          "benchmarks",
+          "checkpoints"
+        ],
+        "type": "object"
+      },
+      "PatchAggregate": {
+        "additionalProperties": false,
+        "properties": {
+          "games": {
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "patch": {
+            "type": "string"
+          },
+          "win_rate": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "type": "number"
+          },
+          "wins": {
+            "minimum": 0.0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "patch",
+          "games",
+          "wins",
+          "win_rate"
+        ],
+        "type": "object"
+      },
+      "PlayerLive": {
+        "properties": {
+          "assists": {
+            "type": "integer"
+          },
+          "champion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cs": {
+            "type": "integer"
+          },
+          "deaths": {
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ItemLive"
+            },
+            "type": "array"
+          },
+          "kills": {
+            "type": "integer"
+          },
+          "level": {
+            "type": "integer"
+          },
+          "summoner": {
+            "type": "string"
+          },
+          "ward_score": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "summoner"
+        ],
+        "type": "object"
+      },
+      "PostGameDigest": {
+        "additionalProperties": false,
+        "properties": {
+          "champion": {
+            "type": "string"
+          },
+          "checkpoints": {
+            "$ref": "#/components/schemas/Checkpoints"
+          },
+          "duration_s": {
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "habits": {
+            "items": {
+              "$ref": "#/components/schemas/HabitOutcome"
+            },
+            "type": "array"
+          },
+          "headline": {
+            "type": "string"
+          },
+          "match_id": {
+            "type": "string"
+          },
+          "played_at": {
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "TOP",
+              "JUNGLE",
+              "MIDDLE",
+              "BOTTOM",
+              "UTILITY",
+              "UNKNOWN"
+            ],
+            "type": "string"
+          },
+          "win": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "match_id",
+          "played_at",
+          "champion",
+          "role",
+          "win",
+          "duration_s",
+          "checkpoints",
+          "habits",
+          "headline"
+        ],
+        "type": "object"
+      },
+      "RoleBenchmark": {
+        "additionalProperties": false,
+        "properties": {
+          "personal": {
+            "$ref": "#/components/schemas/RoleBenchmarkPersonal"
+          },
+          "population": {
+            "$ref": "#/components/schemas/RoleBenchmarkPopulation"
+          },
+          "role": {
+            "enum": [
+              "TOP",
+              "JUNGLE",
+              "MIDDLE",
+              "BOTTOM",
+              "UTILITY",
+              "UNKNOWN"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "personal",
+          "population"
+        ],
+        "type": "object"
+      },
+      "RoleBenchmarkPersonal": {
+        "additionalProperties": false,
+        "properties": {
+          "cs10": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "gold_diff_10": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "level10": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "RoleBenchmarkPopulation": {
+        "additionalProperties": false,
+        "properties": {
+          "cs10_median": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "gold_diff_10_median": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "level10_median": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sample": {
+            "minimum": 0.0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sample"
+        ],
+        "type": "object"
+      },
+      "RoleRow": {
+        "additionalProperties": false,
+        "properties": {
+          "games": {
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "role": {
+            "enum": [
+              "TOP",
+              "JUNGLE",
+              "MIDDLE",
+              "BOTTOM",
+              "UTILITY",
+              "UNKNOWN"
+            ],
+            "type": "string"
+          },
+          "wins": {
+            "minimum": 0.0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "role",
+          "games",
+          "wins"
+        ],
+        "type": "object"
+      },
+      "Settings": {
+        "additionalProperties": false,
+        "properties": {
+          "auto_sync": {
+            "type": "boolean"
+          },
+          "has_key": {
+            "type": "boolean"
+          },
+          "region_route": {
+            "enum": [
+              "sea",
+              "americas",
+              "europe",
+              "asia"
+            ],
+            "type": "string"
+          },
+          "riot_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "SettingsPatch": {
+        "additionalProperties": false,
+        "properties": {
+          "auto_sync": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "region_route": {
+            "anyOf": [
+              {
+                "enum": [
+                  "sea",
+                  "americas",
+                  "europe",
+                  "asia"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "riot_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "riot_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "SyncStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "current_match_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "downloaded": {
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "failed": {
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "mode": {
+            "enum": [
+              "era_first",
+              "import"
+            ],
+            "type": "string"
+          },
+          "skipped": {
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "enum": [
+              "idle",
+              "running",
+              "cancelled",
+              "error"
+            ],
+            "type": "string"
+          },
+          "total_queued": {
+            "minimum": 0.0,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "TableProvenance": {
+        "properties": {
+          "feature_contract_version": {
+            "const": "loltrends-parity-v1",
+            "type": "string"
+          },
+          "feature_store_manifest_sha256": {
+            "type": "string"
+          },
+          "generator_revision": {
+            "type": "string"
+          },
+          "source_document": {
+            "type": "string"
+          },
+          "source_section": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_document",
+          "source_section",
+          "feature_store_manifest_sha256",
+          "generator_revision",
+          "feature_contract_version"
+        ],
+        "type": "object"
+      },
+      "TierEntry": {
+        "properties": {
+          "champion": {
+            "type": "string"
+          },
+          "games": {
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "pick_rate": {
+            "type": "number"
+          },
+          "role": {
+            "enum": [
+              "TOP",
+              "JUNGLE",
+              "MIDDLE",
+              "BOTTOM",
+              "UTILITY",
+              "UNKNOWN"
+            ],
+            "type": "string"
+          },
+          "tier": {
+            "enum": [
+              "S",
+              "A",
+              "B",
+              "C"
+            ],
+            "type": "string"
+          },
+          "win_rate": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "champion",
+          "role",
+          "games",
+          "pick_rate",
+          "win_rate",
+          "tier"
+        ],
+        "type": "object"
+      },
+      "TrajectoryPoint": {
+        "additionalProperties": false,
+        "properties": {
+          "champion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "index": {
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "patch": {
+            "type": "string"
+          },
+          "played_at": {
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "TOP",
+              "JUNGLE",
+              "MIDDLE",
+              "BOTTOM",
+              "UTILITY",
+              "UNKNOWN"
+            ],
+            "type": "string"
+          },
+          "rolling_wr": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "patch",
+          "role",
+          "played_at",
+          "index",
+          "rolling_wr"
+        ],
+        "type": "object"
+      },
+      "TrapPick": {
+        "properties": {
+          "champion": {
+            "type": "string"
+          },
+          "win_rate": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "champion",
+          "win_rate"
+        ],
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "type": "object"
+          },
+          "input": {},
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array"
+          },
+          "msg": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  "paths": {
+    "/benchmarks": {
+      "GET": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BenchmarkResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "GET": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/history/summary": {
+      "GET": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistorySummary"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/live/ingame": {
+      "GET": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InGameSnapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/live/session": {
+      "GET": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChampSelectSnapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/live/status": {
+      "GET": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pack": {
+      "GET": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindingsPack"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/postgame/latest": {
+      "GET": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/PostGameDigest"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/progress/aggregates": {
+      "GET": {
+        "parameters": [
+          {
+            "in": "query",
+            "name": "patch",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "champion",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PatchAggregate"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/progress/trajectories": {
+      "GET": {
+        "parameters": [
+          {
+            "in": "query",
+            "name": "patch",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "champion",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TrajectoryPoint"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/settings": {
+      "GET": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settings"
+                }
+              }
+            }
+          }
+        }
+      },
+      "PUT": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settings"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sync/cancel": {
+      "POST": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sync/start": {
+      "POST": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sync/status": {
+      "GET": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
