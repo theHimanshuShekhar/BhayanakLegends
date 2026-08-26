@@ -7,7 +7,6 @@ frontend crashes, so response models reject unknown states and shapes.
 
 import math
 from math import isfinite
-import math
 from typing import Any, Literal
 
 from pydantic import (

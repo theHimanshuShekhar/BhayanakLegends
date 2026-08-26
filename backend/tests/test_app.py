@@ -102,6 +102,7 @@ def test_pack_endpoint_returns_bounded_503_for_missing_or_malformed_pack(
     config = SidecarConfig(
         port=23110,
         token=AUTH["X-BL-Token"],
+        data_dir=tmp_path / "data",
         pack_dir=pack_dir,
     )
     app = create_app(config, credential_store=InMemoryCredentialStore())
