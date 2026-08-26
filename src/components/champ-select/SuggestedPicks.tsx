@@ -1,7 +1,9 @@
 import type { AssignedRole, FindingsPack, TierEntry } from "../../api/types";
-import { initials, pct0, CS_ROLES } from "./shared";
+import { formatCount, formatInitials, formatRate, formatUnavailable } from "../format";
+import { SectionHead } from "../ui";
+import { CS_ROLES } from "./shared";
 
-function StatBlock({ value, label, teal }: { value: string; label: string; teal?: boolean }) {
+function StatBlock({ value, label }: { value: string; label: string }) {
   return (
     <div
       style={{
@@ -12,7 +14,8 @@ function StatBlock({ value, label, teal }: { value: string; label: string; teal?
         boxShadow: "inset 0 2px 6px rgba(0,0,0,.6)",
       }}
     >
-      <div className="mono-n" style={{ font: "700 17px var(--font-mono)", color: teal ? "var(--color-teal)" : undefined }}>
+      {/* Findings Pack population stat: blue, never teal. */}
+      <div className="mono-n" style={{ font: "700 17px var(--font-mono)", color: "var(--color-info)" }}>
         {value}
       </div>
       <div style={{ fontSize: 8.5, letterSpacing: ".1em", color: "var(--color-dimmer)" }}>{label}</div>
@@ -45,29 +48,30 @@ function HeroCard({ hero, role }: { hero: TierEntry; role: AssignedRole }) {
           display: "grid",
           placeItems: "center",
           font: "700 19px var(--font-mono)",
-          color: "#0e1020",
+          color: "var(--color-bg)",
           boxShadow: "0 5px 0 rgba(0,0,0,.5),0 18px 30px -10px rgba(145,132,217,.6)",
         }}
       >
-        {initials(hero.champion)}
+        {formatInitials(hero.champion)}
       </div>
       <div style={{ flex: 1 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span style={{ font: "700 20px var(--font-mono)", letterSpacing: "-.02em" }}>{hero.champion}</span>
-          <span className="pill" style={{ background: "var(--color-accent)", color: "#0e1020" }}>
+          <span className="pill" style={{ background: "var(--color-accent)", color: "var(--color-bg)" }}>
             Best pick
           </span>
-          <span className="pill" style={{ background: "var(--color-info-low)", color: "#cfe3f9" }}>
+          <span className="pill" style={{ background: "var(--color-info-low)", color: "var(--color-soft-blue)" }}>
             {hero.tier} tier · {role}
           </span>
         </div>
-        <p style={{ margin: "5px 0 0", fontSize: 11, lineHeight: 1.5, color: "#e0ddf5", maxWidth: 420 }}>
-          {hero.games.toLocaleString()} Findings Pack games at {pct0(hero.win_rate)} — population data, not your history.
+        <p style={{ margin: "5px 0 0", fontSize: 11, lineHeight: 1.5, color: "var(--color-soft-lavender)", maxWidth: 420 }}>
+          {formatCount(hero.games, "games")} from the Findings Pack at {formatRate(hero.win_rate)} — population data,
+          not your history.
         </p>
       </div>
       <div style={{ display: "flex", gap: 8 }}>
-        <StatBlock value={pct0(hero.win_rate)} label="VS FIELD" teal />
-        <StatBlock value={pct0(hero.pick_rate)} label="PICK RATE" />
+        <StatBlock value={formatRate(hero.win_rate)} label="VS FIELD" />
+        <StatBlock value={formatRate(hero.pick_rate)} label="PICK RATE" />
       </div>
     </div>
   );
@@ -90,32 +94,26 @@ function MiniCard({ entry, muted }: { entry: TierEntry; muted: boolean }) {
             display: "grid",
             placeItems: "center",
             font: "700 10px var(--font-mono)",
-            color: "#cfd3e5",
+            color: "var(--color-soft-text)",
             boxShadow: "var(--shadow-z1)",
           }}
         >
-          {initials(entry.champion)}
+          {formatInitials(entry.champion)}
         </div>
         <div>
           <div style={{ font: "600 13px var(--font-mono)" }}>{entry.champion}</div>
           <div style={{ fontSize: 9, color: "var(--color-dimmer)" }}>
-            {entry.games} games · {entry.tier}
+            {formatCount(entry.games, "games")} · {entry.tier}
           </div>
         </div>
       </div>
+      {/* Both pills are Findings Pack population data: blue, regardless of framing. */}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        <span
-          className="pill"
-          style={
-            entry.win_rate >= 0.5
-              ? { background: "var(--color-teal-low)", color: "var(--color-teal)" }
-              : { background: "var(--color-danger-low)", color: "#f4c3ce" }
-          }
-        >
-          {pct0(entry.win_rate)} field
+        <span className="pill" style={{ background: "var(--color-info-low)", color: "var(--color-info)" }}>
+          {formatRate(entry.win_rate)} field
         </span>
-        <span className="pill" style={{ background: "var(--color-surface-3)", color: "var(--color-dim)" }}>
-          {pct0(entry.pick_rate)} pick rate
+        <span className="pill" style={{ background: "var(--color-surface-3)", color: "var(--color-info)" }}>
+          {formatRate(entry.pick_rate)} pick rate
         </span>
       </div>
       <p style={{ margin: 0, fontSize: 10, lineHeight: 1.5, color: "var(--color-dim)" }}>
@@ -146,33 +144,35 @@ export function SuggestedPicks({
   const muted = minis.length ? minis[minis.length - 1].champion : null;
   const patch = pack?.dataset.patches[pack.dataset.patches.length - 1];
   const unavailable = !validRole
-    ? "Assigned role unavailable — Findings Pack suggestions are withheld."
+    ? formatUnavailable("assigned role unavailable; suggestions are withheld")
     : !pack
-      ? `Findings Pack unavailable for ${validRole} — suggestions are withheld.`
+      ? formatUnavailable(`Findings Pack unavailable for ${validRole}; suggestions are withheld`)
       : sorted.length === 0
-        ? `No Findings Pack rows for ${validRole} yet.`
+        ? formatUnavailable(`Findings Pack has no rows for ${validRole}`)
         : null;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }} data-testid="card-suggested-picks">
-      <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-        <span style={{ width: 6, height: 6, borderRadius: 999, background: "#7a8098" }} />
-        <span style={{ font: "700 11px var(--font-mono)", letterSpacing: ".12em", color: "var(--color-dim)" }}>
-          SUGGESTED PICKS
-        </span>
-        {validRole && (
-          <span
-            className="pill"
-            data-testid="suggested-role"
-            style={{ background: "var(--color-accent-low)", color: "var(--color-accent)" }}
-          >
-            {validRole}
-          </span>
-        )}
-        <span className="mono-n" style={{ marginLeft: "auto", fontSize: 10, color: "var(--color-dimmer)" }}>
-          {patch ? `patch ${patch}` : "pack pending"}
-        </span>
-      </div>
+      <SectionHead
+        label="SUGGESTED PICKS"
+        color="var(--color-dimmer)"
+        right={
+          <>
+            {validRole && (
+              <span
+                className="pill"
+                data-testid="suggested-role"
+                style={{ background: "var(--color-accent-low)", color: "var(--color-accent)" }}
+              >
+                {validRole}
+              </span>
+            )}
+            <span className="mono-n" style={{ fontSize: 10, color: "var(--color-dimmer)" }}>
+              {patch ? `patch ${patch}` : formatUnavailable("Findings Pack patch")}
+            </span>
+          </>
+        }
+      />
       <p
         data-testid="honesty-caption"
         style={{ margin: "-6px 0 0", fontSize: 10, lineHeight: 1.5, color: "var(--color-dimmer)" }}

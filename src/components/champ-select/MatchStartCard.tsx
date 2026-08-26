@@ -1,4 +1,5 @@
 import type { ChampSelectSessionView } from "./shared";
+import { Dot, SectionHead } from "../ui";
 
 export function MatchStartCard({ session }: { session: ChampSelectSessionView }) {
   const { active, localChampion: pick, assignedRole: role, locked } = session;
@@ -9,7 +10,7 @@ export function MatchStartCard({ session }: { session: ChampSelectSessionView })
       : role
         ? `${role} assigned — choose a pick in the client`
         : active
-          ? "Assigned role pending — choose a pick in the client"
+          ? "The League client has not reported an assigned role — choose a pick in the client"
           : "Waiting for a live session";
 
   return (
@@ -18,19 +19,10 @@ export function MatchStartCard({ session }: { session: ChampSelectSessionView })
       data-testid="cs-match-start"
       style={{ padding: 12, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 8 }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span
-          style={{
-            width: 6,
-            height: 6,
-            borderRadius: 999,
-            background: locked ? "var(--color-teal)" : active ? "var(--color-amber)" : "#3f4459",
-          }}
-        />
-        <span style={{ font: "700 9.5px var(--font-mono)", letterSpacing: ".11em", color: "var(--color-dim)" }}>
-          AT MATCH START
-        </span>
-      </div>
+      <SectionHead
+        label="AT MATCH START"
+        color={locked ? "var(--color-teal)" : active ? "var(--color-amber)" : "var(--color-dimmer)"}
+      />
       <div
         data-testid="cs-session-status"
         style={{
@@ -43,21 +35,15 @@ export function MatchStartCard({ session }: { session: ChampSelectSessionView })
           boxShadow: "var(--shadow-z1)",
         }}
       >
-        <span
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: 999,
-            background: locked ? "var(--color-teal)" : active ? "var(--color-amber)" : "#3f4459",
-            boxShadow: locked ? "0 0 8px var(--color-teal)" : "none",
-            flex: "none",
-          }}
+        <Dot
+          color={locked ? "var(--color-teal)" : active ? "var(--color-amber)" : "var(--color-dimmer)"}
+          glow={locked}
         />
         <div style={{ fontSize: 10, lineHeight: 1.4, color: "var(--color-dim)" }}>
-          <b style={{ color: "#cfd3e5" }}>{status}.</b>{" "}
+          <b style={{ color: "var(--color-soft-text)" }}>{status}.</b>{" "}
           {locked
             ? "Suggestions and lock prompts are complete for this local cell."
-            : "The companion mirrors the League client; completion remains pending until the lock evidence arrives."}
+            : "Lock evidence has not been received from the League client."}
         </div>
       </div>
       <div
@@ -71,7 +57,7 @@ export function MatchStartCard({ session }: { session: ChampSelectSessionView })
           boxShadow: "var(--shadow-z1)",
         }}
       >
-        <span style={{ width: 8, height: 8, borderRadius: 999, background: "#3f4459", flex: "none" }} />
+        <Dot color="var(--color-dimmer)" />
         <div style={{ fontSize: 10, lineHeight: 1.4, color: "var(--color-dim)" }}>
           Bans lock, roles finalize and the loading screen starts the moment the last pick locks.
         </div>

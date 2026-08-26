@@ -1,6 +1,6 @@
 import type { ChampSelectSessionView } from "./shared";
 import { STATE_CAPTION } from "./BanStrip";
-import { initials } from "./shared";
+import { formatInitials } from "../format";
 
 // Teammate champions come from the single route-derived live session view.
 // Enemy rosters are champion-level only by policy — see BanStrip.
@@ -34,7 +34,7 @@ export function YourSideCard({ session }: { session: ChampSelectSessionView }) {
                 flex: "none",
               }}
             >
-              {initials(cell.champion ?? "choosing…")}
+              {formatInitials(cell.champion ?? "choosing…")}
             </div>
             <div style={{ flex: 1, fontSize: 10, minWidth: 0 }}>
               {cell.champion ?? "choosing…"}
@@ -47,7 +47,7 @@ export function YourSideCard({ session }: { session: ChampSelectSessionView }) {
                   style={{
                     marginLeft: 6,
                     background: "var(--color-accent)",
-                    color: "#0e1020",
+                    color: "var(--color-bg)",
                     fontSize: 7.5,
                     padding: "1px 5px",
                   }}

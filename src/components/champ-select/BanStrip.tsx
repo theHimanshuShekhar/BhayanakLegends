@@ -4,7 +4,7 @@ import type {
   ChampSelectEnemyCell,
   ChampSelectSnapshot,
 } from "../../api/types";
-import { initials } from "./shared";
+import { formatInitials } from "../format";
 
 const ALLY_TILE_BG = "linear-gradient(150deg,#454a66,#22263a)";
 const ENEMY_TILE_BG = "linear-gradient(150deg,#5a3644,#2b1a22)";
@@ -64,7 +64,7 @@ function BanTile({
   side: "ally" | "enemy";
 }) {
   if (!ban || !ban.champion_id) return <SlashTile plain={side === "enemy"} />;
-  const label = ban.champion ? initials(ban.champion) : "?";
+  const label = ban.champion ? formatInitials(ban.champion) : "?";
   return (
     <div
       title={ban.champion ?? `Champion ${ban.champion_id}`}
@@ -78,7 +78,7 @@ function BanTile({
         display: "grid",
         placeItems: "center",
         font: "700 10px var(--font-mono)",
-        color: "#e9e9ed",
+        color: "var(--color-text)",
         boxShadow: "inset 0 2px 5px rgba(0,0,0,.55)",
       }}
     >
@@ -103,7 +103,7 @@ function RosterTile({
   enemyPicked: boolean;
 }) {
   const known = championName != null && championName !== "";
-  const label = known && championName !== "choosing…" ? initials(championName) : "?";
+  const label = known && championName !== "choosing…" ? formatInitials(championName) : "?";
   return (
     <div
       style={{
@@ -152,7 +152,7 @@ function AllySlot({ cell }: { cell: ChampSelectAllyCell }) {
       {cell.is_local && (
         <span
           className="pill"
-          style={{ marginLeft: "auto", flex: "none", background: "var(--color-accent)", color: "#0e1020", fontSize: 8 }}
+          style={{ marginLeft: "auto", flex: "none", background: "var(--color-accent)", color: "var(--color-bg)", fontSize: 8 }}
         >
           YOU
         </span>
@@ -289,7 +289,7 @@ function IdleBanner({ lastError }: { lastError: string | null }) {
             boxShadow: "var(--shadow-z1)",
           }}
         >
-          waiting for client
+          Waiting for client
         </div>
       </div>
       {lastError && (
@@ -356,8 +356,8 @@ export function BanStrip({
           data-testid="cs-timer-pill"
           style={
             timerUrgent
-              ? { background: "var(--color-amber)", color: "#0e1020", whiteSpace: "nowrap" }
-              : { background: "var(--color-accent)", color: "#0e1020", whiteSpace: "nowrap" }
+              ? { background: "var(--color-amber)", color: "var(--color-bg)", whiteSpace: "nowrap" }
+              : { background: "var(--color-accent)", color: "var(--color-bg)", whiteSpace: "nowrap" }
           }
         >
           {snapshot.phase ?? "champ select"} · {timerLabel}

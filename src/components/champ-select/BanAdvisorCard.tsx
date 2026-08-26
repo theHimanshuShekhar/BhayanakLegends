@@ -1,5 +1,6 @@
 import type { BanAdvice, FindingsPack } from "../../api/types";
-import { initials, pct1 } from "./shared";
+import { formatInitials, formatRate, formatUnavailable } from "../format";
+import { SectionHead } from "../ui";
 
 function Row({ advice }: { advice: BanAdvice }) {
   const featured = advice.recommendation === "real-threat";
@@ -38,16 +39,17 @@ function Row({ advice }: { advice: BanAdvice }) {
           color: "#e5a8b8",
         }}
       >
-        {initials(advice.champion)}
+        {formatInitials(advice.champion)}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ font: "600 11.5px var(--font-mono)" }}>{advice.champion}</div>
-        <div style={{ fontSize: 9, color: "var(--color-dimmer)" }}>
-          {pct1(advice.win_rate)} WR at {pct1(advice.ban_rate)} ban rate
+        {/* Findings Pack population rates render in the population blue. */}
+        <div style={{ fontSize: 9, color: "var(--color-info)" }}>
+          {formatRate(advice.win_rate)} WR at {formatRate(advice.ban_rate)} ban rate
         </div>
       </div>
       {featured ? (
-        <span className="pill" style={{ background: "var(--color-info-low)", color: "#cfe3f9" }}>
+        <span className="pill" style={{ background: "var(--color-info-low)", color: "var(--color-soft-blue)" }}>
           Recommend ban
         </span>
       ) : advice.recommendation === "fear-ban" ? (
@@ -79,16 +81,11 @@ export function BanAdvisorCard({ pack }: { pack: FindingsPack | undefined }) {
 
   return (
     <div className="card3" data-testid="card-ban-advisor" style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ width: 6, height: 6, borderRadius: 999, background: "var(--color-info)" }} />
-        <span style={{ font: "700 9.5px var(--font-mono)", letterSpacing: ".11em", color: "var(--color-dim)" }}>
-          BAN ADVISOR · FINDINGS PACK
-        </span>
-      </div>
+      <SectionHead label="BAN ADVISOR · FINDINGS PACK" color="var(--color-info)" />
 
       {rows.length === 0 ? (
         <p style={{ margin: 0, fontSize: 10, color: "var(--color-dim)" }}>
-          Ban advisor arrives with the next Findings Pack.
+          {formatUnavailable("Findings Pack ban advisor has no rows")}
         </p>
       ) : (
         rows.map((r) => <Row key={r.champion} advice={r} />)
@@ -111,14 +108,15 @@ export function BanAdvisorCard({ pack }: { pack: FindingsPack | undefined }) {
         >
           Trap picks this patch — priority far outstrips winrate:{" "}
           <b style={{ color: "var(--color-dim)" }}>
-            {traps[0].champion} {pct1(traps[0].win_rate)}
+            {traps[0].champion} <span style={{ color: "var(--color-info)" }}>{formatRate(traps[0].win_rate)}</span>
           </b>
           {traps.slice(1).map((t) => (
             <span key={t.champion}>
               {" · "}
-              {t.champion} {pct1(t.win_rate)}
+              {t.champion} <span style={{ color: "var(--color-info)" }}>{formatRate(t.win_rate)}</span>
             </span>
-          ))}.
+          ))}
+          .
         </div>
       )}
     </div>
