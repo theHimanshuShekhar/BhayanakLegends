@@ -667,19 +667,22 @@ impl SidecarProcessAdapter for ProductionSidecarAdapter {
                 .env("BHAYANAK_TOKEN", token);
             command
         } else {
-            // The bundled sidecar sits next to the installed executable and is
-            // spawned directly: tauri_plugin_shell's Windows sidecar spawn does
-            // not deliver custom environment variables, which stranded the
-            // sidecar without its BHAYANAK_TOKEN.
+            // The bundled sidecar sits next to the installed executable. Keep
+            // its launch on std::process::Command so the token handoff is owned
+            // in one place and can be verified independently of plugin-shell.
             let exe =
                 std::env::current_exe().map_err(|e| format!("sidecar spawn failed: {e}"))?;
             let install_dir = exe
                 .parent()
                 .ok_or_else(|| "sidecar spawn failed: no install directory".to_string())?;
-            let mut command = Command::new(
-                install_dir
-                    .join(format!("bhayanak-legends-sidecar{}", std::env::consts::EXE_SUFFIX)),
+            let sidecar_path = install_dir
+                .join(format!("bhayanak-legends-sidecar{}", std::env::consts::EXE_SUFFIX));
+            eprintln!(
+                "packaged sidecar direct spawn: executable={}, token_length={}",
+                sidecar_path.display(),
+                token.len()
             );
+            let mut command = Command::new(sidecar_path);
             command.env("BHAYANAK_TOKEN", token);
             command
         };

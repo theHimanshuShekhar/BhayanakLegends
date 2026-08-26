@@ -222,6 +222,50 @@ try {
 
   $appNameForDiagnostics = [System.IO.Path]::GetFileNameWithoutExtension($appPath)
 
+  # Verify the exact sidecar copy laid down by NSIS before the app owns it.
+  # Earlier probes exercise the build output; this closes the bundle/install
+  # boundary and separates a transformed/wrong installed binary from the app's
+  # process-spawn context.
+  $installedSidecar = Get-ChildItem -Path $InstallRoot -Filter "bhayanak-legends-sidecar*.exe" -Recurse |
+    Select-Object -First 1
+  if (-not $installedSidecar) { throw "installed sidecar executable was not found under $InstallRoot" }
+  $builtSidecar = Get-Item "src-tauri/binaries/bhayanak-legends-sidecar-x86_64-pc-windows-msvc.exe"
+  $installedSidecarHash = (Get-FileHash $installedSidecar.FullName -Algorithm SHA256).Hash
+  $builtSidecarHash = (Get-FileHash $builtSidecar.FullName -Algorithm SHA256).Hash
+  Write-Output "installed sidecar: $($installedSidecar.FullName) size=$($installedSidecar.Length) sha256=$installedSidecarHash"
+  Write-Output "built sidecar: $($builtSidecar.FullName) size=$($builtSidecar.Length) sha256=$builtSidecarHash"
+
+  $installedProbeStdout = Join-Path $env:SMOKE_DIAGNOSTICS "installed-sidecar-probe-stdout.log"
+  $installedProbeStderr = Join-Path $env:SMOKE_DIAGNOSTICS "installed-sidecar-probe-stderr.log"
+  $env:BHAYANAK_TOKEN = "installed-sidecar-probe-" + ([guid]::NewGuid().ToString("N"))
+  $installedProbe = Start-Process -FilePath $installedSidecar.FullName -PassThru `
+    -RedirectStandardOutput $installedProbeStdout -RedirectStandardError $installedProbeStderr
+  $installedProbeDeadline = (Get-Date).AddSeconds(12)
+  do {
+    Start-Sleep -Milliseconds 250
+    $installedProbe.Refresh()
+    $installedReady = (Test-Path $installedProbeStdout) -and
+      (Select-String -Path $installedProbeStdout -Pattern '"type":\s*"ready"' -Quiet -ErrorAction SilentlyContinue)
+  } while (-not $installedReady -and -not $installedProbe.HasExited -and (Get-Date) -lt $installedProbeDeadline)
+  foreach ($log in @($installedProbeStdout, $installedProbeStderr)) {
+    Write-Output "--- $log ---"
+    if ((Test-Path $log) -and (Get-Item $log).Length -gt 0) {
+      Get-Content $log | ForEach-Object { Write-Output $_ }
+    } else {
+      Write-Output "(empty or absent)"
+    }
+  }
+  $state.installed_sidecar_probe = [ordered]@{
+    ready = [bool]$installedReady
+    installed_sha256 = $installedSidecarHash
+    built_sha256 = $builtSidecarHash
+    hashes_match = ($installedSidecarHash -eq $builtSidecarHash)
+  }
+  Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -like "bhayanak-legends-sidecar*" } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+  $env:BHAYANAK_TOKEN = $null
+
   # --- Baseline launch: prove whether the packaged app starts at all under a
   # clean environment (no WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS yet), before
   # any debug instrumentation is applied. This splits "the packaged app is
