@@ -66,11 +66,18 @@ export function ProgressPage() {
                 {actionableErrorMessage(benchmarks.error)}
               </div>
             )}
-            {benchmarks.data && benchmarks.data.length > 0 && <BenchmarkCards rows={benchmarks.data} />}
-            {benchmarks.data && benchmarks.data.length === 0 && !benchmarks.isError && (
-              <div data-testid="benchmarks-empty" style={{ fontSize: 10.5, color: "var(--color-dimmer)" }}>
-                Benchmarks arrive once Backfill fills Personal History for a role.
-              </div>
+            {benchmarks.data?.state === "available" && <BenchmarkCards rows={benchmarks.data.rows} />}
+            {benchmarks.data?.state === "contract-suppressed" && (
+              <p data-testid="benchmarks-contract-suppressed" style={{ fontSize: 10.5, lineHeight: 1.5, color: "var(--color-dimmer)" }}>
+                No Benchmarks: this Findings Pack does not declare a population feature compatible
+                with the Personal History extractors.
+              </p>
+            )}
+            {benchmarks.data?.state === "insufficient-personal-history" && (
+              <p data-testid="benchmarks-insufficient" style={{ fontSize: 10.5, lineHeight: 1.5, color: "var(--color-dimmer)" }}>
+                No Benchmarks yet: Backfill has not produced a matching Personal History checkpoint
+                for a compatible role.
+              </p>
             )}
           </section>
 
