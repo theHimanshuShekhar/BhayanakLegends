@@ -556,3 +556,87 @@ async def test_recoverable_item_requeues_while_valid_item_completes(tmp_path: Pa
     assert service.status()["downloaded"] == 1
     assert service.status()["failed"] == 1
     assert service.status()["state"] == "error"
+
+
+async def test_cancel_before_enqueue_and_each_storage_mutation(tmp_path: Path):
+    store = Store(tmp_path / "queue.db")
+    service = SyncService(store, Hub(), lambda: {})
+    service._begin_run("import")
+
+    calls = {"enqueue": 0}
+    original_enqueue = store.enqueue
+
+    def counting_enqueue(match_ids, **kwargs):
+        calls["enqueue"] += 1
+        return original_enqueue(match_ids, **kwargs)
+
+    store.enqueue = counting_enqueue
+    service.cancel()
+
+    # A cancelled run must not claim, enqueue, or mutate storage further.
+    await service._process(lambda _match_id: _never(), "puuid-x")
+    assert calls["enqueue"] == 0
+    assert service.status()["current_match_id"] is None
+
+
+async def _never():
+    raise AssertionError("fetch must not run after cancellation")
+
+
+async def test_cancelled_inflight_match_resumes_after_restart_without_partial_commit(tmp_path: Path):
+    store = Store(tmp_path / "queue.db")
+    detail = json.loads((Path(__file__).parent / "fixtures" / "SG2_170114893.json").read_text())
+    timeline = json.loads(
+        (Path(__file__).parent / "fixtures" / "SG2_170114893_timeline.json").read_text()
+    )
+    match_id = str(detail["metadata"]["matchId"])
+    store.enqueue([match_id])
+
+    service = SyncService(store, Hub(), lambda: {})
+    service.attach_loop(asyncio.get_running_loop())
+    terminal_queue = service.hub.subscribe()
+
+    async def fetch(_match_id: str):
+        service.cancel()  # cancellation lands while the fetch is in flight
+        return detail, timeline
+
+    await service._process(fetch, str(detail["metadata"]["participants"][0]))
+
+    row = queue_row(store, match_id)
+    assert row["state"] == "pending"
+    # Cancellation restores the claim without a failure bump, and nothing
+    # resets attempts across restart.
+    assert row["attempts"] == 0
+    assert store.match_count() == 0
+    assert service.status()["current_match_id"] is None
+    # Let the loop flush the cross-thread terminal publication.
+    await asyncio.sleep(0.05)
+    drained = []
+    while not terminal_queue.empty():
+        drained.append(json.loads(terminal_queue.get_nowait())["type"])
+    assert drained.count("sync.done") == 1
+
+    # A fresh session on the same file-backed database completes the item.
+    service2 = SyncService(store, Hub(), lambda: {})
+
+    async def fetch_ok(_match_id: str):
+        return detail, timeline
+
+    await service2._process(fetch_ok, str(detail["metadata"]["participants"][0]))
+    assert queue_row(store, match_id)["state"] == "done"
+    assert store.match_count() == 1
+
+
+async def test_sync_done_is_exactly_once_and_survives_full_subscriber_queue():
+    hub = Hub()
+    queue = hub.subscribe()
+    total = queue.maxsize + 8
+    for index in range(total):
+        await hub.publish("sync.progress", {"downloaded": index})
+    await hub.publish("sync.done", {"state": "idle"})
+
+    frames = []
+    while not queue.empty():
+        frames.append(json.loads(queue.get_nowait())["type"])
+    assert frames[-1] == "sync.done"
+    assert frames.count("sync.done") == 1

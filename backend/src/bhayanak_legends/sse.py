@@ -29,4 +29,35 @@ class Hub:
             try:
                 q.put_nowait(envelope)
             except asyncio.QueueFull:
-                pass
+                if type_ != "sync.done":
+                    # Progress is coalescible under pressure; /sync/status is
+                    # the reconnect baseline, so dropping it is safe.
+                    continue
+                self._force_terminal(q, envelope)
+
+    def _force_terminal(self, q: asyncio.Queue, envelope: str) -> None:
+        """Make room for a terminal frame by evicting superseded progress.
+
+        Buffered ``sync.done`` frames are preserved: every subscriber active at
+        publication receives exactly one terminal frame per run, never zero.
+        """
+        kept_done_frames: list[str] = []
+        superseded_progress: list[str] = []
+        while True:
+            try:
+                old = q.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            if '"type": "sync.done"' in old:
+                kept_done_frames.append(old)
+            else:
+                superseded_progress.append(old)
+        # Re-queue every terminal frame, then the newest progress that fits,
+        # leaving exactly one slot for the terminal envelope being delivered.
+        for old in kept_done_frames:
+            q.put_nowait(old)
+        capacity_left = q.maxsize - len(kept_done_frames) - 1
+        for old in superseded_progress[-max(0, capacity_left):]:
+            q.put_nowait(old)
+        q.put_nowait(envelope)
+

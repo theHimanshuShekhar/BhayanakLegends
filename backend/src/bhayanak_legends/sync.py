@@ -48,6 +48,10 @@ except ImportError:  # pragma: no cover - optional dep guard
 
 log = logging.getLogger("bhayanak_legends.sync")
 
+
+class _Cancelled(Exception):
+    """Internal: cancellation observed between an await and its mutations."""
+
 BACKFILL_TOTAL = 1000
 
 
@@ -73,6 +77,8 @@ class SyncService:
         self._import_roots = tuple(Path(root) for root in import_roots)
         self._client_factory = client_factory or self._default_client_factory
         self._cancel = threading.Event()
+        self._run_generation = 0
+        self._finalized_generation = -1
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
         self._start_lock = threading.Lock()
@@ -125,11 +131,10 @@ class SyncService:
                     pass
             settings = self._get_settings()
             if not settings.get("riot_key"):
-                with self._lock:
-                    self._status.update(state="error", mode="era_first", started_at=None)
-                self._publish("sync.done")
+                generation = self._begin_run("era_first")
+                self._finalize_run(generation, "error")
                 return self.status()
-            self._begin_run("era_first")
+            generation = self._begin_run("era_first")
             self.store.reset_running_items()
             self._thread = threading.Thread(
                 target=self._run_riot, args=(settings,), name="bl-sync", daemon=True
@@ -157,6 +162,8 @@ class SyncService:
         fetch_state_path = canonical_dir / "fetch_state.json"
         state = json.loads(fetch_state_path.read_text(encoding="utf-8"))
         puuid = str(state["puuid"])
+        if self._cancel.is_set():
+            return self.status()
         self.store.set_setting("sync_mode", "import")
         self.store.set_setting("import_dir", str(canonical_dir))
         self.store.set_setting("puuid", puuid)
@@ -167,20 +174,30 @@ class SyncService:
             if not p.name.endswith("_timeline.json") and p.name != "fetch_state.json"
         ]
         self.store.reset_running_items()
-        self._begin_run("import")
+        generation = self._begin_run("import")
         added = 0
-        for priority, path in enumerate(detail_paths):
-            added += self.store.enqueue([path.stem], priority=priority)
-        with self._lock:
-            self._status["total_queued"] = added
-        log.info("import queued %d matches from %s", added, canonical_dir)
-        asyncio.run(self._process(self._file_fetcher(canonical_dir), puuid))
+        try:
+            for priority, path in enumerate(detail_paths):
+                if self._cancel.is_set():
+                    raise _Cancelled()
+                added += self.store.enqueue([path.stem], priority=priority)
+            with self._lock:
+                self._status["total_queued"] = added
+            log.info("import queued %d matches from %s", added, canonical_dir)
+            asyncio.run(self._process(self._file_fetcher(canonical_dir), puuid))
+        except _Cancelled:
+            log.warning("import cancelled mid-enqueue; enqueued rows remain resumable")
+            self._finalize_run(generation, "cancelled")
         return self.status()
 
     # -- internals ------------------------------------------------------
 
-    def _begin_run(self, mode: str) -> None:
+    def _begin_run(self, mode: str) -> int:
+        with self._lock:
+            self._run_generation += 1
+            generation = self._run_generation
         self._cancel.clear()
+        self._finalized_generation = generation - 1
         with self._lock:
             self._status.update(
                 state="running",
@@ -197,15 +214,29 @@ class SyncService:
                 self._loop = asyncio.get_running_loop()
             except RuntimeError:
                 pass
+        return generation
+
+    def _finalize_run(self, generation: int, state: str) -> None:
+        """Single idempotent run exit: one status, one terminal event."""
+        with self._lock:
+            if generation <= self._finalized_generation:
+                return
+            self._finalized_generation = generation
+            self._status.update(state=state, current_match_id=None)
+        self._publish("sync.done")
 
     def _run_riot(self, settings: dict[str, Any]) -> None:
+        generation = self._run_generation
         try:
             asyncio.run(self._riot_flow(settings))
+        except _Cancelled:
+            log.warning("backfill cancelled; uncommitted work restored to pending")
+            self._finalize_run(generation, "cancelled")
         except Exception:
             log.exception("era-first backfill crashed")
-            with self._lock:
-                self._status.update(state="error", current_match_id=None)
-            self._publish("sync.done")
+            self._finalize_run(generation, "error")
+        else:
+            self._finalize_run(generation, "idle")
 
     async def _riot_flow(self, settings: dict[str, Any]) -> None:
         region_route = str(settings.get("region_route") or "sea")
@@ -216,16 +247,24 @@ class SyncService:
             cached_identity = self.store.get_setting("puuid_identity")
             cached_region = self.store.get_setting("puuid_region")
             if puuid and (cached_identity != riot_id or cached_region != region_route):
+                if self._cancel.is_set():
+                    raise _Cancelled()
                 self.store.delete_raw_setting("puuid")
                 puuid = None
             if not puuid:
                 account = await client.account_by_riot_id(riot_id)
+                if self._cancel.is_set():
+                    raise _Cancelled()
                 puuid = str(account["puuid"])
                 self.store.set_setting("puuid", puuid)
                 self.store.set_setting("puuid_identity", riot_id)
                 self.store.set_setting("puuid_region", region_route)
             ids = await client.match_ids(str(puuid), BACKFILL_TOTAL)
+            if self._cancel.is_set():
+                raise _Cancelled()
             for priority, match_id in enumerate(ids):
+                if self._cancel.is_set():
+                    raise _Cancelled()
                 self.store.enqueue([match_id], priority=priority)
             with self._lock:
                 self._status["total_queued"] = self.store.queue_stats()["pending"]
@@ -253,6 +292,12 @@ class SyncService:
                 self._status["current_match_id"] = match_id
             try:
                 detail, timeline = await fetch_pair(match_id)
+                if self._cancel.is_set():
+                    # Cancelled during the fetch: undo nothing, commit nothing.
+                    # The claim returns to pending with its attempt count kept,
+                    # so a later session can finish it.
+                    self.store.recover_queue_item(match_id, bump_attempts=False)
+                    break
                 parsed = parse_match(detail, puuid)
                 checkpoints = parse_checkpoints(timeline, puuid)
                 completed = self.store.complete_match(
@@ -288,12 +333,10 @@ class SyncService:
                 with self._lock:
                     self._status["current_match_id"] = None
             self._publish("sync.progress")
-        with self._lock:
-            state = "cancelled" if self._cancel.is_set() else "idle"
-            if recoverable_failure and state != "cancelled":
-                state = "error"
-            self._status.update(state=state, current_match_id=None)
-        self._publish("sync.done")
+        state = "cancelled" if self._cancel.is_set() else "idle"
+        if recoverable_failure and state != "cancelled":
+            state = "error"
+        self._finalize_run(self._run_generation, state)
 
     def _http_fetcher(self, client: Any) -> Callable[[str], Awaitable[tuple[Any, Any]]]:
         async def fetch(match_id: str) -> tuple[Any, Any]:
