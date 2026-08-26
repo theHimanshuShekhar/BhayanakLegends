@@ -8,7 +8,6 @@ import { useLiveIngame } from "../api/hooks";
 import {
   ActivePlayerCard,
   CheatSheetCard,
-  clockLabel,
   EventFeedCard,
   ItemsByPlayerCard,
   ObjectivesCard,
@@ -17,6 +16,7 @@ import {
   TeamVsTeamCard,
   WinProbabilityCard,
 } from "../components/live-match";
+import { formatClock } from "../components/format";
 import { PageHeader } from "../components/Layout";
 
 function GameClockSource({ active, serverClock }: { active: boolean; serverClock: number }) {
@@ -37,7 +37,7 @@ function GameClockDisplay() {
         boxShadow: "var(--shadow-z1)",
       }}
     >
-      {clockLabel(clockS)}
+      {formatClock(clockS)}
     </div>
   );
 }

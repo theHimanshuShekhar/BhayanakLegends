@@ -1,5 +1,5 @@
 import type { PostGameDigest } from "../../api/types";
-import { fmtDuration, initials } from "./format";
+import { formatDuration, formatInitials } from "../format";
 
 /**
  * Verdict header tile: teal gradient for a win, red for a loss, dim chrome
@@ -48,7 +48,7 @@ export function VerdictHeader({ digest }: { digest: PostGameDigest | null }) {
           color: idle ? "var(--color-dimmer)" : "#0e1020",
         }}
       >
-        {digest ? initials(digest.champion) : "—"}
+        {formatInitials(digest?.champion, "champion unavailable")}
       </div>
       <div>
         <h2
@@ -71,7 +71,7 @@ export function VerdictHeader({ digest }: { digest: PostGameDigest | null }) {
         </h3>
         <div className="mono-n" data-testid="verdict-sub" style={{ fontSize: 10, color: subColor }}>
           {digest
-            ? `${digest.champion} · ${digest.role} · ${fmtDuration(digest.duration_s)}`
+            ? `${digest.champion} · ${digest.role} · ${formatDuration(digest.duration_s)}`
             : "play a game with the app running, or Backfill from History"}
         </div>
       </div>

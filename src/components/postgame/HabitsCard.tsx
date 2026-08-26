@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import type { HabitOutcome, PostGameDigest } from "../../api/types";
-import { PanelHeading, Subheading } from "./bits";
+import { SectionHead, Unavailable } from "../ui";
 
 const VERDICT_PILL: Record<HabitOutcome["verdict"], CSSProperties> = {
   good: { background: "var(--color-teal-low)", color: "var(--color-teal)" },
@@ -30,11 +30,9 @@ export function HabitsCard({ digest }: { digest: PostGameDigest | null }) {
             : "linear-gradient(165deg,#2d1c28,var(--color-surface-2) 65%)",
       }}
     >
-      <PanelHeading color={win && !idle ? "var(--color-teal)" : "var(--color-info)"}>
-        <span id="postgame-habits-heading">Game habits</span>
-      </PanelHeading>
+      <SectionHead color={win && !idle ? "var(--color-teal)" : "var(--color-info)"} label={<span id="postgame-habits-heading">Game habits</span>} />
       <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-        <Subheading>Habit verdicts</Subheading>
+        <SectionHead level={3} dot={false} label="Habit verdicts" />
         <span className="mono-n" style={{ marginLeft: "auto", fontSize: 10, color: "var(--color-dimmer)" }}>
           verdicts from this game
         </span>
@@ -52,7 +50,7 @@ export function HabitsCard({ digest }: { digest: PostGameDigest | null }) {
             fontSize: 10.5,
           }}
         >
-          habit verdicts land with the first analyzed game
+          Waiting for the first analyzed game.
         </div>
       ) : unavailable ? (
         <div
@@ -69,8 +67,7 @@ export function HabitsCard({ digest }: { digest: PostGameDigest | null }) {
             textAlign: "center",
           }}
         >
-          No habit outcomes available for this game — verdicts arrive as tracked habits ship in the
-          pack.
+          <Unavailable reason="no habit outcomes reported for this game" />
         </div>
       ) : (
         <ul
@@ -103,7 +100,7 @@ export function HabitsCard({ digest }: { digest: PostGameDigest | null }) {
           ))}
         </ul>
       )}
-      <Subheading>Digest headline</Subheading>
+      <SectionHead level={3} dot={false} label="Digest headline" />
       <div
         style={{
           marginTop: "auto",

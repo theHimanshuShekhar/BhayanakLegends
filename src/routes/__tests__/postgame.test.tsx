@@ -5,7 +5,7 @@ import { PostGamePage } from "../postgame";
 import { api } from "../../api/client";
 import { makePack } from "./fixtures";
 import { matchComebackBucket } from "../../components/postgame/ComebackOddsCard";
-import { pct } from "../../components/ui";
+import { formatRate } from "../../components/format";
 
 vi.mock("../../api/client", () => ({
   eventsUrl: vi.fn(
@@ -86,9 +86,9 @@ describe("PostGamePage — digest rendered into the design", () => {
   it("shows signed checkpoint gold with red/green reads", async () => {
     renderPage();
 
-    expect(await screen.findByText("+450")).toBeInTheDocument();
-    expect(screen.getByTestId("checkpoint-15")).toHaveTextContent("-1,200");
-    expect(screen.getByTestId("checkpoint-20")).toHaveTextContent("—");
+    expect(await screen.findByText("+450g")).toBeInTheDocument();
+    expect(screen.getByTestId("checkpoint-15")).toHaveTextContent("-1,200g");
+    expect(screen.getByTestId("checkpoint-20")).toHaveTextContent("Unavailable: gold checkpoint not reported");
     expect(screen.getByTestId("checkpoint-source")).toHaveTextContent("Diagnostic");
   });
 
@@ -107,7 +107,7 @@ describe("PostGamePage — digest rendered into the design", () => {
     renderPage();
 
     expect(await screen.findByTestId("habit-unavailable")).toHaveTextContent(
-      "No habit outcomes available",
+      "Unavailable: no habit outcomes reported for this game",
     );
     expect(screen.queryByTestId("habit-outcomes")).not.toBeInTheDocument();
   });
@@ -116,9 +116,9 @@ describe("PostGamePage — digest rendered into the design", () => {
     renderPage();
 
     expect(await screen.findByText("denial 95.4%")).toBeInTheDocument();
-    expect(screen.getByTestId("read-baron")).toHaveTextContent("+29.5pp lift");
+    expect(screen.getByTestId("read-baron")).toHaveTextContent("+29.5 pp lift");
     // gold@15 -1,200 is milder than the 2,000g anchor → outside the contracted domain.
-    expect(await screen.findByTestId("comeback-value")).toHaveTextContent("—");
+    expect(await screen.findByTestId("comeback-value")).toHaveTextContent("Unavailable: no supported population bucket");
     expect(screen.getByTestId("comeback-note")).toHaveTextContent(
       "outside the Findings Pack's supported population domain",
     );
@@ -147,7 +147,7 @@ describe("comeback bucket contract", () => {
     const result = reasonFor(gold15);
     expect(result.reason).toBeNull();
     if (result.match === null) throw new Error("expected a bucket match");
-    expect(pct(result.match.winRate)).toBe(rate);
+    expect(formatRate(result.match.winRate)).toBe(rate);
     expect(result.match.rangeLabel).toBe(range);
   });
 
@@ -202,8 +202,7 @@ describe("comeback bucket contract — page level", () => {
     renderPage();
 
     const card = await screen.findByTestId("surrender-read");
-    expect(within(card).getAllByText("—").length).toBeGreaterThan(0);
-    expect(card).toHaveTextContent(/surrender advisor ships with the next Findings Pack/);
+    expect(within(card).getAllByText(/Unavailable: surrender advisor unavailable/)).toHaveLength(2);
     expect(card).toHaveTextContent(/survivorship bias/);
   });
 });

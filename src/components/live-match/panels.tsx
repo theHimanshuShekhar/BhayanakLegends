@@ -1,5 +1,6 @@
 import type { InGameSnapshot, PlayerLive } from "../../api/types";
-import { clockLabel, CardHead, Dot } from "./bits";
+import { formatClock, formatCount, formatItemQuantity } from "../format";
+import { SectionHead } from "../ui";
 
 export function ActivePlayerCard({ player }: { player: PlayerLive | null }) {
   return (
@@ -107,10 +108,7 @@ export function ActivePlayerCard({ player }: { player: PlayerLive | null }) {
 export function CheatSheetCard() {
   return (
     <section className="card3" aria-labelledby="cheat-sheet-heading" style={{ padding: "10px 12px", display: "flex", alignItems: "center", gap: 9 }}>
-      <Dot color="var(--color-info)" />
-      <h2 id="cheat-sheet-heading" style={{ margin: 0, font: "700 9.5px var(--font-mono)", letterSpacing: ".11em", color: "var(--color-dim)" }}>
-        ROLE CHEAT-SHEET
-      </h2>
+      <SectionHead color="var(--color-info)" label={<span id="cheat-sheet-heading">ROLE CHEAT-SHEET</span>} />
       <div style={{ fontSize: 10, lineHeight: 1.4, color: "#cfd3e5" }}>
         <b style={{ color: "#e9e9ed" }}>Role cheat-sheet:</b> the per-role lever list (lane gold,
         plates, show timing) is pulled from the Findings Pack once the live bridge names your role.
@@ -160,7 +158,7 @@ export function TeamVsTeamCard({ snapshot }: { snapshot: InGameSnapshot | undefi
       data-testid="team-totals"
       style={{ padding: 12, display: "flex", flexDirection: "column", gap: 9 }}
     >
-      <CardHead color={active ? "var(--color-teal)" : "var(--color-dimmer)"} label="TEAM VS TEAM" />
+      <SectionHead color={active ? "var(--color-teal)" : "var(--color-dimmer)"} label="TEAM VS TEAM" />
       {active && teams.some((team) => team.players.length > 0) ? (
         <div className="live-table-scroll" aria-label="Team totals table">
           <table aria-label="Team totals" style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
@@ -211,12 +209,12 @@ export function EventFeedCard({ snapshot }: { snapshot: InGameSnapshot | undefin
       data-testid="event-feed"
       style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}
     >
-      <CardHead
+      <SectionHead
         color={active ? "var(--color-teal)" : "var(--color-dimmer)"}
         label="EVENT FEED"
         right={
           <span className="mono-n" style={{ fontSize: 9, color: "var(--color-dimmer)" }}>
-            {active ? `${events.length} events` : "No snapshot"}
+            {active ? formatCount(events.length, "events") : "No snapshot"}
           </span>
         }
       />
@@ -240,7 +238,7 @@ export function EventFeedCard({ snapshot }: { snapshot: InGameSnapshot | undefin
               }}
             >
               <span className="mono-n" style={{ fontSize: 9, color: "var(--color-dimmer)", flex: "none" }}>
-                {clockLabel(event.t_s)}
+                {formatClock(event.t_s)}
               </span>
               <span
                 className="mono-n"
@@ -302,7 +300,7 @@ export function ItemsByPlayerCard({ snapshot }: { snapshot: InGameSnapshot | und
       data-testid="items-by-player"
       style={{ padding: 12, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 7 }}
     >
-      <CardHead color={active ? "var(--color-teal)" : "var(--color-dimmer)"} label="ITEMS BY PLAYER" />
+      <SectionHead color={active ? "var(--color-teal)" : "var(--color-dimmer)"} label="ITEMS BY PLAYER" />
       {active && teams.some((team) => team.players.length > 0) ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
           {teams.map(({ key, label, players }) => (
@@ -317,7 +315,7 @@ export function ItemsByPlayerCard({ snapshot }: { snapshot: InGameSnapshot | und
                         {player.items.map((item, index) => (
                           <li key={`${item.id}-${index}`} data-testid={`item-${key}-${player.summoner}-${index}`} style={{ color: "var(--color-text)" }}>
                             <span>Item {item.id}</span>{" "}
-                            <span className="mono-n" style={{ color: "var(--color-dim)" }}>count {item.count}</span>
+                            <span className="mono-n" style={{ color: "var(--color-dim)" }}>{formatItemQuantity(item.count)}</span>
                           </li>
                         ))}
                       </ul>

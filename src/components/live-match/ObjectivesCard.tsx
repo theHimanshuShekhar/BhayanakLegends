@@ -1,6 +1,6 @@
 import type { FindingsPack } from "../../api/types";
-import { pct } from "../ui";
-import { CardHead, pp } from "./bits";
+import { formatPercentagePoints, formatRate } from "../format";
+import { SectionHead } from "../ui";
 
 export function ObjectivesCard({ pack }: { pack: FindingsPack | undefined }) {
   const o = pack?.objectives;
@@ -10,7 +10,7 @@ export function ObjectivesCard({ pack }: { pack: FindingsPack | undefined }) {
       data-testid="objectives-computed"
       style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}
     >
-      <CardHead color="#7a8098" label="OBJECTIVES · COMPUTED" />
+      <SectionHead color="var(--color-info)" label="OBJECTIVES · COMPUTED" />
       <div
         data-testid="objective-dragon"
         style={{
@@ -42,8 +42,8 @@ export function ObjectivesCard({ pack }: { pack: FindingsPack | undefined }) {
           </span>
         </div>
         <div style={{ textAlign: "right" }}>
-          <div className="mono-n" style={{ font: "700 15px var(--font-mono)", color: "var(--color-teal)" }}>
-            {pct(o?.dragon_denial_win_rate)}
+          <div className="mono-n" style={{ font: "700 15px var(--font-mono)", color: "var(--color-soft-blue)" }}>
+            {formatRate(o?.dragon_denial_win_rate, "Findings Pack objective rate unavailable")}
           </div>
           <div style={{ fontSize: 7.5, letterSpacing: ".06em", color: "var(--color-dimmer)" }}>DENIAL WR</div>
         </div>
@@ -79,8 +79,8 @@ export function ObjectivesCard({ pack }: { pack: FindingsPack | undefined }) {
           </span>
         </div>
         <div style={{ textAlign: "right" }}>
-          <div className="mono-n" style={{ font: "700 14px var(--font-mono)", color: "var(--color-dim)" }}>
-            {pct(o?.baron_pre25_win_rate)}
+          <div className="mono-n" style={{ font: "700 14px var(--font-mono)", color: "var(--color-soft-blue)" }}>
+            {formatRate(o?.baron_pre25_win_rate, "Findings Pack objective rate unavailable")}
           </div>
           <div style={{ fontSize: 7.5, letterSpacing: ".06em", color: "var(--color-dimmer)" }}>PRE-25 WR</div>
         </div>
@@ -89,8 +89,8 @@ export function ObjectivesCard({ pack }: { pack: FindingsPack | undefined }) {
         data-testid="objectives-caption"
         style={{ margin: 0, fontSize: 9, lineHeight: 1.45, color: "var(--color-dimmer)" }}
       >
-        First dragon before 20 wins {pct(o?.first_dragon_pre20_win_rate)} of games; Baron from behind
-        lifts win rate {pp(o?.baron_comeback_lift_pp)}.
+        First dragon before 20 wins {formatRate(o?.first_dragon_pre20_win_rate, "Findings Pack objective rate unavailable")} of games; Baron from behind
+        lifts win rate {formatPercentagePoints(o?.baron_comeback_lift_pp, "Findings Pack comeback lift unavailable")}.
       </p>
     </section>
   );

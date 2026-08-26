@@ -1,5 +1,6 @@
 import type { FindingsPack } from "../../api/types";
-import { clockLabel, Dot } from "./bits";
+import { formatClock, formatUnavailable } from "../format";
+import { SectionHead } from "../ui";
 
 /**
  * The shipped Findings Pack does not contain the complete live probability
@@ -25,29 +26,19 @@ export function WinProbabilityCard({
       data-testid="wp-band"
       style={{ padding: 14, display: "flex", flexDirection: "column" }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-        <Dot color="var(--color-info)" />
-        <span
-          style={{
-            font: "700 10px var(--font-mono)",
-            letterSpacing: ".12em",
-            color: "var(--color-dim)",
-          }}
-        >
-          WIN PROBABILITY · FINDINGS PACK{packVersion ? ` ${packVersion}` : ""}
-        </span>
-        <span
-          className="mono-n"
-          data-testid="wp-value"
-          style={{
-            marginLeft: "auto",
-            font: "700 20px var(--font-mono)",
-            color: signal,
-          }}
-        >
-          —
-        </span>
-      </div>
+      <SectionHead
+        color="var(--color-info)"
+        label={`WIN PROBABILITY · FINDINGS PACK${packVersion ? ` ${packVersion}` : ""}`}
+        right={
+          <span
+            className="mono-n"
+            data-testid="wp-value"
+            style={{ font: "700 20px var(--font-mono)", color: signal }}
+          >
+            {formatUnavailable("compatible live inputs unavailable")}
+          </span>
+        }
+      />
       <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 5 }}>
         <span
           className="pill"
@@ -90,7 +81,7 @@ export function WinProbabilityCard({
       >
         <span className="mono-n">0:00</span>
         <span>live inputs unavailable</span>
-        <span className="mono-n">{clockLabel(clockS)}</span>
+        <span className="mono-n">{formatClock(clockS)}</span>
       </div>
       <p style={{ margin: "8px 0 0", fontSize: 9.5, lineHeight: 1.5, color: "var(--color-dimmer)" }}>
         The current Findings Pack lacks the compatible live input, quartile boundaries, and model inputs needed to
