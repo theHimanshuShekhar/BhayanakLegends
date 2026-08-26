@@ -46,3 +46,8 @@ export function formatInitials(value: string | null | undefined, unavailableReas
   const letters = value.replace(/[^\p{L}\p{N}]/gu, "");
   return letters ? letters.slice(0, 2).toUpperCase() : formatUnavailable(unavailableReason);
 }
+
+/** Exact Findings Pack unit: multiplier effect for one standard-deviation feature change. */
+export function formatEffectPerSd(value: number | null | undefined, unavailableReason = "effect per SD unavailable"): string {
+  return value == null ? formatUnavailable(unavailableReason) : `×${value.toFixed(2)} effect per SD`;
+}

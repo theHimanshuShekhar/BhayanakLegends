@@ -3,6 +3,7 @@ import {
   formatClock,
   formatCount,
   formatDuration,
+  formatEffectPerSd,
   formatGold,
   formatInitials,
   formatItemQuantity,
@@ -52,5 +53,24 @@ describe("canonical presentation formatters", () => {
     expect(formatUnavailable("live input is not reported")).toBe("Unavailable: live input is not reported");
     expect(formatRate(null, "rate is not reported")).toBe("Unavailable: rate is not reported");
     expect(formatGold(undefined, "gold checkpoint is missing")).toBe("Unavailable: gold checkpoint is missing");
+  });
+
+  it("formats effect_per_sd as a multiplier without rate or pp interpretation", () => {
+    expect(formatEffectPerSd(2.24)).toBe("×2.24 effect per SD");
+    expect(formatEffectPerSd(1.08)).toBe("×1.08 effect per SD");
+    expect(formatEffectPerSd(0.83)).toBe("×0.83 effect per SD");
+  });
+
+  it("formats zero and sub-unit multipliers exactly, never as percentages", () => {
+    expect(formatEffectPerSd(0)).toBe("×0.00 effect per SD");
+    expect(formatEffectPerSd(0.08)).toBe("×0.08 effect per SD");
+    expect(formatEffectPerSd(0.08)).not.toMatch(/%|pp|WR/);
+  });
+
+  it("reports a missing habit multiplier through the unavailable seam", () => {
+    expect(formatEffectPerSd(null)).toBe("Unavailable: effect per SD unavailable");
+    expect(formatEffectPerSd(undefined, "habit multiplier is missing")).toBe(
+      "Unavailable: habit multiplier is missing",
+    );
   });
 });
