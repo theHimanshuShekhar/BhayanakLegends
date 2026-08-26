@@ -9,12 +9,12 @@ permissions:
 
 env:
   CI: true
-  # Fixed loopback port for the updater fixture. It must be known before the
-  # fixture process starts so the signed builds below can be patched to trust
-  # it; the fixture is started later, once the real artifacts it serves exist.
-  # Kept outside 20000-30000, the WebView2 remote-debugging port's random
-  # range below, so the two loopback listeners can never collide.
+  # Both loopback ports must be known before compilation: the updater fixture
+  # is baked into plugin config and WebView2 remote debugging is baked into the
+  # smoke window's additionalBrowserArgs. Each Actions job has its own VM, so
+  # fixed ports are deterministic without cross-run collision.
   SMOKE_FIXTURE_PORT: 41287
+  SMOKE_DEBUG_PORT: 24987
 
 jobs:
   packaged-smoke:
@@ -231,6 +231,7 @@ jobs:
           python tools/patch_updater_endpoint.py src-tauri/tauri.conf.json `
             --endpoint "http://127.0.0.1:$env:SMOKE_FIXTURE_PORT/latest.json" `
             --pubkey "$env:SMOKE_UPDATER_PUBKEY" `
+            --browser-args="--remote-debugging-port=$env:SMOKE_DEBUG_PORT" `
             --backup "$env:RUNNER_TEMP\tauri.conf.json.smoke-backup"
 
       - name: Build the signed higher-version updater artifacts
@@ -374,11 +375,10 @@ jobs:
           $installer = Get-ChildItem "src-tauri/target/release/bundle/nsis/*_$($env:SMOKE_BASE_VERSION)_*-setup.exe" | Select-Object -First 1
           if (-not $installer) { throw "lower-version NSIS installer was not produced" }
           New-Item -ItemType Directory -Force -Path $env:SMOKE_DIAGNOSTICS | Out-Null
-          $debugPort = Get-Random -Minimum 20000 -Maximum 30000
           pwsh -File tools/windows_packaged_smoke.ps1 `
             -InstallerPath $installer.FullName `
             -InstallRoot "$env:RUNNER_TEMP\bl-packaged-install" `
-            -DebugPort $debugPort `
+            -DebugPort $env:SMOKE_DEBUG_PORT `
             -StatePath "$env:SMOKE_DIAGNOSTICS\smoke-state.json" `
             -FlipFile "$env:SMOKE_FLIP_FILE" `
             -HigherVersion "$env:SMOKE_HIGHER_VERSION" `

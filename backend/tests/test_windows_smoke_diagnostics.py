@@ -13,6 +13,8 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+BROWSER_ARGS = "--remote-debugging-port=24987"
+
 
 
 def load_module(name: str, relative_path: str):
@@ -225,6 +227,7 @@ def make_production_config(path: Path) -> None:
         json.dumps(
             {
                 "version": "0.1.0",
+                "app": {"windows": [{"label": "main"}]},
                 "plugins": {
                     "updater": {
                         "endpoints": ["https://github.example/releases/latest/download/latest.json"],
@@ -250,6 +253,7 @@ def test_apply_patch_replaces_endpoint_pubkey_and_enables_insecure_transport(pat
         backup=backup,
         endpoint="http://127.0.0.1:24987/latest.json",
         pubkey="ephemeral-job-local-pubkey",
+        browser_args=BROWSER_ARGS,
     )
 
     patched = json.loads(config.read_text(encoding="utf-8"))
@@ -257,6 +261,7 @@ def test_apply_patch_replaces_endpoint_pubkey_and_enables_insecure_transport(pat
     assert updater["endpoints"] == ["http://127.0.0.1:24987/latest.json"]
     assert updater["pubkey"] == "ephemeral-job-local-pubkey"
     assert updater["dangerousInsecureTransportProtocol"] is True
+    assert patched["app"]["windows"][0]["additionalBrowserArgs"] == BROWSER_ARGS
     assert backup.read_bytes() == original_bytes
 
 
@@ -267,7 +272,11 @@ def test_restore_reverts_to_byte_identical_production_config(patcher, tmp_path):
     original_bytes = config.read_bytes()
 
     patcher.apply_patch(
-        config, backup=backup, endpoint="http://127.0.0.1:1/latest.json", pubkey="ephemeral"
+        config,
+        backup=backup,
+        endpoint="http://127.0.0.1:1/latest.json",
+        pubkey="ephemeral",
+        browser_args=BROWSER_ARGS,
     )
     assert config.read_bytes() != original_bytes
 
@@ -292,6 +301,7 @@ def test_apply_patch_refuses_non_loopback_endpoint(patcher, tmp_path):
             backup=tmp_path / "backup",
             endpoint="http://evil.example/latest.json",
             pubkey="ephemeral",
+            browser_args=BROWSER_ARGS,
         )
 
 
@@ -300,7 +310,11 @@ def test_apply_patch_refuses_empty_pubkey(patcher, tmp_path):
     make_production_config(config)
     with pytest.raises(SystemExit, match="public key"):
         patcher.apply_patch(
-            config, backup=tmp_path / "backup", endpoint="http://127.0.0.1:1/latest.json", pubkey="   "
+            config,
+            backup=tmp_path / "backup",
+            endpoint="http://127.0.0.1:1/latest.json",
+            pubkey="   ",
+            browser_args=BROWSER_ARGS,
         )
 
 
@@ -311,7 +325,11 @@ def test_apply_patch_refuses_to_overwrite_existing_backup(patcher, tmp_path):
     backup.write_text("pre-existing", encoding="utf-8")
     with pytest.raises(SystemExit, match="refusing to overwrite existing backup"):
         patcher.apply_patch(
-            config, backup=backup, endpoint="http://127.0.0.1:1/latest.json", pubkey="ephemeral"
+            config,
+            backup=backup,
+            endpoint="http://127.0.0.1:1/latest.json",
+            pubkey="ephemeral",
+            browser_args=BROWSER_ARGS,
         )
     assert backup.read_text(encoding="utf-8") == "pre-existing"
 
@@ -324,7 +342,11 @@ def test_apply_patch_refuses_config_with_no_production_pubkey_to_protect(patcher
     )
     with pytest.raises(SystemExit, match="production pubkey"):
         patcher.apply_patch(
-            config, backup=tmp_path / "backup", endpoint="http://127.0.0.1:1/latest.json", pubkey="ephemeral"
+            config,
+            backup=tmp_path / "backup",
+            endpoint="http://127.0.0.1:1/latest.json",
+            pubkey="ephemeral",
+            browser_args=BROWSER_ARGS,
         )
 
 
@@ -355,6 +377,7 @@ def test_main_patch_then_restore_round_trips_via_cli(patcher, tmp_path):
         "http://127.0.0.1:24987/latest.json",
         "--pubkey",
         "ephemeral-pubkey",
+        f"--browser-args={BROWSER_ARGS}",
         "--backup",
         str(backup),
     ]

@@ -276,7 +276,6 @@ try {
   $env:BHAYANAK_TOKEN = $null
 
 
-  $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$DebugPort"
 
   $app1StdoutLog = Join-Path $env:SMOKE_DIAGNOSTICS "app1-stdout.log"
   $app1StderrLog = Join-Path $env:SMOKE_DIAGNOSTICS "app1-stderr.log"
@@ -384,6 +383,4 @@ try {
   $state.errors += $_.Exception.Message
   Save-State
   throw
-} finally {
-  Remove-Item Env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS -ErrorAction SilentlyContinue
 }
