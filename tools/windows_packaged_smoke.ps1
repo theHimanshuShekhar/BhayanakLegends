@@ -92,6 +92,54 @@ function Close-App([System.Diagnostics.Process]$App, [array]$BaselineSidecars) {
   }
 }
 
+function Invoke-WebviewAssertions {
+  param(
+    [Parameter(Mandatory = $true)][System.Diagnostics.Process]$App,
+    [Parameter(Mandatory = $true)][string]$Phase,
+    [Parameter(Mandatory = $true)][string]$DebugPort,
+    [string]$ExpectedVersion,
+    [int]$AppExitGraceSeconds = 0
+  )
+  # Runs the webview assertions as a live child process so its stdout/stderr
+  # stream straight into the step log, while polling the packaged app every
+  # 250ms. An app that exits while assertions are still running is fatal
+  # immediately (crash before the WebView2 host came up) — except in the
+  # update-available phase, where the app legitimately self-exits during the
+  # install handoff; there node gets a short grace window to conclude on its
+  # own (it notices the CDP port going dark and exits 0) before this is
+  # treated as a crash.
+  $nodeArgs = @("tools/windows_packaged_smoke.mjs", "--phase", $Phase, "--debug-port", $DebugPort)
+  if ($ExpectedVersion) { $nodeArgs += @("--expected-version", $ExpectedVersion) }
+  $node = Start-Process -FilePath "node" -ArgumentList $nodeArgs -NoNewWindow -PassThru
+  $appExitAt = $null
+  try {
+    while ($true) {
+      $node.Refresh()
+      if ($node.HasExited) { break }
+      $App.Refresh()
+      if ($App.HasExited) {
+        $App.Refresh()
+        if ($AppExitGraceSeconds -le 0) {
+          throw "packaged app exited while webview assertions were running (phase '$Phase', app exit code $($App.ExitCode))"
+        }
+        if (-not $appExitAt) {
+          $appExitAt = Get-Date
+        } elseif (((Get-Date) - $appExitAt).TotalSeconds -gt $AppExitGraceSeconds) {
+          throw "packaged app exited and node did not conclude within ${AppExitGraceSeconds}s (phase '$Phase', app exit code $($App.ExitCode))"
+        }
+      }
+      Start-Sleep -Milliseconds 250
+    }
+  } finally {
+    # The node child must never outlive this block on any path.
+    $node.Refresh()
+    if (-not $node.HasExited) { Stop-Process -Id $node.Id -Force -ErrorAction SilentlyContinue }
+  }
+  if ($node.ExitCode -ne 0) {
+    throw "webview assertion failed during phase '$Phase' (node exit code $($node.ExitCode))"
+  }
+}
+
 try {
   New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null
   $baseline = @(Get-Sidecars)
@@ -112,8 +160,9 @@ try {
   # --- Phase 1: the lower-version app discovers and installs the real signed higher-version update.
   $app1 = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru
   try {
-    & node tools/windows_packaged_smoke.mjs --phase update-available --debug-port $DebugPort --expected-version $HigherVersion
-    if ($LASTEXITCODE -ne 0) { throw "webview assertion failed while installing the valid signed update" }
+    # The app may legitimately self-exit mid-phase during install handoff;
+    # give node a short grace window to notice the port going dark first.
+    Invoke-WebviewAssertions -App $app1 -Phase "update-available" -DebugPort $DebugPort -ExpectedVersion $HigherVersion -AppExitGraceSeconds 15
     $state.phases += [ordered]@{ name = "update-available"; result = "passed" }
   } catch {
     $state.phases += [ordered]@{ name = "update-available"; result = "failed"; error = $_.Exception.Message }
@@ -154,8 +203,7 @@ try {
   # --- Phase 2: the relaunched app must be the higher version with a healthy, reconnected sidecar.
   $app2 = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru
   try {
-    & node tools/windows_packaged_smoke.mjs --phase updated --debug-port $DebugPort
-    if ($LASTEXITCODE -ne 0) { throw "webview assertion failed verifying the relaunched update" }
+    Invoke-WebviewAssertions -App $app2 -Phase "updated" -DebugPort $DebugPort
     $state.phases += [ordered]@{ name = "updated"; result = "passed" }
   } catch {
     $state.phases += [ordered]@{ name = "updated"; result = "failed"; error = $_.Exception.Message }
@@ -178,8 +226,7 @@ try {
 
   $app3 = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru
   try {
-    & node tools/windows_packaged_smoke.mjs --phase invalid --debug-port $DebugPort --expected-version $RejectedVersion
-    if ($LASTEXITCODE -ne 0) { throw "webview assertion failed verifying mismatched-signature rejection" }
+    Invoke-WebviewAssertions -App $app3 -Phase "invalid" -DebugPort $DebugPort -ExpectedVersion $RejectedVersion
     $state.phases += [ordered]@{ name = "invalid"; result = "passed" }
   } catch {
     $state.phases += [ordered]@{ name = "invalid"; result = "failed"; error = $_.Exception.Message }
