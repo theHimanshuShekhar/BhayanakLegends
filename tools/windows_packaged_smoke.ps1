@@ -92,13 +92,43 @@ function Close-App([System.Diagnostics.Process]$App, [array]$BaselineSidecars) {
   }
 }
 
+function Show-AppLogs {
+  param(
+    [Parameter(Mandatory = $true)][System.Diagnostics.Process]$App,
+    [Parameter(Mandatory = $true)][string]$Context,
+    [string]$AppStdoutLog,
+    [string]$AppStderrLog
+  )
+  $App.Refresh()
+  if ($App.HasExited) {
+    Write-Output "packaged app state during ${Context}: exited (exit code $($App.ExitCode))"
+  } else {
+    Write-Output "packaged app state during ${Context}: still running"
+  }
+  foreach ($log in @($AppStdoutLog, $AppStderrLog)) {
+    if (-not $log) { continue }
+    if (Test-Path $log) {
+      Write-Output "--- $log (last 40 lines) ---"
+      if ((Get-Item $log).Length -gt 0) {
+        Get-Content -Path $log -Tail 40 | ForEach-Object { Write-Output $_ }
+      } else {
+        Write-Output "(empty)"
+      }
+    } else {
+      Write-Output "--- $log (absent) ---"
+    }
+  }
+}
+
 function Invoke-WebviewAssertions {
   param(
     [Parameter(Mandatory = $true)][System.Diagnostics.Process]$App,
     [Parameter(Mandatory = $true)][string]$Phase,
     [Parameter(Mandatory = $true)][string]$DebugPort,
     [string]$ExpectedVersion,
-    [int]$AppExitGraceSeconds = 0
+    [int]$AppExitGraceSeconds = 0,
+    [string]$AppStdoutLog,
+    [string]$AppStderrLog
   )
   # Runs the webview assertions as a live child process so its stdout/stderr
   # stream straight into the step log, while polling the packaged app every
@@ -119,6 +149,7 @@ function Invoke-WebviewAssertions {
       $App.Refresh()
       if ($App.HasExited) {
         $App.Refresh()
+        Show-AppLogs -App $App -Context "phase '$Phase'" -AppStdoutLog $AppStdoutLog -AppStderrLog $AppStderrLog
         if ($AppExitGraceSeconds -le 0) {
           throw "packaged app exited while webview assertions were running (phase '$Phase', app exit code $($App.ExitCode))"
         }
@@ -136,6 +167,7 @@ function Invoke-WebviewAssertions {
     if (-not $node.HasExited) { Stop-Process -Id $node.Id -Force -ErrorAction SilentlyContinue }
   }
   if ($node.ExitCode -ne 0) {
+    Show-AppLogs -App $App -Context "phase '$Phase' after node failure" -AppStdoutLog $AppStdoutLog -AppStderrLog $AppStderrLog
     throw "webview assertion failed during phase '$Phase' (node exit code $($node.ExitCode))"
   }
 }
@@ -158,11 +190,15 @@ try {
   $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$DebugPort"
 
   # --- Phase 1: the lower-version app discovers and installs the real signed higher-version update.
-  $app1 = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru
+  $app1StdoutLog = Join-Path $env:SMOKE_DIAGNOSTICS "app1-stdout.log"
+  $app1StderrLog = Join-Path $env:SMOKE_DIAGNOSTICS "app1-stderr.log"
+  $app1 = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru `
+    -RedirectStandardOutput $app1StdoutLog -RedirectStandardError $app1StderrLog
   try {
     # The app may legitimately self-exit mid-phase during install handoff;
     # give node a short grace window to notice the port going dark first.
-    Invoke-WebviewAssertions -App $app1 -Phase "update-available" -DebugPort $DebugPort -ExpectedVersion $HigherVersion -AppExitGraceSeconds 15
+    Invoke-WebviewAssertions -App $app1 -Phase "update-available" -DebugPort $DebugPort -ExpectedVersion $HigherVersion -AppExitGraceSeconds 15 `
+      -AppStdoutLog $app1StdoutLog -AppStderrLog $app1StderrLog
     $state.phases += [ordered]@{ name = "update-available"; result = "passed" }
   } catch {
     $state.phases += [ordered]@{ name = "update-available"; result = "failed"; error = $_.Exception.Message }
@@ -201,9 +237,13 @@ try {
   Start-Sleep -Seconds 1
 
   # --- Phase 2: the relaunched app must be the higher version with a healthy, reconnected sidecar.
-  $app2 = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru
+  $app2StdoutLog = Join-Path $env:SMOKE_DIAGNOSTICS "app2-stdout.log"
+  $app2StderrLog = Join-Path $env:SMOKE_DIAGNOSTICS "app2-stderr.log"
+  $app2 = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru `
+    -RedirectStandardOutput $app2StdoutLog -RedirectStandardError $app2StderrLog
   try {
-    Invoke-WebviewAssertions -App $app2 -Phase "updated" -DebugPort $DebugPort
+    Invoke-WebviewAssertions -App $app2 -Phase "updated" -DebugPort $DebugPort `
+      -AppStdoutLog $app2StdoutLog -AppStderrLog $app2StderrLog
     $state.phases += [ordered]@{ name = "updated"; result = "passed" }
   } catch {
     $state.phases += [ordered]@{ name = "updated"; result = "failed"; error = $_.Exception.Message }
@@ -224,9 +264,13 @@ try {
   # --- Phase 3: a real archive with a signature that does not match its bytes must be rejected.
   New-Item -ItemType File -Force -Path $FlipFile | Out-Null
 
-  $app3 = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru
+  $app3StdoutLog = Join-Path $env:SMOKE_DIAGNOSTICS "app3-stdout.log"
+  $app3StderrLog = Join-Path $env:SMOKE_DIAGNOSTICS "app3-stderr.log"
+  $app3 = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru `
+    -RedirectStandardOutput $app3StdoutLog -RedirectStandardError $app3StderrLog
   try {
-    Invoke-WebviewAssertions -App $app3 -Phase "invalid" -DebugPort $DebugPort -ExpectedVersion $RejectedVersion
+    Invoke-WebviewAssertions -App $app3 -Phase "invalid" -DebugPort $DebugPort -ExpectedVersion $RejectedVersion `
+      -AppStdoutLog $app3StdoutLog -AppStderrLog $app3StderrLog
     $state.phases += [ordered]@{ name = "invalid"; result = "passed" }
   } catch {
     $state.phases += [ordered]@{ name = "invalid"; result = "failed"; error = $_.Exception.Message }
