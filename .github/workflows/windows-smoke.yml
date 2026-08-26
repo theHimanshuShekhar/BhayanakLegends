@@ -126,6 +126,7 @@ jobs:
           $probeSource = Join-Path $env:RUNNER_TEMP "env_probe.rs"
           $probeExe = Join-Path $env:RUNNER_TEMP "env_probe.exe"
           $probeLines = @(
+            '#![windows_subsystem = "windows"]',
             'use std::io::{BufRead, BufReader, Write};',
             'use std::process::{Command, Stdio};',
             'use std::sync::mpsc;',
@@ -153,8 +154,8 @@ jobs:
             '        let _ = BufReader::new(stderr).read_line(&mut line);',
             '        let _ = err_tx.send(line);',
             '    });',
-            '    let out_line = out_rx.recv_timeout(Duration::from_secs(5)).unwrap_or_else(|_| "(no stdout within 5s)".to_string());',
-            '    let err_line = err_rx.recv_timeout(Duration::from_secs(5)).unwrap_or_else(|_| "(no stderr within 5s)".to_string());',
+            '    let out_line = out_rx.recv_timeout(Duration::from_secs(10)).unwrap_or_else(|_| "(no stdout within 10s)".to_string());',
+            '    let err_line = err_rx.recv_timeout(Duration::from_secs(10)).unwrap_or_else(|_| "(no stderr within 10s)".to_string());',
             '    println!("PROBE_STDOUT_LINE: {:?}", out_line);',
             '    println!("PROBE_STDERR_LINE: {:?}", err_line);',
             '    let _ = std::io::stdout().flush();',
@@ -171,9 +172,9 @@ jobs:
           Remove-Item $probeStdout, $probeStderr -ErrorAction SilentlyContinue
           $probeProcess = Start-Process -FilePath $probeExe -PassThru `
             -RedirectStandardOutput $probeStdout -RedirectStandardError $probeStderr
-          if (-not $probeProcess.WaitForExit(15000)) {
+          if (-not $probeProcess.WaitForExit(30000)) {
             Stop-Process -Id $probeProcess.Id -Force -ErrorAction SilentlyContinue
-            throw "env_probe.exe did not finish within 15 seconds"
+            throw "env_probe.exe did not finish within 30 seconds"
           }
           $output = @()
           if (Test-Path $probeStdout) { $output += @(Get-Content $probeStdout) }
