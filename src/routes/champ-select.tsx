@@ -1,9 +1,14 @@
 import { useEffect, useRef, useState } from "react";
+import type { ChampSelectSnapshot } from "../api/types";
 import { useQueryClient } from "@tanstack/react-query";
 import { actionableErrorMessage } from "../api/client";
 import { useEvents } from "../api/sse";
 import { useLiveSession, useLiveStatus, usePack } from "../api/hooks";
-import { pickHero } from "../components/champ-select/shared";
+import type {
+  ChampSelectAllyView,
+  ChampSelectSessionView,
+  FindingsPackState,
+} from "../components/champ-select/shared";
 import { BanStrip, championLabel } from "../components/champ-select/BanStrip";
 import { YourLaneCard } from "../components/champ-select/YourLaneCard";
 import { MasteryCard } from "../components/champ-select/MasteryCard";
@@ -44,6 +49,45 @@ function useCountdown(active: boolean, serverSeconds: number | null) {
 
   return display;
 }
+export function deriveChampSelectSessionView(
+  session: ChampSelectSnapshot | undefined,
+): ChampSelectSessionView {
+  const active = session?.active ?? false;
+  const allies: ChampSelectAllyView[] = active
+    ? (session?.ally ?? []).slice(0, 5).map((cell) => ({
+        cell_id: cell.cell_id,
+        champion: cell.champion_id > 0 ? championLabel(cell.champion, cell.champion_id) : null,
+        name: cell.name,
+        is_local: cell.is_local,
+        state: cell.state,
+      }))
+    : [];
+  const localCell = allies.find((cell) => cell.is_local) ?? null;
+  const knownAlliedPicks = allies.filter(
+    (cell) => cell.champion !== null && (cell.state === "picked" || cell.state === "locked"),
+  );
+
+  return {
+    active,
+    assignedRole: active ? (session?.local_assigned_role ?? null) : null,
+    allies,
+    localCell,
+    localChampion: localCell?.champion ?? null,
+    locked: localCell?.state === "locked",
+    knownAlliedPicks,
+    pickedCount: knownAlliedPicks.length,
+  };
+}
+
+function findingsPackState(query: {
+  data: unknown;
+  isLoading: boolean;
+  isError: boolean;
+}): FindingsPackState {
+  if (query.isLoading) return "loading";
+  if (query.isError) return "error";
+  return query.data ? "available" : "missing";
+}
 
 export function ChampSelectPage() {
   const queryClient = useQueryClient();
@@ -65,23 +109,17 @@ export function ChampSelectPage() {
 
   const session = sessionQuery.data;
   const status = statusQuery.data;
-  const active = !!session?.active;
+  const sessionView = deriveChampSelectSessionView(session);
+  const { active } = sessionView;
+  const packState = findingsPackState(packQuery);
   const timerSec = useCountdown(active, active ? (session?.timer_sec ?? null) : null);
   const timerKnown = active && session?.timer_sec != null;
   const timerLabel = timerKnown ? mmss(timerSec) : "--:--";
   const timerUrgent = timerKnown && timerSec <= TIMER_URGENT_S;
-  const localCell = session?.ally.find((cell) => cell.is_local);
-  const localRole = localCell ? session?.local_assigned_role ?? null : null;
-  const localLocked = localCell?.state === "locked";
-  const localChampion =
-    localCell && localCell.champion_id
-      ? championLabel(localCell.champion, localCell.champion_id)
-      : null;
-  const hero = pickHero(packQuery.data, localRole);
   const localTier =
-    localLocked && localChampion
+    sessionView.locked && sessionView.localChampion
       ? packQuery.data?.tier_list.find(
-          (entry) => entry.champion === localChampion && entry.role === localRole,
+          (entry) => entry.champion === sessionView.localChampion && entry.role === sessionView.assignedRole,
         )?.tier ?? null
       : null;
 
@@ -123,18 +161,18 @@ export function ChampSelectPage() {
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 11, minHeight: 0, minWidth: 0 }}>
           <YourLaneCard
-            champion={localChampion}
+            champion={sessionView.localChampion}
             tier={localTier}
-            role={localRole}
-            state={localCell?.state}
-            locked={localLocked}
+            role={sessionView.assignedRole}
+            state={sessionView.localCell?.state}
+            locked={sessionView.locked}
           />
-          <MasteryCard pack={packQuery.data} />
-          <HowToPlayCard />
+          <MasteryCard pack={packQuery.data} session={sessionView} packState={packState} />
+          <HowToPlayCard session={sessionView} packState={packState} />
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0, minWidth: 0 }}>
-          <SuggestedPicks pack={packQuery.data} role={localRole} locked={localLocked} />
+          <SuggestedPicks pack={packQuery.data} role={sessionView.assignedRole} locked={sessionView.locked} />
           <div
             className="champ-select-secondary"
             style={{
@@ -146,15 +184,15 @@ export function ChampSelectPage() {
               minWidth: 0,
             }}
           >
-            <CompReadCard />
-            <LoadoutCard />
+            <CompReadCard session={sessionView} />
+            <LoadoutCard session={sessionView} packState={packState} />
           </div>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0, minWidth: 0 }}>
           <BanAdvisorCard pack={packQuery.data} />
-          <YourSideCard session={session} />
-          <MatchStartCard active={active} pick={localChampion ?? hero?.champion} role={localRole} locked={localLocked} />
+          <YourSideCard session={sessionView} />
+          <MatchStartCard session={sessionView} />
         </div>
       </div>
     </div>

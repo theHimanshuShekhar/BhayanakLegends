@@ -94,15 +94,14 @@ describe("ChampSelectPage — idle", () => {
     renderPage();
 
     const loadout = await screen.findByTestId("card-loadout");
+    await screen.findByText(/no exact champion-specific loadout finding exists/i);
     expect(loadout).toHaveTextContent("LOADOUT · READ-ONLY");
-    expect(screen.getByTestId("cs-loadout-unavailable")).toHaveTextContent(
-      "no champion-specific loadout source",
-    );
     expect(loadout).toHaveTextContent("Unavailable");
     expect(loadout).not.toHaveTextContent("Electrocute");
     expect(loadout).not.toHaveTextContent("Flash / TP");
-    expect(screen.getByTestId("cs-apply-loadout")).toBeDisabled();
-    expect(screen.getByTestId("cs-apply-loadout")).not.toHaveAttribute("title");
+    expect(screen.queryByTestId("cs-apply-loadout")).toBeNull();
+    expect(loadout).not.toHaveTextContent("KEYSTONE");
+    expect(loadout).not.toHaveTextContent("SUMMS");
   });
 
   it("keeps the role-unavailable caption explicit", async () => {
@@ -206,6 +205,18 @@ describe("ChampSelectPage — active session", () => {
     expect(pill).toHaveTextContent("ChampSelect");
     expect(pill).toHaveTextContent("00:23"); // timer_sec ticks down between frames
   });
+  it("keeps session facts visible when the Findings Pack errors", async () => {
+    vi.mocked(api.pack).mockRejectedValue(new Error("pack unavailable"));
+    renderPage();
+
+    await screen.findByTestId("cs-ban-strip");
+    expect(screen.getByTestId("card-comp-read")).toHaveTextContent(/Lucian|Xayah/);
+    expect(screen.getByTestId("card-comp-read")).toHaveTextContent("2/5 picked");
+    expect(screen.getByTestId("cs-your-side")).toHaveTextContent("Xayah");
+    expect(screen.getByTestId("cs-session-status")).toHaveTextContent(/Xayah locked · TOP/i);
+    expect(screen.getByTestId("card-how-to-play")).toHaveTextContent(/Findings Pack could not be loaded/i);
+    expect(screen.getByTestId("card-loadout")).toHaveTextContent(/unavailable/i);
+  });
 
   it("renders enemy champion-level intel with the Champion {id} fallback for unmapped ids", async () => {
     renderPage();
@@ -237,6 +248,40 @@ describe("ChampSelectPage — active session", () => {
 
     expect(screen.getByTestId("your-lane-champion")).toHaveTextContent("Xayah");
   });
+  it("derives companion facts from the same live session view", async () => {
+    renderPage();
+
+    const comp = await screen.findByTestId("card-comp-read");
+    await screen.findByText("2/5 picked");
+    expect(comp).toHaveTextContent("Lucian");
+    expect(comp).toHaveTextContent("Xayah");
+    expect(comp).toHaveTextContent("2/5 picked");
+    expect(comp).not.toHaveTextContent(/damage mix|%/i);
+    expect(comp).not.toHaveTextContent(/Findings Pack|Personal History|advice/i);
+  });
+
+  it("labels mastery numbers as Findings Pack cohort data without personal claims", async () => {
+    renderPage();
+
+    const mastery = await screen.findByTestId("card-mastery");
+    await screen.findByText("50.6%");
+    expect(mastery).toHaveTextContent("Findings Pack cohort");
+    expect(mastery).toHaveTextContent("50.6%");
+    expect(mastery).toHaveTextContent("46.9%");
+    expect(mastery).not.toHaveTextContent(/your pool|your top 3/i);
+  });
+
+  it("shows locked champion context and unavailable guidance without controls", async () => {
+    renderPage();
+
+    await screen.findByTestId("cs-ban-strip");
+    expect(await screen.findByTestId("card-how-to-play")).toHaveTextContent(/Xayah/i);
+    expect(screen.getByTestId("card-how-to-play")).toHaveTextContent(/unavailable/i);
+    expect(screen.getByTestId("card-loadout")).toHaveTextContent(/Xayah/i);
+    expect(screen.getByTestId("card-loadout")).toHaveTextContent(/unavailable/i);
+    expect(screen.queryByTestId("cs-apply-loadout")).toBeNull();
+  });
+
   it("keeps picked-not-locked guidance and the lock prompt visible", async () => {
     liveState.session = {
       ...champSelectSession,
@@ -251,6 +296,7 @@ describe("ChampSelectPage — active session", () => {
     await screen.findByTestId("cs-ban-strip");
     expect(screen.getByTestId("your-lane-champion")).toHaveTextContent("Sett");
     expect(screen.getByTestId("card-suggested-picks")).toHaveTextContent(/pre-lock/i);
+    expect(screen.getByTestId("cs-your-side")).toHaveTextContent("2/5 PICKED");
     expect(screen.getByTestId("your-lane-tier")).toHaveTextContent(/not locked/i);
     expect(screen.getByTestId("cs-lock-button")).toBeInTheDocument();
     expect(screen.getByTestId("cs-session-status")).toHaveTextContent(/picked — not locked/i);
@@ -284,7 +330,6 @@ describe("ChampSelectPage — active session", () => {
         cell.is_local ? { ...cell, champion: "Sett", champion_id: 875, state: "locked" } : cell,
       ),
     };
-
     renderPage();
 
     await screen.findByTestId("cs-ban-strip");
@@ -292,6 +337,44 @@ describe("ChampSelectPage — active session", () => {
       expect(screen.getByTestId("your-lane-tier")).toHaveTextContent("FINDINGS PACK · TIER S"),
     );
     expect(screen.getByTestId("your-lane-champion")).toHaveTextContent("Sett");
+  });
+
+  it("keeps every session card aligned through role and lock transitions", async () => {
+    liveState.session = {
+      ...champSelectSession,
+      local_assigned_role: "TOP",
+      ally: champSelectSession.ally.map((cell) =>
+        cell.is_local ? { ...cell, champion: "Sett", champion_id: 875, state: "picked" } : cell,
+      ),
+    };
+
+    renderPage();
+    await screen.findByTestId("cs-lock-button");
+    await waitFor(() => expect(screen.getByTestId("card-comp-read")).toHaveTextContent("Sett"));
+    expect(screen.getByTestId("card-how-to-play")).toHaveTextContent("Sett");
+    expect(screen.getByTestId("card-loadout")).toHaveTextContent("Sett");
+
+    pushSse!({
+      type: "champselect.state",
+      ts: "transition",
+      data: {
+        ...liveState.session,
+        local_assigned_role: "MIDDLE",
+        ally: liveState.session.ally.map((cell) =>
+          cell.is_local ? { ...cell, champion: "Annie", champion_id: 1, state: "locked" } : cell,
+        ),
+      },
+    });
+
+    await waitFor(() => expect(screen.getByTestId("cs-session-status")).toHaveTextContent(/Annie locked · MIDDLE/i));
+    expect(screen.getByTestId("card-comp-read")).toHaveTextContent("Annie");
+    expect(screen.getByTestId("card-comp-read")).not.toHaveTextContent("Sett");
+    expect(screen.getByTestId("card-how-to-play")).toHaveTextContent("Annie");
+    expect(screen.getByTestId("card-how-to-play")).not.toHaveTextContent("Sett");
+    expect(screen.getByTestId("card-loadout")).toHaveTextContent("Annie");
+    expect(screen.getByTestId("card-loadout")).not.toHaveTextContent("Sett");
+    expect(screen.getByTestId("cs-your-side")).toHaveTextContent("Annie");
+    expect(screen.getByTestId("cs-your-side")).not.toHaveTextContent("Sett");
   });
 
   it("updates the visible controls when SSE supplies completed lock evidence", async () => {
@@ -322,8 +405,11 @@ describe("ChampSelectPage — active session", () => {
       expect(screen.queryByTestId("cs-lock-button")).toBeNull();
     });
     expect(screen.getByTestId("cs-session-status")).toHaveTextContent(/Sett locked · TOP/i);
-  });
+    expect(screen.getByTestId("card-comp-read")).toHaveTextContent("Sett");
+    expect(screen.getByTestId("card-how-to-play")).toHaveTextContent("Sett");
+    expect(screen.getByTestId("card-loadout")).toHaveTextContent("Sett");
 
+  });
   it("drops back to the idle banner when the session ends via SSE", async () => {
     renderPage();
     await screen.findByTestId("cs-ban-strip");

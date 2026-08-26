@@ -1,19 +1,17 @@
-import type { ChampSelectAllyCell, ChampSelectSnapshot } from "../../api/types";
-import { championLabel, STATE_CAPTION } from "./BanStrip";
+import type { ChampSelectSessionView } from "./shared";
+import { STATE_CAPTION } from "./BanStrip";
 import { initials } from "./shared";
 
-// Teammate champions come from the live LCU session (GET /live/session).
+// Teammate champions come from the single route-derived live session view.
 // Enemy rosters are champion-level only by policy — see BanStrip.
-export function YourSideCard({ session }: { session: ChampSelectSnapshot | undefined }) {
-  const active = !!session?.active;
-  const cells: ChampSelectAllyCell[] = (session?.ally ?? []).slice(0, 5);
-  const rows: (ChampSelectAllyCell | null)[] = active ? cells : [null, null, null];
+export function YourSideCard({ session }: { session: ChampSelectSessionView }) {
+  const rows = session.active ? session.knownAlliedPicks : [];
   return (
     <div className="card3" data-testid="cs-your-side" style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ width: 6, height: 6, borderRadius: 999, background: "var(--color-amber)" }} />
         <span style={{ font: "700 9.5px var(--font-mono)", letterSpacing: ".11em", color: "var(--color-dim)" }}>
-          YOUR SIDE · RANKED
+          YOUR SIDE · RANKED · {session.pickedCount}/5 PICKED
         </span>
       </div>
       {rows.map((cell, i) =>
@@ -36,10 +34,10 @@ export function YourSideCard({ session }: { session: ChampSelectSnapshot | undef
                 flex: "none",
               }}
             >
-              {initials(championLabel(cell.champion, cell.champion_id))}
+              {initials(cell.champion ?? "choosing…")}
             </div>
             <div style={{ flex: 1, fontSize: 10, minWidth: 0 }}>
-              {championLabel(cell.champion, cell.champion_id)}
+              {cell.champion ?? "choosing…"}
               {cell.name && (
                 <span style={{ color: "var(--color-dimmer)" }}> · {cell.name}</span>
               )}

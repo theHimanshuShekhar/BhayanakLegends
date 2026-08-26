@@ -1,52 +1,44 @@
-// No champion-specific source exists yet: this card is read-only and does not
-// display a recommendation or pretend to write to the live client.
-export function LoadoutCard() {
+import type { ChampSelectSessionView, FindingsPackState } from "./shared";
+
+export function LoadoutCard({
+  session,
+  packState,
+}: {
+  session: ChampSelectSessionView;
+  packState: FindingsPackState;
+}) {
+  const context = session.localChampion
+    ? `Session champion: ${session.localChampion}${session.locked ? " · locked" : " · not locked"}.`
+    : session.active
+      ? "Session champion is not selected."
+      : "Waiting for a live session.";
+  const guidance =
+    packState === "loading"
+      ? "Loading Findings Pack — champion-specific loadout guidance is not available yet."
+      : packState === "error"
+        ? "Unavailable: Findings Pack could not be loaded, so champion-specific loadout guidance is unavailable."
+        : packState === "missing"
+          ? "Unavailable: Findings Pack is missing, so champion-specific loadout guidance is unavailable."
+          : "Unavailable: no exact champion-specific loadout finding exists.";
+
   return (
     <div className="card3" data-testid="card-loadout" style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ width: 6, height: 6, borderRadius: 999, background: "var(--color-accent)" }} />
+        <span style={{ width: 6, height: 6, borderRadius: 999, background: session.locked ? "var(--color-teal)" : "var(--color-accent)" }} />
         <span style={{ font: "700 9.5px var(--font-mono)", letterSpacing: ".11em", color: "var(--color-dim)" }}>
           LOADOUT · READ-ONLY
         </span>
       </div>
-      <div style={{ display: "flex", gap: 6 }}>
-        <div style={{ flex: 1, padding: "7px 9px", borderRadius: 11, background: "var(--color-surface-2)", boxShadow: "var(--shadow-z1)" }}>
-          <div style={{ fontSize: 8.5, letterSpacing: ".1em", color: "var(--color-dimmer)" }}>KEYSTONE</div>
-          <div style={{ font: "600 11px var(--font-mono)" }}>—</div>
-        </div>
-        <div style={{ flex: 1, padding: "7px 9px", borderRadius: 11, background: "var(--color-surface-2)", boxShadow: "var(--shadow-z1)" }}>
-          <div style={{ fontSize: 8.5, letterSpacing: ".1em", color: "var(--color-dimmer)" }}>SUMMS</div>
-          <div style={{ font: "600 11px var(--font-mono)" }}>—</div>
-        </div>
-      </div>
-      <p
-        style={{ margin: 0, fontSize: 8.5, lineHeight: 1.4, color: "var(--color-dimmer)" }}
-        data-testid="cs-loadout-unavailable"
-      >
-        Unavailable: no champion-specific loadout source exists.
+      <p style={{ margin: 0, padding: 9, borderRadius: 11, background: "var(--color-surface-2)", fontSize: 10, lineHeight: 1.5, color: "#cfd3e5" }}>
+        {context}
       </p>
-      <div style={{ marginTop: "auto", display: "flex", gap: 7 }}>
-        <button
-          type="button"
-          disabled
-          data-testid="cs-apply-loadout"
-          style={{
-            flex: 1,
-            padding: 9,
-            borderRadius: 999,
-            border: "none",
-            background: "var(--color-accent)",
-            color: "#0e1020",
-            font: "700 11px var(--font-mono)",
-            textAlign: "center",
-            boxShadow: "0 3px 0 var(--color-accent-low),0 12px 20px -8px rgba(145,132,217,.55)",
-            opacity: 0.55,
-            cursor: "not-allowed",
-          }}
-        >
-          Loadout unavailable
-        </button>
-      </div>
+      <p
+        style={{ margin: "auto 0 0", fontSize: 9, lineHeight: 1.4, color: "var(--color-dimmer)" }}
+        data-testid="cs-loadout-unavailable"
+        role="status"
+      >
+        {guidance}
+      </p>
     </div>
   );
 }
