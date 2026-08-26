@@ -1,4 +1,26 @@
-export function MatchStartCard({ active, pick }: { active: boolean; pick?: string }) {
+import type { AssignedRole } from "../../api/types";
+
+export function MatchStartCard({
+  active,
+  pick,
+  role = null,
+  locked = false,
+}: {
+  active: boolean;
+  pick?: string;
+  role?: AssignedRole | null;
+  locked?: boolean;
+}) {
+  const status = locked
+    ? `${pick ?? "Champion unavailable"} locked${role ? ` · ${role}` : ""}`
+    : pick
+      ? `${pick} picked — not locked`
+      : role
+        ? `${role} assigned — choose a pick in the client`
+        : active
+          ? "Assigned role pending — choose a pick in the client"
+          : "Waiting for a live session";
+
   return (
     <div
       className="card3"
@@ -11,7 +33,7 @@ export function MatchStartCard({ active, pick }: { active: boolean; pick?: strin
             width: 6,
             height: 6,
             borderRadius: 999,
-            background: active ? "var(--color-teal)" : "#3f4459",
+            background: locked ? "var(--color-teal)" : active ? "var(--color-amber)" : "#3f4459",
           }}
         />
         <span style={{ font: "700 9.5px var(--font-mono)", letterSpacing: ".11em", color: "var(--color-dim)" }}>
@@ -19,6 +41,7 @@ export function MatchStartCard({ active, pick }: { active: boolean; pick?: strin
         </span>
       </div>
       <div
+        data-testid="cs-session-status"
         style={{
           display: "flex",
           alignItems: "center",
@@ -34,14 +57,16 @@ export function MatchStartCard({ active, pick }: { active: boolean; pick?: strin
             width: 8,
             height: 8,
             borderRadius: 999,
-            background: active ? "var(--color-teal)" : "#3f4459",
-            boxShadow: active ? "0 0 8px var(--color-teal)" : "none",
+            background: locked ? "var(--color-teal)" : active ? "var(--color-amber)" : "#3f4459",
+            boxShadow: locked ? "0 0 8px var(--color-teal)" : "none",
             flex: "none",
           }}
         />
         <div style={{ fontSize: 10, lineHeight: 1.4, color: "var(--color-dim)" }}>
-          <b style={{ color: "#cfd3e5" }}>:2999 comes online.</b> Live loadout, event feed and win probability start
-          updating.
+          <b style={{ color: "#cfd3e5" }}>{status}.</b>{" "}
+          {locked
+            ? "Suggestions and lock prompts are complete for this local cell."
+            : "The companion mirrors the League client; completion remains pending until the lock evidence arrives."}
         </div>
       </div>
       <div
@@ -60,26 +85,28 @@ export function MatchStartCard({ active, pick }: { active: boolean; pick?: strin
           Bans lock, roles finalize and the loading screen starts the moment the last pick locks.
         </div>
       </div>
-      <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 7 }}>
-        <button
-          type="button"
-          disabled
-          data-testid="cs-lock-button"
-          title="Locking happens in the League client — this panel mirrors the session."
-          style={{
-            padding: "10px 12px",
-            borderRadius: 999,
-            border: "none",
-            background: "var(--color-surface-3)",
-            color: "var(--color-dim)",
-            font: "700 11px var(--font-mono)",
-            textAlign: "center",
-            cursor: "not-allowed",
-          }}
-        >
-          Lock {pick ?? "your pick"} in the client
-        </button>
-      </div>
+      {!locked && (
+        <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 7 }}>
+          <button
+            type="button"
+            disabled
+            data-testid="cs-lock-button"
+            title="Locking happens in the League client — this panel mirrors the session."
+            style={{
+              padding: "10px 12px",
+              borderRadius: 999,
+              border: "none",
+              background: "var(--color-surface-3)",
+              color: "var(--color-dim)",
+              font: "700 11px var(--font-mono)",
+              textAlign: "center",
+              cursor: "not-allowed",
+            }}
+          >
+            {pick ? `Lock ${pick} in the client` : "Choose a pick in the client"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

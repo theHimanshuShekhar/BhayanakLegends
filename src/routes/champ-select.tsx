@@ -70,15 +70,20 @@ export function ChampSelectPage() {
   const timerKnown = active && session?.timer_sec != null;
   const timerLabel = timerKnown ? mmss(timerSec) : "--:--";
   const timerUrgent = timerKnown && timerSec <= TIMER_URGENT_S;
-  const hero = pickHero(packQuery.data);
-
   const localCell = session?.ally.find((cell) => cell.is_local);
+  const localRole = localCell ? session?.local_assigned_role ?? null : null;
+  const localLocked = localCell?.state === "locked";
   const localChampion =
-    localCell && localCell.state === "picked" && localCell.champion_id
+    localCell && localCell.champion_id
       ? championLabel(localCell.champion, localCell.champion_id)
       : null;
+  const hero = pickHero(packQuery.data, localRole);
   const localTier =
-    packQuery.data?.tier_list.find((entry) => entry.champion === localChampion)?.tier ?? null;
+    localLocked && localChampion
+      ? packQuery.data?.tier_list.find(
+          (entry) => entry.champion === localChampion && entry.role === localRole,
+        )?.tier ?? null
+      : null;
 
   return (
     <div
@@ -117,13 +122,19 @@ export function ChampSelectPage() {
         }}
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 11, minHeight: 0, minWidth: 0 }}>
-          <YourLaneCard champion={localChampion} tier={localTier} />
+          <YourLaneCard
+            champion={localChampion}
+            tier={localTier}
+            role={localRole}
+            state={localCell?.state}
+            locked={localLocked}
+          />
           <MasteryCard pack={packQuery.data} />
           <HowToPlayCard />
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0, minWidth: 0 }}>
-          <SuggestedPicks pack={packQuery.data} />
+          <SuggestedPicks pack={packQuery.data} role={localRole} locked={localLocked} />
           <div
             className="champ-select-secondary"
             style={{
@@ -143,7 +154,7 @@ export function ChampSelectPage() {
         <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0, minWidth: 0 }}>
           <BanAdvisorCard pack={packQuery.data} />
           <YourSideCard session={session} />
-          <MatchStartCard active={active} pick={hero?.champion} />
+          <MatchStartCard active={active} pick={localChampion ?? hero?.champion} role={localRole} locked={localLocked} />
         </div>
       </div>
     </div>
