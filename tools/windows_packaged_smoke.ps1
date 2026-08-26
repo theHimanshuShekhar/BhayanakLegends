@@ -97,7 +97,8 @@ function Show-AppLogs {
     [Parameter(Mandatory = $true)][System.Diagnostics.Process]$App,
     [Parameter(Mandatory = $true)][string]$Context,
     [string]$AppStdoutLog,
-    [string]$AppStderrLog
+    [string]$AppStderrLog,
+    [string]$AppName
   )
   $App.Refresh()
   if ($App.HasExited) {
@@ -118,6 +119,37 @@ function Show-AppLogs {
       Write-Output "--- $log (absent) ---"
     }
   }
+  # Crash forensics: surface recent Application-log entries tied to this
+  # executable or generic crash reporters. Faulting module and exception
+  # code lines are called out explicitly.
+  if ($AppName) {
+    try {
+      $events = Get-WinEvent -FilterHashtable @{ LogName = "Application"; StartTime = (Get-Date).AddMinutes(-15) } `
+        -ErrorAction SilentlyContinue |
+        Where-Object {
+          ($_.ProviderName -in @("Application Error", "Windows Error Reporting")) -or
+          ($_.Message -and $_.Message -like "*$AppName*")
+        } |
+        Select-Object -First 10
+      if ($events) {
+        Write-Output "--- Application event log (last 15 min, matching '$AppName' or crash providers) ---"
+        foreach ($event in $events) {
+          Write-Output "[$($event.TimeCreated)] $($event.ProviderName) (id $($event.Id))"
+          if ($event.Message) {
+            $event.Message -split "`n" |
+              Where-Object { $_ -match "faulting|exception|module" } |
+              ForEach-Object { Write-Output "  $($_.Trim())" }
+          } else {
+            Write-Output "  (no message body)"
+          }
+        }
+      } else {
+        Write-Output "--- Application event log: no entries matching '$AppName' or crash providers in the last 15 minutes ---"
+      }
+    } catch {
+      Write-Output "--- Application event log query failed: $($_.Exception.Message) ---"
+    }
+  }
 }
 
 function Invoke-WebviewAssertions {
@@ -128,7 +160,8 @@ function Invoke-WebviewAssertions {
     [string]$ExpectedVersion,
     [int]$AppExitGraceSeconds = 0,
     [string]$AppStdoutLog,
-    [string]$AppStderrLog
+    [string]$AppStderrLog,
+    [string]$AppName
   )
   # Runs the webview assertions as a live child process so its stdout/stderr
   # stream straight into the step log, while polling the packaged app every
@@ -149,7 +182,7 @@ function Invoke-WebviewAssertions {
       $App.Refresh()
       if ($App.HasExited) {
         $App.Refresh()
-        Show-AppLogs -App $App -Context "phase '$Phase'" -AppStdoutLog $AppStdoutLog -AppStderrLog $AppStderrLog
+        Show-AppLogs -App $App -Context "phase '$Phase'" -AppStdoutLog $AppStdoutLog -AppStderrLog $AppStderrLog -AppName $AppName
         if ($AppExitGraceSeconds -le 0) {
           throw "packaged app exited while webview assertions were running (phase '$Phase', app exit code $($App.ExitCode))"
         }
@@ -167,7 +200,7 @@ function Invoke-WebviewAssertions {
     if (-not $node.HasExited) { Stop-Process -Id $node.Id -Force -ErrorAction SilentlyContinue }
   }
   if ($node.ExitCode -ne 0) {
-    Show-AppLogs -App $App -Context "phase '$Phase' after node failure" -AppStdoutLog $AppStdoutLog -AppStderrLog $AppStderrLog
+    Show-AppLogs -App $App -Context "phase '$Phase' after node failure" -AppStdoutLog $AppStdoutLog -AppStderrLog $AppStderrLog -AppName $AppName
     throw "webview assertion failed during phase '$Phase' (node exit code $($node.ExitCode))"
   }
 }
@@ -187,9 +220,48 @@ try {
   }
   $state.executable = $appPath
 
+  $appNameForDiagnostics = [System.IO.Path]::GetFileNameWithoutExtension($appPath)
+
+  # --- Baseline launch: prove whether the packaged app starts at all under a
+  # clean environment (no WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS yet), before
+  # any debug instrumentation is applied. This splits "the packaged app is
+  # broken" from "the CDP debug-arg launch breaks it" whenever an instrumented
+  # phase dies before WebView2 opens. Informational only: recorded and swept,
+  # never fatal.
+  $baselineStdoutLog = Join-Path $env:SMOKE_DIAGNOSTICS "app0-baseline-stdout.log"
+  $baselineStderrLog = Join-Path $env:SMOKE_DIAGNOSTICS "app0-baseline-stderr.log"
+  $baselineApp = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru `
+    -RedirectStandardOutput $baselineStdoutLog -RedirectStandardError $baselineStderrLog
+  $baselineDeadline = (Get-Date).AddSeconds(12)
+  while ((Get-Date) -lt $baselineDeadline) {
+    $baselineApp.Refresh()
+    if ($baselineApp.HasExited) { break }
+    Start-Sleep -Milliseconds 250
+  }
+  $baselineApp.Refresh()
+  if ($baselineApp.HasExited) {
+    Write-Output "baseline launch (clean env, no WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS): exited within the 12s probe (exit code $($baselineApp.ExitCode))"
+    Show-AppLogs -App $baselineApp -Context "baseline launch" `
+      -AppStdoutLog $baselineStdoutLog -AppStderrLog $baselineStderrLog -AppName $appNameForDiagnostics
+    $state.baseline_launch = [ordered]@{ alive_after_12s = $false; exit_code = $baselineApp.ExitCode }
+  } else {
+    Write-Output "baseline launch (clean env, no WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS): alive for the full 12s probe"
+    $state.baseline_launch = [ordered]@{ alive_after_12s = $true }
+  }
+  Save-State
+  Stop-Process -Id $baselineApp.Id -Force -ErrorAction SilentlyContinue
+  # A force-stopped baseline app skips its own sidecar cleanup; sweep anything
+  # it owned so later phases see a clean sidecar baseline.
+  $strandedBaselineSidecars = @(Get-Sidecars | Where-Object { $baseline -notcontains $_ })
+  if ($strandedBaselineSidecars.Count -gt 0) {
+    $state.owned_sidecars += $strandedBaselineSidecars
+    $strandedBaselineSidecars | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+  }
+  Start-Sleep -Seconds 1
+
+
   $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$DebugPort"
 
-  # --- Phase 1: the lower-version app discovers and installs the real signed higher-version update.
   $app1StdoutLog = Join-Path $env:SMOKE_DIAGNOSTICS "app1-stdout.log"
   $app1StderrLog = Join-Path $env:SMOKE_DIAGNOSTICS "app1-stderr.log"
   $app1 = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru `
@@ -198,7 +270,7 @@ try {
     # The app may legitimately self-exit mid-phase during install handoff;
     # give node a short grace window to notice the port going dark first.
     Invoke-WebviewAssertions -App $app1 -Phase "update-available" -DebugPort $DebugPort -ExpectedVersion $HigherVersion -AppExitGraceSeconds 15 `
-      -AppStdoutLog $app1StdoutLog -AppStderrLog $app1StderrLog
+      -AppStdoutLog $app1StdoutLog -AppStderrLog $app1StderrLog -AppName $appNameForDiagnostics
     $state.phases += [ordered]@{ name = "update-available"; result = "passed" }
   } catch {
     $state.phases += [ordered]@{ name = "update-available"; result = "failed"; error = $_.Exception.Message }
@@ -243,7 +315,7 @@ try {
     -RedirectStandardOutput $app2StdoutLog -RedirectStandardError $app2StderrLog
   try {
     Invoke-WebviewAssertions -App $app2 -Phase "updated" -DebugPort $DebugPort `
-      -AppStdoutLog $app2StdoutLog -AppStderrLog $app2StderrLog
+      -AppStdoutLog $app2StdoutLog -AppStderrLog $app2StderrLog -AppName $appNameForDiagnostics
     $state.phases += [ordered]@{ name = "updated"; result = "passed" }
   } catch {
     $state.phases += [ordered]@{ name = "updated"; result = "failed"; error = $_.Exception.Message }
@@ -270,7 +342,7 @@ try {
     -RedirectStandardOutput $app3StdoutLog -RedirectStandardError $app3StderrLog
   try {
     Invoke-WebviewAssertions -App $app3 -Phase "invalid" -DebugPort $DebugPort -ExpectedVersion $RejectedVersion `
-      -AppStdoutLog $app3StdoutLog -AppStderrLog $app3StderrLog
+      -AppStdoutLog $app3StdoutLog -AppStderrLog $app3StderrLog -AppName $appNameForDiagnostics
     $state.phases += [ordered]@{ name = "invalid"; result = "passed" }
   } catch {
     $state.phases += [ordered]@{ name = "invalid"; result = "failed"; error = $_.Exception.Message }
