@@ -13,6 +13,27 @@ test.describe("Bhayanak Legends v1 smoke", () => {
     expect(response.status()).toBeLessThan(500);
   });
 
+  test("live match shows objectives priors from the Findings Pack", async ({ page }) => {
+    await page.goto("/live");
+    await expect(page.getByTestId("sidecar-dot")).toBeVisible();
+    await expect(page.getByText("81.4%").first()).toBeVisible();
+  });
+
+  test("post-game suppresses comeback rate for the replayed mild deficit", async ({ page }) => {
+    await page.goto("/postgame");
+    await expect(page.getByTestId("comeback-odds")).toBeVisible();
+    // Replayed gold@15 is milder than the 2,000g anchor -> domain suppression.
+    await expect(page.getByTestId("comeback-value")).toContainText("—");
+    const card = page.getByTestId("comeback-odds");
+    await expect(card).not.toContainText(/Backfill/);
+  });
+
+  test("history shows the imported Personal History", async ({ page }) => {
+    await page.goto("/history");
+    await expect(page.getByTestId("summary-matches")).toHaveText(/^[1-9][\d,]*$/);
+    await expect(page.getByRole("button", { name: "Start sync" })).toBeVisible();
+  });
+
   test("champ select idle keeps policy note and population intel visible", async ({ page }) => {
     await page.goto("/champ-select");
     await expect(page.getByText("champion-level intel only").first()).toBeVisible();
