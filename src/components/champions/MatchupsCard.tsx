@@ -1,8 +1,8 @@
 import type { MatchupExample } from "../../api/types";
-import { formatRate as pct } from "../format";
-import { KickerRow } from "./bits";
+import { formatCount, formatPercentagePoints, formatRate } from "../format";
+import { SectionHead } from "../ui";
 
-function MatchupRow({ m, color }: { m: MatchupExample; color: string }) {
+function MatchupRow({ m }: { m: MatchupExample }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
       <span
@@ -27,12 +27,14 @@ function MatchupRow({ m, color }: { m: MatchupExample; color: string }) {
           flex: "none",
         }}
       >
+        {/* Findings Pack population evidence: blue in both directions. */}
         <div
+          data-testid={`matchup-bar-${m.champion}-${m.opponent}`}
           className="bl-width"
           style={{
             width: `${Math.round(m.wr * 100)}%`,
             height: "100%",
-            background: color,
+            background: "var(--color-info)",
           }}
         />
       </div>
@@ -47,7 +49,7 @@ function MatchupRow({ m, color }: { m: MatchupExample; color: string }) {
           whiteSpace: "nowrap",
         }}
       >
-        {pct(m.wr)} ±{m.ci.toFixed(1)} · {m.games}g
+        {formatRate(m.wr)} ±{formatPercentagePoints(Math.abs(m.ci)).slice(1)} · {formatCount(m.games, "games")}
       </span>
     </div>
   );
@@ -81,24 +83,26 @@ export function MatchupsCard({
         gap: 9,
       }}
     >
-      <KickerRow label="MATCHUPS · FINDINGS PACK" />
+      <SectionHead label="MATCHUPS · FINDINGS PACK" />
       {!champion ? (
         <EmptyLine text="Select a champion to see directional examples." />
       ) : (
         <>
-          <div style={{ fontSize: 9.5, color: "var(--color-teal)", letterSpacing: ".08em" }}>
+          {/* Favorable/difficult framing is carried by the words, not by
+              recoloring the population evidence itself (blue throughout). */}
+          <div style={{ fontSize: 9.5, color: "var(--color-dim)", letterSpacing: ".08em" }}>
             FAVORABLE EXAMPLES FOR {champion.toUpperCase()}
           </div>
           <div data-testid="favorable-list" style={{ display: "flex", flexDirection: "column", gap: 7 }}>
             {favorable.map((m) => (
-              <MatchupRow key={`${m.champion}-${m.opponent}`} m={m} color="var(--color-teal)" />
+              <MatchupRow key={`${m.champion}-${m.opponent}`} m={m} />
             ))}
             {favorable.length === 0 && <EmptyLine text={empty} />}
           </div>
           <div
             style={{
               fontSize: 9.5,
-              color: "#f4c3ce",
+              color: "var(--color-dim)",
               letterSpacing: ".08em",
               marginTop: 4,
             }}
@@ -107,7 +111,7 @@ export function MatchupsCard({
           </div>
           <div data-testid="difficult-list" style={{ display: "flex", flexDirection: "column", gap: 7 }}>
             {difficult.map((m) => (
-              <MatchupRow key={`${m.champion}-${m.opponent}`} m={m} color="var(--color-danger)" />
+              <MatchupRow key={`${m.champion}-${m.opponent}`} m={m} />
             ))}
             {difficult.length === 0 && <EmptyLine text={empty} />}
           </div>

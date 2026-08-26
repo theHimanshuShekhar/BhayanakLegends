@@ -1,23 +1,11 @@
 import type { TierEntry } from "../../api/types";
-import { formatRate as pct } from "../format";
+import { formatCount, formatInitials, formatRate } from "../format";
 
 export function titleCase(role: string): string {
   return role.charAt(0).toUpperCase() + role.slice(1).toLowerCase();
 }
 
-function initials(name: string): string {
-  return name.slice(0, 2).toUpperCase();
-}
-
-function StatCell({
-  label,
-  value,
-  teal,
-}: {
-  label: string;
-  value: string;
-  teal?: boolean;
-}) {
+function StatCell({ label, value }: { label: string; value: string }) {
   return (
     <div
       style={{
@@ -27,11 +15,12 @@ function StatCell({
         textAlign: "center",
       }}
     >
+      {/* Findings Pack population rate: blue, never teal. */}
       <div
         className="mono-n"
         style={{
           font: "700 15px var(--font-mono)",
-          color: teal ? "var(--color-teal)" : undefined,
+          color: "var(--color-info)",
         }}
       >
         {value}
@@ -70,31 +59,31 @@ export function ChampionHeader({
             display: "grid",
             placeItems: "center",
             font: "700 17px var(--font-mono)",
-            color: "#0e1020",
+            color: "var(--color-bg)",
             boxShadow: "0 5px 0 rgba(0,0,0,.5),0 16px 28px -10px rgba(145,132,217,.55)",
             flex: "none",
           }}
         >
-          {initials(entry.champion)}
+          {formatInitials(entry.champion)}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ font: "700 21px var(--font-mono)", letterSpacing: "-.02em" }}>
               {entry.champion}
             </span>
-            <span className="pill" style={{ background: "var(--color-teal)", color: "#0e1020" }}>
+            <span className="pill" style={{ background: "var(--color-info)", color: "var(--color-bg)" }}>
               {entry.tier} tier
             </span>
           </div>
           <div style={{ fontSize: 10.5, color: "var(--color-dim)", marginTop: 2 }}>
-            {titleCase(entry.role)} · {entry.games.toLocaleString()} games logged
+            {titleCase(entry.role)} · {formatCount(entry.games, "games")} logged
           </div>
         </div>
       </div>
       <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-        <StatCell label="PICK" value={pct(entry.pick_rate)} />
-        <StatCell label="BAN" value={banRate != null ? pct(banRate) : "—"} />
-        <StatCell label="WIN" value={pct(entry.win_rate)} teal />
+        <StatCell label="PICK" value={formatRate(entry.pick_rate)} />
+        <StatCell label="BAN" value={formatRate(banRate ?? null, "ban rate unavailable")} />
+        <StatCell label="WIN" value={formatRate(entry.win_rate)} />
       </div>
     </div>
   );
