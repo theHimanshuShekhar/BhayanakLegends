@@ -130,9 +130,9 @@ describe("LiveMatchPage — idle", () => {
   it("renders habit nudges with ×-per-SD formatting and the trap line from the pack", async () => {
     renderPage();
     expect(await screen.findByTestId("habit-nudge-recall_safety")).toHaveTextContent(
-      "Recall safely — worth ×2.24 per SD.",
+      "Recall safely — worth ×2.24 effect per SD.",
     );
-    expect(screen.getByTestId("habit-nudge-plates_by_14")).toHaveTextContent("×1.08 per SD");
+    expect(screen.getByTestId("habit-nudge-plates_by_14")).toHaveTextContent("×1.08 effect per SD");
     expect(screen.getByTestId("trap-nudge")).toHaveTextContent("Hecarim 41.5%");
   });
 
