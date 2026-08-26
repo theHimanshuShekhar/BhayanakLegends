@@ -1,8 +1,12 @@
+import { SectionHead } from "../ui";
+
 const SLIDERS = [
   { key: "gold_diff_10", label: "Gold diff @10" },
   { key: "plates14", label: "Plates by 14" },
   { key: "safe-recalls", label: "Safe recalls" },
 ];
+
+const UNAVAILABLE_REASON = "the Honest Model contract is absent";
 
 export function WhatIfPanel() {
   return (
@@ -11,26 +15,7 @@ export function WhatIfPanel() {
       data-testid="what-if-panel"
       style={{ padding: 13, display: "flex", flexDirection: "column", gap: 8 }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span
-          style={{
-            width: 6,
-            height: 6,
-            borderRadius: 999,
-            background: "var(--color-info)",
-            flex: "none",
-          }}
-        />
-        <span
-          style={{
-            font: "700 9.5px var(--font-mono)",
-            letterSpacing: ".11em",
-            color: "var(--color-dim)",
-          }}
-        >
-          WHAT-IF SIMULATOR · UNAVAILABLE
-        </span>
-      </div>
+      <SectionHead level={3} label="WHAT-IF SIMULATOR · UNAVAILABLE" color="var(--color-info)" />
       {SLIDERS.map((s) => (
         <div key={s.key}>
           <div
@@ -45,7 +30,7 @@ export function WhatIfPanel() {
             <span className="mono-n" style={{ color: "var(--color-dimmer)" }}>—</span>
           </div>
           <div
-            aria-label={`${s.label} unavailable until the Honest Model ships`}
+            aria-label={`${s.label} unavailable: ${UNAVAILABLE_REASON}`}
             data-testid={`what-if-track-${s.key}`}
             style={{
               position: "relative",
@@ -67,11 +52,11 @@ export function WhatIfPanel() {
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-          <span style={{ fontSize: 9.5, color: "#e7e5fe" }}>Predicted win rate</span>
+          <span style={{ fontSize: 9.5, color: "var(--color-chip-text)" }}>Predicted win rate</span>
           <span
             className="mono-n"
             data-testid="what-if-prediction"
-            style={{ font: "700 16px var(--font-mono)", color: "#e7e5fe" }}
+            style={{ font: "700 16px var(--font-mono)", color: "var(--color-chip-text)" }}
           >
             Unavailable
           </span>
@@ -81,7 +66,7 @@ export function WhatIfPanel() {
         style={{ margin: 0, fontSize: 8.5, lineHeight: 1.4, color: "var(--color-dimmer)" }}
         data-testid="what-if-caption"
       >
-        Personal what-if estimates stay unavailable until the Honest Model ships.
+        Personal what-if estimates are unavailable because the Honest Model contract is absent.
       </p>
     </div>
   );
