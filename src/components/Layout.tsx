@@ -48,6 +48,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const initialPathname = useRef(pathname);
   const screenRef = useRef<HTMLElement>(null);
+  const focusRafRef = useRef<number>(0);
 
   useEffect(() => {
     if (pathname === initialPathname.current) return;
@@ -55,7 +56,21 @@ export function Layout({ children }: { children: ReactNode }) {
     if (!screen) return;
 
     screen.scrollTop = 0;
-    screen.querySelector<HTMLElement>("h1")?.focus({ preventScroll: true });
+    // Defer past the route swap so we focus the destination heading node that
+    // survives the commit where queries settle. Cancel any pending frame from
+    // a rapid back/forward so the newest navigation wins.
+    if (focusRafRef.current) cancelAnimationFrame(focusRafRef.current);
+    // Re-focus across frames until it sticks: late-settling queries can swap
+    // the heading node once more after the initial commit.
+    let attemptsLeft = 45;
+    const tick = () => {
+      attemptsLeft -= 1;
+      const h1 = screen.querySelector<HTMLElement>("h1");
+      h1?.focus({ preventScroll: true });
+      if (document.activeElement === h1 || attemptsLeft <= 0) return;
+      focusRafRef.current = requestAnimationFrame(tick);
+    };
+    focusRafRef.current = requestAnimationFrame(tick);
   }, [pathname]);
 
   return (
