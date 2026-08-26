@@ -1,6 +1,9 @@
 import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
+  // The replay stack is a singleton on port 23122; parallel workers would
+  // cross-talk scenarios. Serial execution keeps suites deterministic.
+  workers: 1,
   projects: [{ name: "chromium", use: { browserName: "chromium" } }],
   testDir: "./e2e",
   timeout: 30_000,
