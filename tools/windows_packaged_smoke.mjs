@@ -209,21 +209,35 @@ async function runInvalidPhase(page) {
   return { sidecar_port: sidecarInfo.port, sidecar_status: sidecarInfo.status, rejected_message: failureText };
 }
 
+async function waitForAppPage(browser, deadlineMs) {
+  const deadline = Date.now() + deadlineMs;
+  let lastUrls = [];
+  while (Date.now() < deadline) {
+    const pages = browser.contexts().flatMap((context) => context.pages());
+    lastUrls = pages.map((page) => page.url());
+    for (const page of pages) {
+      const url = page.url();
+      if (url === "about:blank" || url.startsWith("devtools://")) continue;
+      try {
+        await page.waitForLoadState("domcontentloaded", { timeout: 1_000 });
+        const pathname = await page.evaluate(() => window.location.pathname);
+        if (pathname === "/" || pathname === "/live") return page;
+      } catch {
+        // WebView2 exposes its target before the Tauri document settles.
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(`packaged app webview did not settle; observed targets: ${lastUrls.join(", ") || "(none)"}`);
+}
+
 // First launch can be slow (WebView2 host creation, SmartScan); the PS1
 // harness watches the app process and kills this script early if the app
 // itself dies, so a long wait here only costs time when progress is real.
 const browser = await waitForCdp(120_000);
 
 try {
-  const context = browser.contexts()[0];
-  const page = context.pages()[0];
-  if (!page) throw new Error("packaged app did not expose a webview page");
-  await page.waitForLoadState("domcontentloaded", { timeout: 15_000 });
-
-  const pathname = await page.evaluate(() => window.location.pathname);
-  if (pathname !== "/" && pathname !== "/live") {
-    throw new Error(`packaged app rendered an unexpected initial route: ${pathname}`);
-  }
+  const page = await waitForAppPage(browser, 30_000);
 
   await page.getByTestId(UPDATER_TESTID).waitFor({ state: "visible", timeout: 15_000 });
 
