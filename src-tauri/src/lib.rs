@@ -104,10 +104,10 @@ fn reduce_companion_state(
     previous: CompanionWindowState,
     mode: CompanionMode,
 ) -> CompanionWindowState {
-    let entering_live = matches!(previous.mode, CompanionMode::Idle)
-        && !matches!(mode, CompanionMode::Idle);
-    let leaving_live = !matches!(previous.mode, CompanionMode::Idle)
-        && matches!(mode, CompanionMode::Idle);
+    let entering_live =
+        matches!(previous.mode, CompanionMode::Idle) && !matches!(mode, CompanionMode::Idle);
+    let leaving_live =
+        !matches!(previous.mode, CompanionMode::Idle) && matches!(mode, CompanionMode::Idle);
     CompanionWindowState {
         mode,
         always_on_top: !matches!(mode, CompanionMode::Idle),
@@ -155,7 +155,11 @@ fn scaled_size(size: WindowSize, scale_factor: f64) -> PhysicalSize<u32> {
     )
 }
 
-fn compact_position(bounds: MonitorBounds, size: WindowSize, scale_factor: f64) -> PhysicalPosition<i32> {
+fn compact_position(
+    bounds: MonitorBounds,
+    size: WindowSize,
+    scale_factor: f64,
+) -> PhysicalPosition<i32> {
     let physical = scaled_size(size, scale_factor);
     let margin = (f64::from(COMPANION_MARGIN) * scale_factor).round() as u32;
     let (x, y) = clamp_window_position(
@@ -315,7 +319,10 @@ fn set_live_companion_mode(
             window
                 .set_size(scaled_size(target_size, scale_factor))
                 .map_err(window_error)?;
-            if !matches!(previous.mode, CompanionMode::ChampSelect | CompanionMode::InGame { .. }) {
+            if !matches!(
+                previous.mode,
+                CompanionMode::ChampSelect | CompanionMode::InGame { .. }
+            ) {
                 window
                     .set_position(compact_position(bounds, target_size, scale_factor))
                     .map_err(window_error)?;
@@ -458,10 +465,12 @@ impl<A: SidecarProcessAdapter> SidecarSupervisor<A> {
         }
     }
 
+    #[allow(dead_code)] // fixture-test seam until #62-#64 wire production callers
     fn state(&self) -> SidecarLifecycle {
         self.state
     }
 
+    #[allow(dead_code)] // fixture-test seam
     fn info(&self) -> Option<SidecarInfo> {
         match self.state {
             SidecarLifecycle::Running { .. } => self.info.clone(),
@@ -469,6 +478,7 @@ impl<A: SidecarProcessAdapter> SidecarSupervisor<A> {
         }
     }
 
+    #[allow(dead_code)] // fixture-test seam
     fn adapter(&self) -> &A {
         &self.adapter
     }
@@ -493,7 +503,10 @@ impl<A: SidecarProcessAdapter> SidecarSupervisor<A> {
         if self.child.is_some() {
             let _ = self.adapter.terminate(&mut child);
             let _ = self.adapter.reap(&mut child);
-            return Err(self.fail(generation, "sidecar generation already owns a process".into()));
+            return Err(self.fail(
+                generation,
+                "sidecar generation already owns a process".into(),
+            ));
         }
         self.child = Some((generation, child));
 
@@ -539,9 +552,8 @@ impl<A: SidecarProcessAdapter> SidecarSupervisor<A> {
                 self.state = SidecarLifecycle::Restarting { generation };
                 Ok(())
             }
-            SidecarLifecycle::NotStarted => Err(self.invalid_transition(
-                "sidecar cannot restart before its first generation starts",
-            )),
+            SidecarLifecycle::NotStarted => Err(self
+                .invalid_transition("sidecar cannot restart before its first generation starts")),
             SidecarLifecycle::Restarting { .. } => Ok(()),
             SidecarLifecycle::Stopping => {
                 Err(self.invalid_transition("stopping sidecar cannot restart"))
@@ -549,6 +561,7 @@ impl<A: SidecarProcessAdapter> SidecarSupervisor<A> {
         }
     }
 
+    #[allow(dead_code)] // fixture-test seam; production stop lands with #63
     fn stop(&mut self) -> Result<(), SidecarStartupError> {
         if self.state == SidecarLifecycle::Stopping {
             return Ok(());
@@ -604,9 +617,9 @@ impl<A: SidecarProcessAdapter> SidecarSupervisor<A> {
             SidecarLifecycle::Running { generation } => generation,
             _ => return Err(self.invalid_transition("sidecar is not running")),
         };
-        let info = self.info.take().ok_or_else(|| self.invalid_transition(
-            "running sidecar did not publish credentials",
-        ))?;
+        let info = self.info.take().ok_or_else(|| {
+            self.invalid_transition("running sidecar did not publish credentials")
+        })?;
         let (owned_generation, child) = self
             .child
             .take()
@@ -616,10 +629,12 @@ impl<A: SidecarProcessAdapter> SidecarSupervisor<A> {
     }
 }
 
+#[allow(dead_code)] // retained for the retry seam removed by #61's cycle
 struct LaunchFailure {
     proc: Option<Proc>,
     message: String,
 }
+#[allow(dead_code)] // superseded by run_startup_cycle; kept as the documented seam
 fn retry_launch<F>(mut launch: F) -> Result<SidecarHandle, SidecarStartupError>
 where
     F: FnMut() -> Result<SidecarHandle, LaunchFailure>,
@@ -706,9 +721,7 @@ impl SidecarProcessAdapter for ProductionSidecarAdapter {
                 }
             });
             if let Some(stderr) = stderr {
-                thread::spawn(move || {
-                    for _ in BufReader::new(stderr).lines() {}
-                });
+                thread::spawn(move || for _ in BufReader::new(stderr).lines() {});
             }
             Ok(Spawned {
                 proc: Proc::Std(child),
@@ -821,8 +834,11 @@ where
 
 fn spawn_sidecar(app: &tauri::AppHandle) -> Result<SidecarHandle, SidecarStartupError> {
     let supervisor = SidecarSupervisor::new(ProductionSidecarAdapter { app: app.clone() });
-    let (_, generation, spawned, info) =
-        run_startup_cycle(supervisor, || Uuid::new_v4().simple().to_string(), STARTUP_RETRY_BACKOFF)?;
+    let (_, generation, spawned, info) = run_startup_cycle(
+        supervisor,
+        || Uuid::new_v4().simple().to_string(),
+        STARTUP_RETRY_BACKOFF,
+    )?;
     Ok(SidecarHandle {
         proc: spawned.proc,
         generation,
@@ -831,12 +847,8 @@ fn spawn_sidecar(app: &tauri::AppHandle) -> Result<SidecarHandle, SidecarStartup
         status: info.status,
     })
 }
-fn spawn_output_drain(
-    events: mpsc::Receiver<Result<Vec<u8>, String>>,
-) -> thread::JoinHandle<()> {
-    thread::spawn(move || {
-        while events.recv().is_ok() {}
-    })
+fn spawn_output_drain(events: mpsc::Receiver<Result<Vec<u8>, String>>) -> thread::JoinHandle<()> {
+    thread::spawn(move || while events.recv().is_ok() {})
 }
 
 fn wait_for_readiness_until(spawned: &mut Spawned, deadline: Instant) -> Result<u16, String> {
@@ -850,13 +862,11 @@ fn wait_for_readiness_until(spawned: &mut Spawned, deadline: Instant) -> Result<
             return Err("sidecar readiness timed out".into());
         }
         match events.recv_timeout(Duration::from_millis(50)) {
-            Ok(Ok(line)) => match parse_readiness(&line) {
-                Ok(port) => {
-                    let _ = spawn_output_drain(events);
-                    return Ok(port);
-                }
-                Err(error) => return Err(error),
-            },
+            Ok(Ok(line)) => {
+                let port = parse_readiness(&line)?;
+                let _ = spawn_output_drain(events);
+                return Ok(port);
+            }
             Ok(Err(error)) => return Err(format!("sidecar readiness read failed: {error}")),
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 if let Proc::Std(child) = &mut spawned.proc {
@@ -877,8 +887,8 @@ fn wait_for_readiness_until(spawned: &mut Spawned, deadline: Instant) -> Result<
 }
 
 fn parse_readiness(line: &[u8]) -> Result<u16, String> {
-    let value: Value =
-        serde_json::from_slice(line).map_err(|_| "malformed sidecar readiness output".to_string())?;
+    let value: Value = serde_json::from_slice(line)
+        .map_err(|_| "malformed sidecar readiness output".to_string())?;
     if value.get("type").and_then(Value::as_str) != Some("ready") {
         return Err("unexpected sidecar readiness event".into());
     }
@@ -1015,7 +1025,10 @@ pub fn run() {
             start_sidecar_supervisor(app.handle().clone());
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![sidecar_info, set_live_companion_mode])
+        .invoke_handler(tauri::generate_handler![
+            sidecar_info,
+            set_live_companion_mode
+        ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
@@ -1051,11 +1064,15 @@ mod tests {
 
     #[test]
     fn distinguishes_healthy_and_degraded_health() {
-        let healthy = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"status\":\"ok\"}";
+        let healthy =
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"status\":\"ok\"}";
         let degraded =
             b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"status\":\"degraded\"}";
         assert_eq!(parse_health_response(healthy).unwrap(), SidecarHealth::Ok);
-        assert_eq!(parse_health_response(degraded).unwrap(), SidecarHealth::Degraded);
+        assert_eq!(
+            parse_health_response(degraded).unwrap(),
+            SidecarHealth::Degraded
+        );
     }
 
     #[test]
@@ -1076,12 +1093,14 @@ mod tests {
     #[test]
     fn detects_early_exit_before_readiness() {
         let (tx, rx) = mpsc::channel();
-        tx.send(Err("sidecar exited before readiness".into())).unwrap();
+        tx.send(Err("sidecar exited before readiness".into()))
+            .unwrap();
         let mut spawned = Spawned {
             proc: Proc::Plugin(None),
             output: OutputEvents::Lines(Some(rx)),
         };
-        let result = wait_for_readiness_until(&mut spawned, Instant::now() + Duration::from_secs(1));
+        let result =
+            wait_for_readiness_until(&mut spawned, Instant::now() + Duration::from_secs(1));
         assert!(result.unwrap_err().contains("exited before readiness"));
     }
 
@@ -1092,7 +1111,8 @@ mod tests {
             proc: Proc::Plugin(None),
             output: OutputEvents::Lines(Some(rx)),
         };
-        let result = wait_for_readiness_until(&mut spawned, Instant::now() + Duration::from_millis(1));
+        let result =
+            wait_for_readiness_until(&mut spawned, Instant::now() + Duration::from_millis(1));
         assert_eq!(result.unwrap_err(), "sidecar readiness timed out");
     }
 
@@ -1120,9 +1140,7 @@ mod tests {
             assert!(request.contains(&format!("host: 127.0.0.1:{port}")));
             assert!(request.contains("x-bl-token: unit-test-token"));
             stream
-                .write_all(
-                    b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n{\"status\":\"degraded\"}",
-                )
+                .write_all(b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n{\"status\":\"degraded\"}")
                 .unwrap();
         });
 
@@ -1142,7 +1160,8 @@ mod tests {
         assert!(!champ_select.translucent);
         assert!(champ_select.normal_geometry_saved);
         assert_eq!(champ_select.normal_geometry, None);
-        let in_game = reduce_companion_state(champ_select, CompanionMode::InGame { expanded: false });
+        let in_game =
+            reduce_companion_state(champ_select, CompanionMode::InGame { expanded: false });
         assert_eq!(in_game.mode, CompanionMode::InGame { expanded: false });
         assert!(in_game.always_on_top);
         assert!(in_game.translucent);
@@ -1215,7 +1234,9 @@ mod tests {
             self.events.push("spawn");
             self.next_child += 1;
             self.children += 1;
-            Ok(FixtureChild { id: self.next_child })
+            Ok(FixtureChild {
+                id: self.next_child,
+            })
         }
 
         fn wait_for_readiness(
@@ -1267,11 +1288,17 @@ mod tests {
         assert_eq!(supervisor.state(), SidecarLifecycle::NotStarted);
         assert_eq!(supervisor.info(), None);
         let info = supervisor.launch("token-a".into()).unwrap();
-        assert_eq!(supervisor.state(), SidecarLifecycle::Running { generation: 1 });
+        assert_eq!(
+            supervisor.state(),
+            SidecarLifecycle::Running { generation: 1 }
+        );
         assert_eq!(supervisor.info(), Some(info.clone()));
         assert_eq!(info.port, 43217);
         assert_eq!(info.token, "token-a");
-        assert_eq!(supervisor.adapter().events, vec!["spawn", "readiness", "health"]);
+        assert_eq!(
+            supervisor.adapter().events,
+            vec!["spawn", "readiness", "health"]
+        );
     }
 
     #[test]
@@ -1303,10 +1330,16 @@ mod tests {
         let mut supervisor = SidecarSupervisor::new(adapter);
         supervisor.launch("token-a".into()).unwrap();
         supervisor.restart().unwrap();
-        assert_eq!(supervisor.state(), SidecarLifecycle::Restarting { generation: 1 });
+        assert_eq!(
+            supervisor.state(),
+            SidecarLifecycle::Restarting { generation: 1 }
+        );
         assert_eq!(supervisor.info(), None);
         let info = supervisor.launch("token-b".into()).unwrap();
-        assert_eq!(supervisor.state(), SidecarLifecycle::Running { generation: 2 });
+        assert_eq!(
+            supervisor.state(),
+            SidecarLifecycle::Running { generation: 2 }
+        );
         assert_eq!(info.token, "token-b");
         assert_eq!(supervisor.adapter().children, 2);
         assert_eq!(supervisor.adapter().terminated, 1);
@@ -1323,14 +1356,19 @@ mod tests {
 
         let error = supervisor.launch("token-a".into()).unwrap_err();
         assert_eq!(error.code, "sidecar_startup_failed");
-        assert_eq!(supervisor.state(), SidecarLifecycle::Failed { generation: 1 });
+        assert_eq!(
+            supervisor.state(),
+            SidecarLifecycle::Failed { generation: 1 }
+        );
         assert_eq!(supervisor.adapter().children, 1);
         assert_eq!(supervisor.adapter().terminated, 1);
         assert_eq!(supervisor.adapter().reaped, 1);
         assert!(supervisor.start("token-a-reuse".into()).is_err());
         supervisor.restart().unwrap();
-        assert_eq!(supervisor.state(), SidecarLifecycle::Restarting { generation: 1 });
+        assert_eq!(
+            supervisor.state(),
+            SidecarLifecycle::Restarting { generation: 1 }
+        );
         assert_eq!(supervisor.info(), None);
     }
-
 }
