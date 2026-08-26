@@ -3,17 +3,36 @@ param(
   [Parameter(Mandatory = $true)][string]$InstallerPath,
   [Parameter(Mandatory = $true)][string]$InstallRoot,
   [Parameter(Mandatory = $true)][string]$DebugPort,
-  [Parameter(Mandatory = $true)][string]$StatePath
+  [Parameter(Mandatory = $true)][string]$StatePath,
+  [Parameter(Mandatory = $true)][string]$FlipFile,
+  [Parameter(Mandatory = $true)][string]$HigherVersion,
+  [Parameter(Mandatory = $true)][string]$RejectedVersion
 )
+
+# Proves the full signed-updater lifecycle against the lower-version install
+# produced from $InstallerPath:
+#   1. update-available: the app sees the fixture's real signed higher-version
+#      offer and clicks the existing "Install update" action. The Windows
+#      updater plugin spawns the extracted NSIS installer and calls
+#      std::process::exit(0) before the JS promise resolves (no /R flag is
+#      passed), so the app exits on its own; this harness waits for that exit
+#      and then for the detached installer process to finish.
+#   2. updated: the relaunched app must report the higher version, an
+#      authenticated sidecar reconnection, and a durable Findings Pack.
+#   3. invalid: after the harness creates $FlipFile, the fixture offers a
+#      higher version whose signature does not match its bytes; the app must
+#      reject it and leave the installed executable byte-for-byte unchanged.
 
 $ErrorActionPreference = "Stop"
 $state = [ordered]@{
-  installer = $InstallerPath
-  install_root = $InstallRoot
-  debug_port = [int]$DebugPort
-  phases = @()
-  owned_sidecars = @()
-  errors = @()
+  installer         = $InstallerPath
+  install_root      = $InstallRoot
+  debug_port        = [int]$DebugPort
+  higher_version    = $HigherVersion
+  rejected_version  = $RejectedVersion
+  phases            = @()
+  owned_sidecars    = @()
+  errors            = @()
 }
 
 function Save-State {
@@ -31,6 +50,16 @@ function Wait-Exit([int]$ProcessId, [int]$TimeoutSeconds = 20) {
   do {
     if (-not (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)) { return $true }
     Start-Sleep -Milliseconds 250
+  } while ((Get-Date) -lt $deadline)
+  return $false
+}
+
+function Wait-ProcessGoneByName([string]$NameLike, [int]$TimeoutSeconds) {
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  do {
+    $running = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -like $NameLike })
+    if ($running.Count -eq 0) { return $true }
+    Start-Sleep -Milliseconds 500
   } while ((Get-Date) -lt $deadline)
   return $false
 }
@@ -76,54 +105,93 @@ try {
   }
   $state.executable = $appPath
 
-  $installSnapshot = @(
-    Get-ChildItem -Path $InstallRoot -File -Recurse |
-      ForEach-Object { "$($_.FullName)|$((Get-FileHash $_.FullName).Hash)" } |
-      Sort-Object
-  )
-
   $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$DebugPort"
-  $app = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru
+
+  # --- Phase 1: the lower-version app discovers and installs the real signed higher-version update.
+  $app1 = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru
   try {
-    & node tools/windows_packaged_smoke.mjs --phase valid --debug-port $DebugPort
-    if ($LASTEXITCODE -ne 0) { throw "webview assertion failed during activation phase" }
-    $state.phases += [ordered]@{ name = "activated"; result = "passed" }
+    & node tools/windows_packaged_smoke.mjs --phase update-available --debug-port $DebugPort --expected-version $HigherVersion
+    if ($LASTEXITCODE -ne 0) { throw "webview assertion failed while installing the valid signed update" }
+    $state.phases += [ordered]@{ name = "update-available"; result = "passed" }
   } catch {
-    $state.phases += [ordered]@{ name = "activated"; result = "failed"; error = $_.Exception.Message }
+    $state.phases += [ordered]@{ name = "update-available"; result = "failed"; error = $_.Exception.Message }
+    # On the success path app1 self-exits via std::process::exit(0) inside
+    # the updater plugin; on failure it is still running and must not leak.
+    $app1.Refresh()
+    if (-not $app1.HasExited) {
+      $app1.CloseMainWindow() | Out-Null
+      Start-Sleep -Seconds 1
+      $app1.Refresh()
+      if (-not $app1.HasExited) { Stop-Process -Id $app1.Id -Force -ErrorAction SilentlyContinue }
+    }
     throw
-  } finally {
-    Close-App -App $app -BaselineSidecars $baseline
   }
   Save-State
 
-  if ($env:FIXTURE_PID) {
-    Stop-Process -Id ([int]$env:FIXTURE_PID) -Force -ErrorAction SilentlyContinue
+  if (-not (Wait-Exit -ProcessId $app1.Id -TimeoutSeconds 60)) {
+    throw "packaged app did not exit to hand off to the signed-update installer"
   }
-  Remove-Item Env:BHAYANAK_PACK_RELEASE_MANIFEST_URL -ErrorAction SilentlyContinue
+  # Best-effort hygiene: a hard process::exit(0) skips Drop-based cleanup, so
+  # sweep any sidecar this instance owned before the next phase starts. This
+  # does not assert the invariant (Close-App does that on every graceful-exit
+  # phase below); it only prevents a leaked process from lingering.
+  $strandedSidecars = @(Get-Sidecars | Where-Object { $baseline -notcontains $_ })
+  if ($strandedSidecars.Count -gt 0) {
+    $state.owned_sidecars += $strandedSidecars
+    $strandedSidecars | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+  }
+  if (-not (Wait-ProcessGoneByName -NameLike "*$HigherVersion*x64-setup*" -TimeoutSeconds 120)) {
+    throw "updater-spawned NSIS installer did not finish applying the signed update"
+  }
+  Start-Sleep -Seconds 1
 
-  $app = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru
+  # --- Phase 2: the relaunched app must be the higher version with a healthy, reconnected sidecar.
+  $app2 = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru
   try {
-    & node tools/windows_packaged_smoke.mjs --phase durable --debug-port $DebugPort
-    if ($LASTEXITCODE -ne 0) { throw "webview assertion failed during durable restart phase" }
-    $state.phases += [ordered]@{ name = "durable"; result = "passed" }
+    & node tools/windows_packaged_smoke.mjs --phase updated --debug-port $DebugPort
+    if ($LASTEXITCODE -ne 0) { throw "webview assertion failed verifying the relaunched update" }
+    $state.phases += [ordered]@{ name = "updated"; result = "passed" }
   } catch {
-    $state.phases += [ordered]@{ name = "durable"; result = "failed"; error = $_.Exception.Message }
+    $state.phases += [ordered]@{ name = "updated"; result = "failed"; error = $_.Exception.Message }
     throw
   } finally {
-    Close-App -App $app -BaselineSidecars $baseline
+    Close-App -App $app2 -BaselineSidecars $baseline
   }
   Save-State
-  $installAfter = @(
-    Get-ChildItem -Path $InstallRoot -File -Recurse |
-      ForEach-Object { "$($_.FullName)|$((Get-FileHash $_.FullName).Hash)" } |
-      Sort-Object
-  )
-  $installChanges = Compare-Object -ReferenceObject $installSnapshot -DifferenceObject $installAfter
-  if ($installChanges) {
-    $state.errors += "installed files changed during pack activation/restart"
-    throw "packaged install files were modified at runtime"
+
+  $installedVersion = (Get-Item -Path $appPath).VersionInfo.ProductVersion
+  if ($installedVersion -ne $HigherVersion) {
+    throw "packaged executable reports version '$installedVersion' after relaunch; expected '$HigherVersion'"
   }
-  $state.install_files_unchanged = $true
+  $state.installed_version_after_update = $installedVersion
+  $updatedHash = (Get-FileHash -Path $appPath).Hash
+  Save-State
+
+  # --- Phase 3: a real archive with a signature that does not match its bytes must be rejected.
+  New-Item -ItemType File -Force -Path $FlipFile | Out-Null
+
+  $app3 = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru
+  try {
+    & node tools/windows_packaged_smoke.mjs --phase invalid --debug-port $DebugPort --expected-version $RejectedVersion
+    if ($LASTEXITCODE -ne 0) { throw "webview assertion failed verifying mismatched-signature rejection" }
+    $state.phases += [ordered]@{ name = "invalid"; result = "passed" }
+  } catch {
+    $state.phases += [ordered]@{ name = "invalid"; result = "failed"; error = $_.Exception.Message }
+    throw
+  } finally {
+    Close-App -App $app3 -BaselineSidecars $baseline
+  }
+  Save-State
+
+  $finalVersion = (Get-Item -Path $appPath).VersionInfo.ProductVersion
+  if ($finalVersion -ne $HigherVersion) {
+    throw "installed version changed after a rejected update: now '$finalVersion', expected '$HigherVersion'"
+  }
+  $finalHash = (Get-FileHash -Path $appPath).Hash
+  if ($finalHash -ne $updatedHash) {
+    throw "installed executable bytes changed after a rejected update"
+  }
+  $state.rejected_update_left_install_unchanged = $true
   $state.result = "passed"
   Save-State
 } catch {

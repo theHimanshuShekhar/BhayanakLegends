@@ -9,12 +9,21 @@ permissions:
 
 env:
   CI: true
+  # Fixed loopback port for the updater fixture. It must be known before the
+  # fixture process starts so the signed builds below can be patched to trust
+  # it; the fixture is started later, once the real artifacts it serves exist.
+  # Kept outside 20000-30000, the WebView2 remote-debugging port's random
+  # range below, so the two loopback listeners can never collide.
+  SMOKE_FIXTURE_PORT: 41287
 
 jobs:
   packaged-smoke:
     name: Install and smoke packaged Windows app
     runs-on: windows-latest
-    timeout-minutes: 35
+    # Two full signed Tauri builds (higher + lower version) run in this job,
+    # against the single release recipe, so it takes noticeably longer than a
+    # single-build smoke.
+    timeout-minutes: 55
     steps:
       - name: Check out exact triggering tree
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -47,7 +56,85 @@ jobs:
         shell: bash
         run: uv run --project backend --locked python tools/build_windows_sidecar.py
 
-      - name: Start loopback updater fixture
+      - name: Compute smoke update versions
+        shell: bash
+        run: |
+          python3 - <<'PY' >> "$GITHUB_ENV"
+          import json
+          from pathlib import Path
+          config = json.loads(Path("src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
+          major, minor, patch = (int(part) for part in config["version"].split("."))
+          print(f"SMOKE_BASE_VERSION={major}.{minor}.{patch}")
+          print(f"SMOKE_HIGHER_VERSION={major}.{minor}.{patch + 1}")
+          print(f"SMOKE_REJECTED_VERSION={major}.{minor}.{patch + 2}")
+          PY
+
+      - name: Generate ephemeral updater signing keypair
+        shell: pwsh
+        run: |
+          $keyPath = Join-Path $env:RUNNER_TEMP "bl-smoke-updater.key"
+          $password = [System.Guid]::NewGuid().ToString("N")
+          Write-Output "::add-mask::$password"
+          pnpm tauri signer generate -w $keyPath -p $password --ci
+          if ($LASTEXITCODE -ne 0) { throw "failed to generate the ephemeral updater signing keypair" }
+
+          $privateKey = Get-Content -Raw $keyPath
+          $pubkey = Get-Content -Raw "$keyPath.pub"
+          Write-Output "::add-mask::$privateKey"
+
+          "TAURI_SIGNING_PRIVATE_KEY=$privateKey" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$password" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "SMOKE_UPDATER_PUBKEY=$pubkey" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "SMOKE_KEY_PATH=$keyPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Point updater at the job-local fixture
+        shell: pwsh
+        run: |
+          python tools/patch_updater_endpoint.py src-tauri/tauri.conf.json `
+            --endpoint "http://127.0.0.1:$env:SMOKE_FIXTURE_PORT/latest.json" `
+            --pubkey "$env:SMOKE_UPDATER_PUBKEY" `
+            --backup "$env:RUNNER_TEMP\tauri.conf.json.smoke-backup"
+
+      - name: Build the signed higher-version updater artifacts
+        shell: pwsh
+        run: |
+          python tools/patch_updater_endpoint.py src-tauri/tauri.conf.json --set-version "$env:SMOKE_HIGHER_VERSION"
+          pnpm tauri build --bundles nsis
+
+      - name: Stash the higher-version archive and a mismatched signature
+        shell: pwsh
+        run: |
+          $stash = Join-Path $env:RUNNER_TEMP "bl-smoke-update"
+          New-Item -ItemType Directory -Force -Path $stash | Out-Null
+          $bundleDir = "src-tauri/target/release/bundle/nsis"
+
+          $archive = Get-ChildItem "$bundleDir/*_$($env:SMOKE_HIGHER_VERSION)_*.nsis.zip" | Select-Object -First 1
+          if (-not $archive) { throw "signed higher-version updater archive was not produced" }
+          $signature = Get-Item "$($archive.FullName).sig"
+          $installer = Get-ChildItem "$bundleDir/*_$($env:SMOKE_HIGHER_VERSION)_*-setup.exe" | Select-Object -First 1
+          if (-not $installer) { throw "signed higher-version NSIS installer was not produced" }
+
+          Copy-Item $archive.FullName (Join-Path $stash "update.nsis.zip")
+          Copy-Item $signature.FullName (Join-Path $stash "update.nsis.zip.sig")
+
+          # A real artifact whose signature does not match its bytes: sign the
+          # installer .exe (different bytes than the .nsis.zip) with the same
+          # ephemeral key, so verification fails for signature reasons alone.
+          pnpm tauri signer sign -f "$env:SMOKE_KEY_PATH" -p "$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD" $installer.FullName
+          if ($LASTEXITCODE -ne 0) { throw "failed to produce the deliberately mismatched signature" }
+          Copy-Item "$($installer.FullName).sig" (Join-Path $stash "rejected.sig")
+
+          "SMOKE_UPDATE_ARCHIVE=$(Join-Path $stash 'update.nsis.zip')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "SMOKE_UPDATE_SIGNATURE=$(Join-Path $stash 'update.nsis.zip.sig')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "SMOKE_REJECTED_SIGNATURE=$(Join-Path $stash 'rejected.sig')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build the lower-version installer
+        shell: pwsh
+        run: |
+          python tools/patch_updater_endpoint.py src-tauri/tauri.conf.json --set-version "$env:SMOKE_BASE_VERSION"
+          pnpm tauri build --bundles nsis
+
+      - name: Start the loopback updater fixture
         shell: pwsh
         run: |
           $diagnostics = Join-Path $env:RUNNER_TEMP "bl-smoke"
@@ -55,50 +142,54 @@ jobs:
           $stateFile = Join-Path $diagnostics "updater-fixture.json"
           $stdout = Join-Path $diagnostics "updater-fixture.log"
           $stderr = Join-Path $diagnostics "updater-fixture.err.log"
+          $flipFile = Join-Path $env:RUNNER_TEMP "bl-smoke-invalid-phase"
+
           $fixture = Start-Process -FilePath python -ArgumentList @(
-            "tools/windows_updater_fixture.py", "--state-file", $stateFile, "--port", "0"
+            "tools/windows_updater_fixture.py",
+            "--state-file", $stateFile,
+            "--port", "$env:SMOKE_FIXTURE_PORT",
+            "--update-version", "$env:SMOKE_HIGHER_VERSION",
+            "--rejected-version", "$env:SMOKE_REJECTED_VERSION",
+            "--artifact", "$env:SMOKE_UPDATE_ARCHIVE",
+            "--signature", "$env:SMOKE_UPDATE_SIGNATURE",
+            "--rejected-signature", "$env:SMOKE_REJECTED_SIGNATURE",
+            "--flip-file", $flipFile
           ) -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
           "FIXTURE_PID=$($fixture.Id)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "SMOKE_DIAGNOSTICS=$diagnostics" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "SMOKE_FLIP_FILE=$flipFile" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
           for ($attempt = 0; $attempt -lt 60 -and -not (Test-Path $stateFile); $attempt++) {
             Start-Sleep -Milliseconds 250
           }
           if (-not (Test-Path $stateFile)) { throw "updater fixture did not start" }
           $fixtureInfo = Get-Content $stateFile | ConvertFrom-Json
-          "FIXTURE_ENDPOINT=http://127.0.0.1:$($fixtureInfo.port)/latest.json" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          if ($fixtureInfo.port -ne [int]$env:SMOKE_FIXTURE_PORT) {
+            throw "updater fixture did not bind the port the packaged config was patched to"
+          }
           "BHAYANAK_PACK_RELEASE_MANIFEST_URL=http://127.0.0.1:$($fixtureInfo.port)/findings-pack-manifest.json" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Point updater at local fixture only
+      - name: Install the lower version and prove the signed update lifecycle
         shell: pwsh
         run: |
-          python tools/patch_updater_endpoint.py src-tauri/tauri.conf.json `
-            --endpoint "$env:FIXTURE_ENDPOINT" `
-            --backup "$env:RUNNER_TEMP\tauri.conf.json.smoke-backup"
-
-      - name: Build Tauri installer
-        run: pnpm tauri build --bundles nsis
-
-      - name: Launch and assert packaged executable
-        shell: pwsh
-        run: |
-          $installer = Get-ChildItem "src-tauri/target/release/bundle/nsis/*.exe" |
-            Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          if (-not $installer) { throw "Tauri NSIS installer was not produced" }
+          $installer = Get-ChildItem "src-tauri/target/release/bundle/nsis/*_$($env:SMOKE_BASE_VERSION)_*-setup.exe" | Select-Object -First 1
+          if (-not $installer) { throw "lower-version NSIS installer was not produced" }
           New-Item -ItemType Directory -Force -Path $env:SMOKE_DIAGNOSTICS | Out-Null
           $debugPort = Get-Random -Minimum 20000 -Maximum 30000
           pwsh -File tools/windows_packaged_smoke.ps1 `
             -InstallerPath $installer.FullName `
             -InstallRoot "$env:RUNNER_TEMP\bl-packaged-install" `
             -DebugPort $debugPort `
-            -StatePath "$env:SMOKE_DIAGNOSTICS\smoke-state.json"
+            -StatePath "$env:SMOKE_DIAGNOSTICS\smoke-state.json" `
+            -FlipFile "$env:SMOKE_FLIP_FILE" `
+            -HigherVersion "$env:SMOKE_HIGHER_VERSION" `
+            -RejectedVersion "$env:SMOKE_REJECTED_VERSION"
 
-      - name: Verify updater stayed on the local fixture
+      - name: Verify the fixture proved the full signed-update lifecycle
         shell: pwsh
         run: |
           python tools/check_windows_smoke_fixture.py `
             "$env:SMOKE_DIAGNOSTICS\updater-fixture.requests.jsonl"
-
 
       - name: Restore release updater configuration
         if: ${{ always() }}
@@ -115,10 +206,23 @@ jobs:
             Stop-Process -Id ([int]$env:FIXTURE_PID) -Force -ErrorAction SilentlyContinue
           }
 
+      - name: Remove ephemeral signing key material
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          if ($env:SMOKE_KEY_PATH) {
+            Remove-Item "$env:SMOKE_KEY_PATH" -ErrorAction SilentlyContinue
+            Remove-Item "$env:SMOKE_KEY_PATH.pub" -ErrorAction SilentlyContinue
+          }
+          if ($env:SMOKE_FLIP_FILE) {
+            Remove-Item "$env:SMOKE_FLIP_FILE" -ErrorAction SilentlyContinue
+          }
+
       - name: Redact smoke diagnostics
         if: ${{ failure() }}
         shell: pwsh
         run: |
+          $env:REDACT_EXTRA_SECRETS = $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD
           python tools/redact_diagnostics.py `
             "$env:RUNNER_TEMP\bl-smoke" "$env:RUNNER_TEMP\bl-smoke-redacted"
 
