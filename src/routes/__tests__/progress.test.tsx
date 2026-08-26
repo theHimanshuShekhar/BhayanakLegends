@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import { ProgressPage } from "../progress";
 import { api } from "../../api/client";
-import type { FindingsPack } from "../../api/types";
+import type { BenchmarkResponse, FindingsPack } from "../../api/types";
 
 vi.mock("../../api/client", () => ({
   api: {
@@ -56,7 +56,7 @@ const summary = {
   win_rate: 0.433,
 };
 
-const benchmarks = [
+const benchmarkRows = [
   {
     role: "MIDDLE" as const,
     personal: { cs10: 77, level10: 8, gold_diff_10: 247 },
@@ -68,6 +68,7 @@ const benchmarks = [
     population: { cs10_median: 61, sample: 52048 },
   },
 ];
+const benchmarks: BenchmarkResponse = { state: "available", rows: benchmarkRows };
 
 function makePack(overrides: Partial<FindingsPack> = {}): FindingsPack {
   return {
@@ -152,12 +153,30 @@ describe("ProgressPage", () => {
       width: "95.9%",
     });
   });
-  it("renders no benchmark card when the sidecar suppresses invalid comparisons", async () => {
-    vi.mocked(api.benchmarks).mockResolvedValue([]);
+  it("renders no benchmark cards and names contract suppression", async () => {
+    vi.mocked(api.benchmarks).mockResolvedValue({
+      state: "contract-suppressed",
+      rows: [],
+    });
     renderPage(<ProgressPage />);
 
+    await screen.findByTestId("benchmarks-contract-suppressed");
     expect(screen.queryByTestId("benchmark-MIDDLE")).not.toBeInTheDocument();
     expect(screen.queryByTestId("benchmark-TOP")).not.toBeInTheDocument();
+    // Only the insufficient-history state may mention Backfill.
+    expect(screen.queryByText(/Backfill/i)).not.toBeInTheDocument();
+  });
+
+  it("renders the Backfill copy only for insufficient personal history", async () => {
+    vi.mocked(api.benchmarks).mockResolvedValue({
+      state: "insufficient-personal-history",
+      rows: [],
+    });
+    renderPage(<ProgressPage />);
+
+    await screen.findByTestId("benchmarks-insufficient");
+    expect(screen.getByTestId("benchmarks-insufficient")).toHaveTextContent("Backfill");
+    expect(screen.queryByTestId("benchmark-MIDDLE")).not.toBeInTheDocument();
   });
 
 

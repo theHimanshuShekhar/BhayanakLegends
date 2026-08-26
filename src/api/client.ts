@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { isChampSelectSnapshot } from "./liveValidation";
 import type {
+  BenchmarkResponse,
   ChampSelectSnapshot,
   FindingsPack,
   Health,
@@ -9,7 +10,6 @@ import type {
   LiveStatus,
   PatchAggregate,
   PostGameDigest,
-  RoleBenchmark,
   Settings,
   SettingsPatch,
   SyncStatus,
@@ -146,7 +146,7 @@ export const api = {
   },
   postgameLatest: () =>
     request<PostGameDigest | null>("/postgame/latest"),
-  benchmarks: () => request<RoleBenchmark[]>("/benchmarks"),
+  benchmarks: () => request<BenchmarkResponse>("/benchmarks"),
   liveStatus: () => request<LiveStatus>("/live/status"),
   liveSession,
   liveIngame: () => request<InGameSnapshot>("/live/ingame"),
