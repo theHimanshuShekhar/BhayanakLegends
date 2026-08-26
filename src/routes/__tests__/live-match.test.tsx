@@ -17,6 +17,7 @@ type ClientModule = { api: typeof ApiObject; [key: string]: unknown };
 // Mutable fixtures read lazily by the hook mocks below.
 const liveState = vi.hoisted(() => ({
   ingame: null as InGameSnapshot | null,
+  error: null as unknown,
 }));
 
 vi.mock("../../api/client", async (importOriginal) => {
@@ -40,7 +41,10 @@ vi.mock("../../api/hooks", async (importOriginal) => {
   return {
     ...actual,
     useLiveIngame: () =>
-      useQuery({ queryKey: ["live-ingame"], queryFn: () => Promise.resolve(liveState.ingame!) }),
+      useQuery({
+        queryKey: ["live-ingame"],
+        queryFn: () => liveState.error ? Promise.reject(liveState.error) : Promise.resolve(liveState.ingame!),
+      }),
   };
 });
 
@@ -69,21 +73,27 @@ function renderPage() {
 beforeEach(() => {
   pushSse = null;
   liveState.ingame = idleIngame;
+  liveState.error = null;
   vi.mocked(api.pack).mockClear();
   vi.mocked(api.pack).mockResolvedValue(makePack());
 });
 
 describe("LiveMatchPage — idle", () => {
-  it("renders the design chrome and a neutral roster skeleton", async () => {
+  it("renders one waiting announcement and neutral live regions", async () => {
     renderPage();
-    expect(await screen.findByTestId("bridge-status")).toHaveTextContent("waiting for :2999");
+    expect(await screen.findByTestId("live-route-status")).toHaveTextContent("Waiting for Live Companion game data");
+    expect(screen.getAllByText("Waiting for Live Companion game data")).toHaveLength(1);
+    expect(screen.queryByText(/waiting for :2999/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId("bridge-status")).toHaveTextContent("Live Companion idle");
     expect(screen.getByTestId("game-clock")).toHaveTextContent("0:00");
 
     const list = screen.getByTestId("player-list");
     expect(list).toHaveTextContent("PLAYER ROSTER");
     expect(screen.getByTestId("score-strip")).toHaveTextContent("Unavailable kills · Unavailable turrets");
-    expect(screen.getByTestId("waiting-pill")).toHaveTextContent("waiting for :2999");
-    // Skeleton rows carry no roster names — enemy or ally.
+    expect(screen.queryByTestId("waiting-pill")).not.toBeInTheDocument();
+    const bridgeDot = within(screen.getByTestId("bridge-status")).getByTestId("bridge-dot");
+    expect(bridgeDot).toHaveStyle({ background: "var(--color-dimmer)" });
+    expect(bridgeDot).not.toHaveStyle({ boxShadow: "0 0 8px var(--color-teal)" });
     expect(within(list).queryByText(/ornn|viego|taliyah|syndra/i)).not.toBeInTheDocument();
     expect(within(list).queryByText(forbiddenEnemyName)).not.toBeInTheDocument();
     expect(screen.queryByText(forbiddenEnemyName)).not.toBeInTheDocument();
@@ -123,10 +133,7 @@ describe("LiveMatchPage — idle", () => {
 
   it("keeps live panels honest when the snapshot is unavailable", async () => {
     renderPage();
-    expect(await screen.findByTestId("event-feed")).toHaveTextContent(
-      "event feed lands with the LCU bridge",
-    );
-    expect(screen.getByTestId("items-by-player")).toHaveTextContent("ITEMS BY PLAYER");
+    expect(await screen.findByTestId("event-feed")).toHaveTextContent("No snapshot");
     expect(screen.getByTestId("items-by-player")).toHaveTextContent("No snapshot");
     expect(screen.queryByTestId("dead-now")).not.toBeInTheDocument();
     expect(screen.queryByTestId("enemy-spells")).not.toBeInTheDocument();
@@ -135,6 +142,7 @@ describe("LiveMatchPage — idle", () => {
     expect(screen.queryByText(/Item values land with the LCU bridge/i)).not.toBeInTheDocument();
   });
 });
+
 
 describe("LiveMatchPage — active game", () => {
   beforeEach(() => {
@@ -281,6 +289,73 @@ describe("LiveMatchPage — active game", () => {
       expect(screen.getByTestId("game-clock").textContent).toMatch(/^2:0[2-9]$/),
     );
   });
+  it("updates snapshot-confirmed values in place and keeps events oldest first", async () => {
+    renderPage();
+    await screen.findByTestId("player-row-local");
+    const updated = {
+      ...ingameSnapshot,
+      teams: {
+        ...ingameSnapshot.teams,
+        order: ingameSnapshot.teams.order.map((player) =>
+          player.summoner === "FixturePlayer03" ? { ...player, kills: 8, cs: 240 } : player,
+        ),
+      },
+      events: [
+        ...ingameSnapshot.events,
+        { name: "ChampionKill" as const, t_s: 1300, actor: "FixturePlayer01", victim: null, detail: null },
+      ],
+    };
+    act(() => {
+      pushSse!({ type: "live.state", ts: "update", data: updated });
+    });
+    await waitFor(() => expect(screen.getByTestId("active-kda")).toHaveTextContent("8 / 2 / 7"));
+    expect(screen.getByTestId("active-stat-cs")).toHaveTextContent("240");
+    expect(screen.getByTestId("event-feed")).toHaveTextContent("7 events");
+    expect(screen.getByTestId("event-name-0")).toHaveTextContent("GameStart");
+    expect(screen.getByTestId("event-name-6")).toHaveTextContent("ChampionKill");
+  });
+
+  it("caps oversized event fixtures at the last 40 records in oldest-first order", async () => {
+    renderPage();
+    await screen.findByTestId("player-row-local");
+    const events = Array.from({ length: 41 }, (_, index) => ({
+      name: "GameStart" as const,
+      t_s: index + 1,
+      actor: null,
+      victim: null,
+      detail: null,
+    }));
+    act(() => {
+      pushSse!({ type: "live.state", ts: "oversized", data: { ...ingameSnapshot, events } });
+    });
+    await waitFor(() => expect(screen.getByTestId("event-feed")).toHaveTextContent("40 events"));
+    const rows = within(screen.getByTestId("event-feed-rows")).getAllByRole("listitem");
+    expect(rows).toHaveLength(40);
+    expect(rows[0]).toHaveTextContent("0:02");
+    expect(rows[39]).toHaveTextContent("0:41");
+  });
+
+  it("clears retained live values for malformed and reconnect-to-idle frames", async () => {
+    renderPage();
+    await screen.findByTestId("player-row-local");
+    act(() => {
+      pushSse!({ type: "live.state", ts: "malformed", data: { active: true } } as never);
+    });
+    await waitFor(() => expect(screen.getByTestId("live-route-status")).toHaveTextContent("Waiting for Live Companion game data"));
+    expect(screen.queryByTestId("player-row-local")).not.toBeInTheDocument();
+    expect(screen.getByTestId("event-feed")).toHaveTextContent("No snapshot");
+    expect(screen.getByTestId("bridge-status")).toHaveTextContent("Live Companion idle");
+  });
+  it("replaces waiting with the actionable live request error and clears stale values", async () => {
+    liveState.error = new Error("sidecar unavailable");
+    renderPage();
+    const error = await screen.findByTestId("ingame-error");
+    expect(error).toHaveTextContent("Something went wrong. Check your settings and try again.");
+    expect(screen.queryByTestId("live-route-status")).not.toBeInTheDocument();
+    expect(screen.queryByText("Waiting for Live Companion game data")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("player-row-local")).not.toBeInTheDocument();
+    expect(screen.getByTestId("event-feed")).toHaveTextContent("No snapshot");
+  });
 
   it("drops back to idle chrome when the game ends via SSE", async () => {
     renderPage();
@@ -288,7 +363,7 @@ describe("LiveMatchPage — active game", () => {
     await waitFor(() => expect(pushSse).toBeTruthy());
     pushSse!({ type: "live.state", ts: "t", data: idleIngame });
     await screen.findByTestId("player-list");
-    expect(screen.getByTestId("waiting-pill")).toHaveTextContent("waiting for :2999");
+    expect(screen.getByTestId("live-route-status")).toHaveTextContent("Waiting for Live Companion game data");
     expect(screen.queryByTestId("player-row-local")).toBeNull();
   });
 });

@@ -1,4 +1,4 @@
-import type { InGameSnapshot, LiveEvent, PlayerLive } from "../../api/types";
+import type { InGameSnapshot, PlayerLive } from "../../api/types";
 import { clockLabel, CardHead, Dot } from "./bits";
 
 export function ActivePlayerCard({ player }: { player: PlayerLive | null }) {
@@ -161,7 +161,7 @@ export function TeamVsTeamCard({ snapshot }: { snapshot: InGameSnapshot | undefi
       style={{ padding: 12, display: "flex", flexDirection: "column", gap: 9 }}
     >
       <CardHead color={active ? "var(--color-teal)" : "var(--color-dimmer)"} label="TEAM VS TEAM" />
-      {active ? (
+      {active && teams.some((team) => team.players.length > 0) ? (
         <div className="live-table-scroll" aria-label="Team totals table">
           <table aria-label="Team totals" style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
             <caption style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0, 0, 0, 0)", whiteSpace: "nowrap", border: 0 }}>
@@ -193,13 +193,18 @@ export function TeamVsTeamCard({ snapshot }: { snapshot: InGameSnapshot | undefi
           </table>
         </div>
       ) : (
-        <p data-testid="team-totals-unavailable" style={{ margin: 0, color: "var(--color-dimmer)", fontSize: 10 }}>No snapshot</p>
+        <p data-testid="team-totals-unavailable" style={{ margin: 0, color: "var(--color-dimmer)", fontSize: 10 }}>
+          {active ? "No team totals reported" : "No snapshot"}
+        </p>
       )}
     </section>
   );
 }
 
-export function EventFeedCard({ events }: { events: LiveEvent[] }) {
+export function EventFeedCard({ snapshot }: { snapshot: InGameSnapshot | undefined }) {
+  const active = snapshot?.active === true;
+  const events = active ? (snapshot.events.length > 40 ? snapshot.events.slice(-40) : snapshot.events) : [];
+
   return (
     <section
       className="card3"
@@ -207,11 +212,11 @@ export function EventFeedCard({ events }: { events: LiveEvent[] }) {
       style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}
     >
       <CardHead
-        color="var(--color-teal)"
+        color={active ? "var(--color-teal)" : "var(--color-dimmer)"}
         label="EVENT FEED"
         right={
           <span className="mono-n" style={{ fontSize: 9, color: "var(--color-dimmer)" }}>
-            {events.length} events
+            {active ? `${events.length} events` : "No snapshot"}
           </span>
         }
       />
@@ -277,7 +282,7 @@ export function EventFeedCard({ events }: { events: LiveEvent[] }) {
             fontSize: 10,
           }}
         >
-          event feed lands with the LCU bridge
+          {active ? "No events reported" : "No snapshot"}
         </div>
       )}
     </section>
@@ -298,7 +303,7 @@ export function ItemsByPlayerCard({ snapshot }: { snapshot: InGameSnapshot | und
       style={{ padding: 12, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 7 }}
     >
       <CardHead color={active ? "var(--color-teal)" : "var(--color-dimmer)"} label="ITEMS BY PLAYER" />
-      {active ? (
+      {active && teams.some((team) => team.players.length > 0) ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
           {teams.map(({ key, label, players }) => (
             <section key={key} aria-labelledby={`items-${key}-heading`}>
@@ -326,7 +331,9 @@ export function ItemsByPlayerCard({ snapshot }: { snapshot: InGameSnapshot | und
           ))}
         </div>
       ) : (
-        <p data-testid="items-unavailable" style={{ margin: 0, color: "var(--color-dimmer)", fontSize: 10 }}>No snapshot</p>
+        <p data-testid="items-unavailable" style={{ margin: 0, color: "var(--color-dimmer)", fontSize: 10 }}>
+          {active ? "No player items reported" : "No snapshot"}
+        </p>
       )}
     </section>
   );
