@@ -1,5 +1,5 @@
 import type { FindingsPack } from "../../api/types";
-import type { ChampSelectSessionView, FindingsPackState } from "./shared";
+import type { FindingsPackState } from "./shared";
 
 const PERCENT = /\d+(?:\.\d+)?%/g;
 
@@ -7,11 +7,9 @@ const PERCENT = /\d+(?:\.\d+)?%/g;
 // Personal History was used to produce this result.
 export function MasteryCard({
   pack,
-  session: _session,
   packState,
 }: {
   pack: FindingsPack | undefined;
-  session: ChampSelectSessionView;
   packState: FindingsPackState;
 }) {
   const mastery = pack?.findings.find((f) => f.key === "mastery_premium");
@@ -20,12 +18,13 @@ export function MasteryCard({
     mastery && mastery.value != null && mastery.unit
       ? `${mastery.value >= 0 ? "+" : ""}${mastery.value}${mastery.unit}`
       : null;
+  const hasResult = mastery != null && nums.length >= 2;
   const unavailable =
     packState === "loading"
       ? "Loading Findings Pack mastery cohort result."
       : packState === "error"
         ? "Unavailable: Findings Pack mastery cohort result could not be loaded."
-        : packState === "missing" || !mastery
+        : packState === "missing" || !hasResult
           ? "Unavailable: Findings Pack mastery cohort result is missing."
           : null;
 

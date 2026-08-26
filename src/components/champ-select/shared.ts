@@ -1,4 +1,4 @@
-import type { AssignedRole, CellState, FindingsPack, TierEntry } from "../../api/types";
+import type { AssignedRole, CellState } from "../../api/types";
 
 export type FindingsPackState = "loading" | "available" | "missing" | "error";
 
@@ -35,13 +35,6 @@ export function pct1(v: number): string {
   return `${(v * 100).toFixed(1)}%`;
 }
 
-export function pickHero(pack: FindingsPack | undefined, role: AssignedRole | null): TierEntry | undefined {
-  if (!role) return undefined;
-  return (pack?.tier_list ?? [])
-    .filter((t) => t.role === role)
-    .sort((a, b) => b.win_rate - a.win_rate)
-    .find((t) => t.tier === "S" || t.tier === "A");
-}
 
 export interface PhaseChip {
   label: string;

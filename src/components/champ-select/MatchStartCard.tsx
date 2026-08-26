@@ -77,25 +77,20 @@ export function MatchStartCard({ session }: { session: ChampSelectSessionView })
         </div>
       </div>
       {!locked && (
-        <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 7 }}>
-          <button
-            type="button"
-            disabled
-            data-testid="cs-lock-button"
-            title="Locking happens in the League client — this panel mirrors the session."
-            style={{
-              padding: "10px 12px",
-              borderRadius: 999,
-              border: "none",
-              background: "var(--color-surface-3)",
-              color: "var(--color-dim)",
-              font: "700 11px var(--font-mono)",
-              textAlign: "center",
-              cursor: "not-allowed",
-            }}
-          >
-            {pick ? `Lock ${pick} in the client` : "Choose a pick in the client"}
-          </button>
+        <div
+          data-testid="cs-lock-status"
+          role="status"
+          style={{
+            marginTop: "auto",
+            padding: "10px 12px",
+            borderRadius: 12,
+            background: "var(--color-surface-3)",
+            color: "var(--color-dim)",
+            fontSize: 10,
+            lineHeight: 1.4,
+          }}
+        >
+          {pick ? `Lock ${pick} in the League client.` : "Choose a pick in the League client."} This panel mirrors the session and cannot lock it.
         </div>
       )}
     </div>
