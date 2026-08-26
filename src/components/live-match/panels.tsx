@@ -17,93 +17,87 @@ export function ActivePlayerCard({ player }: { player: PlayerLive | null }) {
         <h2 style={{ margin: 0, font: "700 9.5px var(--font-mono)", letterSpacing: ".11em", color: "var(--color-dim)" }}>
           Active player
         </h2>
-        <span className="mono-n" data-testid="active-player-sub" style={{ fontSize: 10, color: player ? "var(--color-text)" : "var(--color-dimmer)" }}>
-          {player
-            ? `${player.summoner} · ${player.champion ?? "Unavailable"}`
-            : "Unavailable level · Unavailable gold"}
-        </span>
+        {player && (
+          <span className="mono-n" data-testid="active-player-sub" style={{ fontSize: 10, color: "var(--color-text)" }}>
+            {player.summoner} · {player.champion ?? "Unavailable"}
+          </span>
+        )}
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-        <div
-          style={{
-            width: 48,
-            height: 48,
-            borderRadius: 16,
-            background: "var(--color-surface-3)",
-            display: "grid",
-            placeItems: "center",
-            font: "700 14px var(--font-mono)",
-            color: player ? "#e9e9ed" : "var(--color-dimmer)",
-          }}
-        >
-          {player?.champion ? player.champion.replace(/[^a-zA-Z]/g, "").slice(0, 2).toUpperCase() : <span aria-label="Unavailable">Unavailable</span>}
-        </div>
-        <div style={{ flex: 1 }}>
-          <div
-            style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "var(--color-dim)", marginBottom: 3 }}
-          >
-            <span>K / D / A</span>
-            <span className="mono-n" data-testid="active-kda">
-              {player ? `${player.kills} / ${player.deaths} / ${player.assists}` : <span aria-label="Unavailable">Unavailable</span>}
-            </span>
+      {player ? (
+        <>
+          <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+            <div
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: 16,
+                background: "var(--color-surface-3)",
+                display: "grid",
+                placeItems: "center",
+                font: "700 14px var(--font-mono)",
+                color: "#e9e9ed",
+              }}
+            >
+              {player.champion ? player.champion.replace(/[^a-zA-Z]/g, "").slice(0, 2).toUpperCase() : (
+                <>
+                  <span aria-hidden="true">—</span>
+                  <span className="sr-only">Unavailable</span>
+                </>
+              )}
+            </div>
+            <div style={{ flex: 1 }}>
+              <div
+                style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "var(--color-dim)" }}
+              >
+                <span>K / D / A</span>
+                <span
+                  className="mono-n"
+                  data-testid="active-kda"
+                  aria-label={`Kills ${player.kills}; deaths (cumulative) ${player.deaths}; assists ${player.assists}`}
+                >
+                  {`${player.kills} / ${player.deaths} / ${player.assists}`}
+                </span>
+              </div>
+            </div>
           </div>
-          <div
-            style={{
-              height: 8,
-              borderRadius: 999,
-              background: "var(--color-deep)",
-              boxShadow: "inset 0 2px 5px rgba(0,0,0,.8)",
-              overflow: "hidden",
-            }}
-          />
-        </div>
-      </div>
-      <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
-        {(player
-          ? ([
+          <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+            {([
               ["LEVEL", String(player.level)],
               ["CS", String(player.cs)],
               ["WARD", player.ward_score.toFixed(1)],
-            ] as const)
-          : ([
-              ["LEVEL", "Unavailable"],
-              ["CS", "Unavailable"],
-              ["WARD", "Unavailable"],
-            ] as const)
-        ).map(([label, value]) => (
-          <div
-            key={label}
-            data-testid={`active-stat-${label.toLowerCase()}`}
-            style={{
-              padding: "7px 8px",
-              borderRadius: 11,
-              background: "rgba(10,11,22,.5)",
-              boxShadow: "inset 0 2px 5px rgba(0,0,0,.55)",
-            }}
-          >
-            <div className="mono-n" style={{ font: "700 14px var(--font-mono)", color: player ? "var(--color-text)" : "var(--color-dimmer)" }}>
-              {value}
-            </div>
-            <div style={{ fontSize: 8, letterSpacing: ".06em", color: "var(--color-dimmer)" }}>{label}</div>
+            ] as const).map(([label, value]) => (
+              <div
+                key={label}
+                data-testid={`active-stat-${label.toLowerCase()}`}
+                style={{
+                  padding: "7px 8px",
+                  borderRadius: 11,
+                  background: "rgba(10,11,22,.5)",
+                  boxShadow: "inset 0 2px 5px rgba(0,0,0,.55)",
+                }}
+              >
+                <div className="mono-n" style={{ font: "700 14px var(--font-mono)", color: "var(--color-text)" }}>
+                  {value}
+                </div>
+                <div style={{ fontSize: 8, letterSpacing: ".06em", color: "var(--color-dimmer)" }}>{label}</div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-      {!player && (
+        </>
+      ) : (
         <div
+          data-testid="active-player-unavailable"
           style={{
-            marginTop: 9,
-            display: "flex",
-            gap: 8,
-            padding: 9,
+            padding: "16px 9px",
             borderRadius: 13,
             background: "var(--color-surface-2)",
             boxShadow: "var(--shadow-z1)",
+            color: "var(--color-dim)",
+            fontSize: 10.5,
+            textAlign: "center",
           }}
         >
-          <p style={{ margin: 0, fontSize: 10.5, lineHeight: 1.5, color: "var(--color-dim)" }}>
-            Health, level and held gold read from the game state — they land when the :2999 bridge
-            connects.
-          </p>
+          Local player unavailable
         </div>
       )}
     </section>
