@@ -173,6 +173,7 @@ export function SyncPanel() {
     <section
       className="card3b"
       data-testid="sync-panel"
+      aria-label="Backfill"
       style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>

@@ -24,11 +24,16 @@ export function WinProbabilityCard({
     <section
       className="card3b"
       data-testid="wp-band"
+      aria-labelledby="wp-band-heading"
       style={{ padding: 14, display: "flex", flexDirection: "column" }}
     >
       <SectionHead
         color="var(--color-info)"
-        label={`WIN PROBABILITY · FINDINGS PACK${packVersion ? ` ${packVersion}` : ""}`}
+        label={
+          <span id="wp-band-heading">
+            {`WIN PROBABILITY · FINDINGS PACK${packVersion ? ` ${packVersion}` : ""}`}
+          </span>
+        }
         right={
           <span
             className="mono-n"

@@ -46,12 +46,18 @@ export function ConnectionStatus({ connected }: { connected: boolean }) {
 export function Layout({ children }: { children: ReactNode }) {
   const connected = useEvents();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const initialPathname = useRef(pathname);
+  const skipInitialFocus = useRef(true);
   const screenRef = useRef<HTMLElement>(null);
   const focusRafRef = useRef<number>(0);
 
   useEffect(() => {
-    if (pathname === initialPathname.current) return;
+    // Skip only the mount run: opening the app must not steal focus. Every
+    // later navigation — including POP back to the starting route — transfers
+    // focus to the destination heading.
+    if (skipInitialFocus.current) {
+      skipInitialFocus.current = false;
+      return;
+    }
     const screen = screenRef.current;
     if (!screen) return;
 

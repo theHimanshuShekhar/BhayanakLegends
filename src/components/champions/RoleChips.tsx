@@ -41,6 +41,7 @@ export function RoleChips({
             }}
           >
             <span
+              aria-hidden="true"
               style={{
                 width: 24,
                 height: 24,
