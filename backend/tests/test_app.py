@@ -7,7 +7,7 @@ from pydantic import ValidationError
 
 from fastapi.testclient import TestClient
 
-from bhayanak_legends.app import APP_VERSION, create_app
+from bhayanak_legends.app import APP_VERSION, _allow_loopback_http, create_app
 from bhayanak_legends.config import SidecarConfig
 from bhayanak_legends.credentials import InMemoryCredentialStore
 from bhayanak_legends.pack import PackError
@@ -34,6 +34,23 @@ AUTH = {
     "X-BL-Token": "test-token-123456789012345678901234",
     "Host": "127.0.0.1:23110",
 }
+
+
+@pytest.mark.parametrize(
+    ("manifest_url", "allowed"),
+    [
+        ("http://127.0.0.1/findings-pack-manifest.json", True),
+        ("http://127.0.0.1:41287/findings-pack-manifest.json", True),
+        ("https://127.0.0.1:41287/findings-pack-manifest.json", False),
+        ("http://localhost:41287/findings-pack-manifest.json", False),
+        ("http://[::1]:41287/findings-pack-manifest.json", False),
+        ("http://127.0.0.2:41287/findings-pack-manifest.json", False),
+        ("http://127.0.0.1@evil.example/findings-pack-manifest.json", False),
+        ("http://user:password@127.0.0.1:41287/findings-pack-manifest.json", False),
+    ],
+)
+def test_release_manifest_loopback_http_opt_in_is_strict(manifest_url, allowed):
+    assert _allow_loopback_http(manifest_url) is allowed
 
 
 def test_health_requires_auth(client):

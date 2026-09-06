@@ -3,6 +3,7 @@ import logging
 import os
 import sys
 import time
+import urllib.parse
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -45,6 +46,19 @@ log = logging.getLogger("bhayanak_legends")
 PACK_VALIDATION_ERROR_DETAIL = "Findings Pack validation failed"
 PACK_UNAVAILABLE_DETAIL = "Findings Pack unavailable"
 
+
+def _allow_loopback_http(manifest_url: str) -> bool:
+    """Permit HTTP only for the exact credential-free IPv4 loopback host."""
+    try:
+        parsed = urllib.parse.urlparse(manifest_url)
+    except ValueError:
+        return False
+    return (
+        parsed.scheme == "http"
+        and parsed.hostname == "127.0.0.1"
+        and parsed.username is None
+        and parsed.password is None
+    )
 
 class DevImportRequest(BaseModel):
     dir: str
@@ -92,6 +106,7 @@ def _startup_release_channel_check(app: FastAPI) -> None:
         app.state.pack.pack_dir,
         manifest_url=manifest_url,
         app_version=app.state.app_version,
+        allow_loopback_http=_allow_loopback_http(manifest_url),
     )
     app.state.release_channel = channel
     app.state.release_channel_task = asyncio.create_task(

@@ -143,8 +143,20 @@ async function fetchAuthenticatedHealth(page, sidecarInfo) {
 }
 
 async function runUpdateAvailablePhase(page) {
-  await waitUpdaterText(page, new RegExp(`^Version ${escapeRegExp(expectedVersion)} is available\\.$`), 30_000);
-
+  try {
+    await waitUpdaterText(page, new RegExp(`^Version ${escapeRegExp(expectedVersion)} is available\\.$`), 30_000);
+  } catch (error) {
+    const rawCheck = await page.evaluate(async () => {
+      try {
+        const metadata = await window.__TAURI_INTERNALS__.invoke("plugin:updater|check", {});
+        return { ok: true, version: metadata?.version ?? null, keys: Object.keys(metadata ?? {}) };
+      } catch (rawError) {
+        return { ok: false, error: rawError instanceof Error ? rawError.message : String(rawError) };
+      }
+    });
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`${message}; raw plugin check: ${JSON.stringify(rawCheck)}`);
+  }
   await page.getByRole("button", { name: "Install update" }).click();
 
   // On Windows the updater plugin spawns the NSIS installer and calls
