@@ -42,12 +42,17 @@ def main() -> int:
     except OSError as exc:
         raise SystemExit(f"cannot read manifest: {exc}") from exc
     output = args.output or args.manifest.with_name(args.manifest.name + ".sig")
+    temporary = output.with_name(f".{output.name}.tmp")
     try:
-        output.write_bytes(
-            base64.b64encode(Ed25519PrivateKey.from_private_bytes(_private_key(secret)).sign(raw)) + b"\n"
-        )
+        signature = base64.b64encode(
+            Ed25519PrivateKey.from_private_bytes(_private_key(secret)).sign(raw)
+        ) + b"\n"
+        temporary.write_bytes(signature)
+        os.replace(temporary, output)
     except OSError as exc:
         raise SystemExit(f"cannot write signature: {exc}") from exc
+    finally:
+        temporary.unlink(missing_ok=True)
     return 0
 
 

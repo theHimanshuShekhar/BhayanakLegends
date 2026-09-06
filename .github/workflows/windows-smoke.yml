@@ -163,6 +163,8 @@ jobs:
             Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "BHAYANAK_PACK_RELEASE_MANIFEST_PUBLIC_KEY=$($fixtureInfo.manifest_public_key)" |
             Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "SMOKE_PACK_VERSION=$($fixtureInfo.pack_version)" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Point updater at local fixture and build lower-version NSIS app
         shell: pwsh
@@ -194,7 +196,8 @@ jobs:
             -InstallRoot "$env:RUNNER_TEMP\bl-packaged-install" `
             -DebugPort $debugPort `
             -StatePath "$env:SMOKE_DIAGNOSTICS\smoke-state.json" `
-            -ExpectedVersion "$env:SMOKE_VALID_VERSION"
+            -ExpectedVersion "$env:SMOKE_VALID_VERSION" `
+            -ExpectedPackVersion "$env:SMOKE_PACK_VERSION"
 
       - name: Verify updater stayed on the local fixture
         if: ${{ always() }}

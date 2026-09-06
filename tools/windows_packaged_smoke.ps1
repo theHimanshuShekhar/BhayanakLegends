@@ -4,7 +4,8 @@ param(
   [Parameter(Mandatory = $true)][string]$InstallRoot,
   [Parameter(Mandatory = $true)][string]$DebugPort,
   [Parameter(Mandatory = $true)][string]$StatePath,
-  [Parameter(Mandatory = $true)][string]$ExpectedVersion
+  [Parameter(Mandatory = $true)][string]$ExpectedVersion,
+  [Parameter(Mandatory = $true)][string]$ExpectedPackVersion
 )
 
 $ErrorActionPreference = "Stop"
@@ -12,6 +13,7 @@ $state = [ordered]@{
   installer = $InstallerPath
   install_root = $InstallRoot
   debug_port = [int]$DebugPort
+  expected_pack_version = $ExpectedPackVersion
   expected_version = $ExpectedVersion
   phases = @()
   owned_sidecars = @()
@@ -102,7 +104,8 @@ try {
   $app = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru
   try {
     & node tools/windows_packaged_smoke.mjs `
-      --phase valid --debug-port $DebugPort --expected-version $ExpectedVersion
+      --phase valid --debug-port $DebugPort --expected-version $ExpectedVersion `
+      --expected-pack-version $ExpectedPackVersion
     if ($LASTEXITCODE -ne 0) { throw "webview assertion failed during signed update phase" }
     $state.phases += [ordered]@{
       name = "ready-to-restart"
@@ -142,7 +145,8 @@ try {
 
   try {
     & node tools/windows_packaged_smoke.mjs `
-      --phase durable --debug-port $DebugPort --expected-version $ExpectedVersion
+      --phase durable --debug-port $DebugPort --expected-version $ExpectedVersion `
+      --expected-pack-version $ExpectedPackVersion
     if ($LASTEXITCODE -ne 0) { throw "webview assertion failed during mismatched-signature phase" }
     $state.phases += [ordered]@{
       name = "mismatched-signature"

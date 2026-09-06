@@ -44,4 +44,10 @@ pnpm build                          # typecheck + bundle
 
 ## Releases
 
-Tag a `v*` push: GitHub Actions builds the Windows installer + signed auto-update feed via tauri-action ([docs/adr/0007](docs/adr/0007-public-release-channel-tauri-updater.md)). Repo secrets required: `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+Tag a `v*` push: GitHub Actions validates the packaged Windows smoke, builds
+the deterministic canonical Findings Pack v2 payload, signs its generated
+manifest, and publishes the public token-free pack channel beside the signed
+Tauri auto-update feed (see [docs/adr/0005](docs/adr/0005-pack-delivery-via-release-channel.md)
+and [docs/workflows.md](docs/workflows.md)). Repo secrets required:
+`TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, and
+`FINDINGS_PACK_MANIFEST_SIGNING_KEY`.

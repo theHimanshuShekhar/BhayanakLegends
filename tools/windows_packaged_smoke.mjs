@@ -7,9 +7,10 @@ for (let index = 2; index < process.argv.length; index += 2) {
 const phase = args.get("--phase");
 const debugPort = args.get("--debug-port");
 const expectedVersion = args.get("--expected-version");
-if (!["valid", "durable"].includes(phase) || !debugPort || !expectedVersion) {
+const expectedPackVersion = args.get("--expected-pack-version");
+if (!["valid", "durable"].includes(phase) || !debugPort || !expectedVersion || !expectedPackVersion) {
   throw new Error(
-    "usage: windows_packaged_smoke.mjs --phase valid|durable --debug-port PORT --expected-version VERSION",
+    "usage: windows_packaged_smoke.mjs --phase valid|durable --debug-port PORT --expected-version VERSION --expected-pack-version PACK_VERSION",
   );
 }
 
@@ -53,6 +54,113 @@ async function assertSidecarHealth(page, sidecarInfo) {
   }
 }
 
+async function assertCoreRoutes(page, sidecarInfo) {
+  const routes = [
+    "/health",
+    "/pack",
+    "/history/summary",
+    "/history/insights",
+    "/benchmarks",
+    "/postgame/latest",
+    "/live/status",
+    "/live/session",
+    "/live/ingame",
+  ];
+  const results = await page.evaluate(async ({ port, token, routes: paths }) => {
+    const responses = await Promise.all(
+      paths.map(async (path) => {
+        try {
+          const response = await fetch(`http://127.0.0.1:${port}${path}`, {
+            headers: { "X-BL-Token": token },
+          });
+          return { path, status: response.status };
+        } catch {
+          return { path, status: 0 };
+        }
+      }),
+    );
+    return responses;
+  }, { port: sidecarInfo.port, token: sidecarInfo.token, routes });
+  const failed = results.filter((result) => result.status !== 200);
+  if (failed.length > 0) {
+    throw new Error(`packaged core route check failed: ${JSON.stringify(failed)}`);
+  }
+}
+
+function assertModelInventory(pack) {
+  if (!pack || pack.schema_version !== 2 || pack.pack_version !== expectedPackVersion) {
+    throw new Error("packaged sidecar did not return the exact canonical Findings Pack");
+  }
+  if (!pack.models || typeof pack.models !== "object" || Array.isArray(pack.models)) {
+    throw new Error("packaged Findings Pack has no model inventory");
+  }
+  const available = [];
+  for (const [key, declaration] of Object.entries(pack.models)) {
+    if (!declaration || typeof declaration !== "object") {
+      throw new Error(`model declaration ${key} is malformed`);
+    }
+    if (declaration.release_status === "available") {
+      if (!declaration.artifact || !declaration.model_card) {
+        throw new Error(`available model ${key} is missing its artifact/card`);
+      }
+      if (declaration.artifact.format !== "onnx") {
+        throw new Error(`available model ${key} is not an ONNX artifact`);
+      }
+      available.push({
+        key,
+        model_version: declaration.model_card.model_version,
+        artifact_path: declaration.artifact.path,
+        card_path: declaration.artifact.model_card_path,
+      });
+    } else if (key === "surrender_advisor" && declaration.release_status !== "withheld") {
+      throw new Error("Surrender Advisor must remain withheld in the packaged smoke");
+    }
+  }
+  // Startup validates each available ONNX artifact and its card. An empty
+  // available set is valid for a withheld-model seed; inference is conditional.
+  return available;
+}
+
+async function assertAvailableModelInference(page, sidecarInfo, availableModels) {
+  if (availableModels.length === 0) {
+    return { attempted: false, status: "no-available-model", model_count: 0 };
+  }
+  const result = await page.evaluate(async ({ port, token }) => {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/history/what-if`, {
+        method: "POST",
+        headers: {
+          "X-BL-Token": token,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ adjustments: {} }),
+      });
+      return response.ok ? response.json() : { status: `http-${response.status}` };
+    } catch (error) {
+      return { status: "request-failed", reason: String(error) };
+    }
+  }, { port: sidecarInfo.port, token: sidecarInfo.token });
+  if (result.status === "available") {
+    if (
+      typeof result.probability !== "number" ||
+      !Number.isFinite(result.probability) ||
+      result.probability < 0 ||
+      result.probability > 1 ||
+      typeof result.model_version !== "string" ||
+      result.pack_version !== expectedPackVersion
+    ) {
+      throw new Error("available Personal What-If inference returned an invalid result");
+    }
+  } else if (result.status === "error" || result.status === "request-failed") {
+    throw new Error(`available model inference failed: ${result.reason ?? result.status}`);
+  }
+  return {
+    attempted: true,
+    status: result.status,
+    model_count: availableModels.length,
+  };
+}
+
 try {
   const context = browser.contexts()[0];
   const page = context.pages()[0];
@@ -89,16 +197,16 @@ try {
   if (!(await connectionStatus.innerText()).includes("sidecar · connected")) {
     throw new Error("sidecar health was not observable in the webview");
   }
-  const activePack = await page.evaluate(async ({ port, token }) => {
+  const activePack = await page.evaluate(async ({ port, token, expected }) => {
     const until = Date.now() + 20_000;
     while (Date.now() < until) {
       try {
-        const response = await fetch(`http://127.0.0.1:${port}/health`, {
+        const response = await fetch(`http://127.0.0.1:${port}/pack`, {
           headers: { "X-BL-Token": token },
         });
         if (response.ok) {
-          const health = await response.json();
-          if (health.pack_version === "v2-smoke") return health;
+          const pack = await response.json();
+          if (pack.pack_version === expected) return pack;
         }
       } catch {
         // The sidecar may still be binding or completing its startup release check.
@@ -106,8 +214,10 @@ try {
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
     return null;
-  }, { port: sidecarInfo.port, token: sidecarInfo.token });
-  if (!activePack) throw new Error("active Findings Pack release was not loaded");
+  }, { port: sidecarInfo.port, token: sidecarInfo.token, expected: expectedPackVersion });
+  const availableModels = assertModelInventory(activePack);
+  await assertCoreRoutes(page, sidecarInfo);
+  const inference = await assertAvailableModelInference(page, sidecarInfo, availableModels);
 
   const updaterStatus = page.getByTestId("updater-status");
   await updaterStatus.waitFor({ state: "visible", timeout: 15_000 });
@@ -129,6 +239,9 @@ try {
         phase,
         updater: "signed-download-ready-to-restart",
         version: expectedVersion,
+        pack_version: expectedPackVersion,
+        model_count: availableModels.length,
+        inference,
         sidecar_port: sidecarInfo.port,
         sidecar_status: sidecarInfo.status,
       }),
@@ -151,6 +264,9 @@ try {
         phase,
         updater: "mismatched-signature-rejected",
         version: expectedVersion,
+        pack_version: expectedPackVersion,
+        model_count: availableModels.length,
+        inference,
         sidecar_port: sidecarInfo.port,
         sidecar_status: sidecarInfo.status,
       }),

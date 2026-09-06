@@ -25,32 +25,38 @@ genuinely signed higher-version NSIS updater archive with
 `createUpdaterArtifacts: true`, retains the emitted detached signature, and
 serves those exact files from `tools/windows_updater_fixture.py`. The fixture
 copies the checked-in diagnostic Findings Pack v2 seed through the
-consumer-side bridge (`--bootstrap`); it does not build population metrics.
-Production pack assets must instead be supplied explicitly with
-`backend/tools/build_pack.py --artifact <LoLTrends-exported-artifact>`.
+consumer-side bridge (`--bootstrap`), then archives every seed file
+byte-for-byte (including each available model and its model card). It never
+builds population metrics, changes `pack_version`, or substitutes an empty
+`required_model_artifacts` list. Production pack assets must instead be
+supplied explicitly with `backend/tools/build_pack.py --artifact
+<LoLTrends-exported-artifact>`.
 The bridge validates the artifact against the canonical companion schema and
 fails closed on a cross-repo shape mismatch; it never translates an upstream
-catalog or Feature Store export. The fixture creates an ephemeral Ed25519
-keypair, signs the exact raw pack manifest, and serves the manifest, detached
-signature, and pack asset. It records path-only requests, advertises the valid
+catalog or Feature Store export. The fixture signs a deterministic manifest
+key over the exact canonical pack bytes and serves the manifest, detached
+signature, and payload. It records path-only requests, advertises the valid
 higher version first, then advertises a second higher version whose artifact
 bytes were changed without changing the detached signature.
+`tools/findings_pack_payload.py` is shared by the release builder and this
+fixture so local tests cannot silently drift from the signed payload.
 `tools/patch_updater_endpoint.py` temporarily replaces the endpoint, paired
 public key, app version, and smoke-only `dangerousInsecureTransport` setting;
-the workflow restores the production endpoint, public key, version, and
-transport flag in an unconditional cleanup step.
-
 `tools/windows_packaged_smoke.mjs` connects to the packaged WebView2 through
 the runner-local CDP port and asserts an authenticated ephemeral sidecar,
 using the token returned by the `sidecar_info` handshake rather than a
-hard-coded development token. It then asserts the active Findings Pack v2
-release and the existing user-facing `Install update` action. The valid phase
-proves signed download/verification and waits for `ready-to-restart`. The
-PowerShell harness closes and relaunches the installed executable, proves its
-file version changed to the higher version, then runs the mismatched-signature
-phase. That phase requires explicit signature rejection, unchanged installed
-files/version, and a healthy sidecar after the rejection. Startup failures are
-written to structured `smoke-state.json` without leaving owned sidecars behind.
+hard-coded development token. It fetches `/pack`, checks the exact canonical
+pack version/schema, inventories every declared available model/card, and
+relies on startup's strict ONNX smoke validation (with a What-If request when
+Personal History is available) rather than accepting a declaration-only model
+fixture. It then asserts the existing user-facing `Install update` action.
+The valid phase proves signed download/verification and waits for
+`ready-to-restart`. The PowerShell harness closes and relaunches the installed
+executable, proves its file version changed to the higher version, then runs
+the mismatched-signature phase. That phase requires explicit signature
+rejection, unchanged installed files/version, and a healthy sidecar after the
+rejection. Startup failures are written to structured `smoke-state.json`
+without leaving owned sidecars behind.
 
 `tools/check_windows_smoke_fixture.py` requires valid metadata and artifact
 requests, mismatched metadata and rejected-artifact requests, Findings Pack
@@ -72,17 +78,42 @@ install/relaunch, dynamic WebView rendering, mismatched-signature rejection,
 and owned-sidecar cleanup; this repository does not dispatch that run
 automatically.
 
+## Findings Pack release publisher
+
+On a `v*` tag, `release.yml` consumes the checked-in companion
+`pack/` directory and runs
+`tools/build_findings_pack_release.py`. That consumer-side builder validates
+schema, semantics, and all declared ONNX/card bytes, then writes a deterministic
+`findings-pack.v2.zip` and a manifest containing the Pack v2 version, minimum
+app version, flattened feature-contract versions, payload size/hash, and every
+available model/card pin. The manifest is always generated; it is never
+conditionally skipped because a stale checked-in manifest cannot describe a
+new pack. The manifest is signed over its exact bytes with the
+owner-provisioned `FINDINGS_PACK_MANIFEST_SIGNING_KEY`; the key is not bundled.
+
+`tauri-action` first publishes the signed Windows updater release and its
+`latest.json`. A following token-authenticated CI upload adds
+`findings-pack.v2.zip`, `findings-pack-manifest.json`, and
+`findings-pack-manifest.json.sig` to the same tag. Installed clients use only
+the public `releases/latest/download/findings-pack-manifest.json` locator;
+they carry no GitHub token. The sidecar resolves `latest` to one immutable tag,
+fetches the tagged manifest/signature/payload (allowing only GitHub's bounded
+CDN transfer redirect), authenticates the raw manifest before parsing it, and
+validates the complete candidate before its atomic activation transaction.
+
 ## Windows release shell map
 
 The `publish` job runs on `windows-latest`. Its Bash-targeted `run` steps
-(`Build Python sidecar binary`, `Sign Findings Pack manifest`, `Verify updater
-signing prerequisites`, `Check Windows updater artifacts`, and `Verify emitted
-updater artifacts`) each declare `shell: bash`, so heredocs, continuations,
-assignments, and `${GITHUB_REF_NAME#v}` are interpreted by Git for Windows
-Bash rather than PowerShell. The other `run` steps in that job (`pnpm install`
-and `pnpm tauri build --bundles nsis`) intentionally use the Windows runner's
-default `pwsh`; `tauri-action` is an action and has no step shell. The
-prerequisite and artifact-check commands use the provisioned
+(`Build Python sidecar binary`, `Build canonical Findings Pack release
+payload`, `Sign Findings Pack manifest`, `Verify generated Findings Pack
+payload`, `Verify updater signing prerequisites`, `Check Windows updater
+artifacts`, `Publish Findings Pack channel assets`, and `Verify emitted updater
+artifacts`) each declare `shell: bash`, so heredocs, continuations, assignments,
+and `${GITHUB_REF_NAME#v}` are interpreted by Git for Windows Bash rather than
+PowerShell. The other `run` steps in that job (`pnpm install` and `pnpm tauri
+build --bundles nsis`) intentionally use the Windows runner's default `pwsh`;
+`tauri-action` is an action and has no step shell. The prerequisite,
+packaging, signing, and artifact-check commands use the provisioned
 `uv run --project backend --locked python` environment, write temporary files
 beneath `$RUNNER_TEMP`, and derive one `VERSION` value from the `v*` tag.
 
