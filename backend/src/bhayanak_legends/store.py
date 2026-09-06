@@ -77,7 +77,11 @@ class Store:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA busy_timeout = 30000")
         self._lock = threading.RLock()
-        self._initialize_schema()
+        try:
+            self._initialize_schema()
+        except Exception:
+            self._conn.close()
+            raise
 
     @staticmethod
     def owner_key_for_puuid(puuid: str) -> str:
@@ -89,22 +93,137 @@ class Store:
 
     def _initialize_schema(self) -> None:
         version = int(self._conn.execute("PRAGMA user_version").fetchone()[0])
-        if version not in {0, _SCHEMA_VERSION}:
+        if version not in {0, 1, _SCHEMA_VERSION}:
             raise RuntimeError(
                 f"unsupported database schema version {version}; "
                 f"this build supports schema {_SCHEMA_VERSION}"
             )
         with self._lock:
-            self._conn.execute("BEGIN IMMEDIATE")
+            self._begin_immediate()
             try:
+                quarantined = self._quarantine_legacy_tables()
                 for statement in _SCHEMA_STATEMENTS:
                     self._conn.execute(statement)
-                if version == 0:
+                if quarantined:
+                    # A legacy row has no trustworthy immutable owner.  Even
+                    # stale owner metadata from an interrupted earlier build
+                    # must not make it visible through the active namespace.
+                    self._set_unassigned_after_quarantine()
+                self._recover_interrupted_transition()
+                if version != _SCHEMA_VERSION:
                     self._conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
                 self._conn.commit()
             except Exception:
-                self._conn.rollback()
+                self._rollback()
                 raise
+
+    @staticmethod
+    def _quote_identifier(identifier: str) -> str:
+        return '"' + identifier.replace('"', '""') + '"'
+
+    def _table_columns_unlocked(self, table: str) -> list[str]:
+        quoted = self._quote_identifier(table)
+        return [
+            str(row["name"])
+            for row in self._conn.execute(f"PRAGMA table_info({quoted})").fetchall()
+        ]
+
+    def _table_exists_unlocked(self, table: str) -> bool:
+        return (
+            self._conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                (table,),
+            ).fetchone()
+            is not None
+        )
+
+    def _quarantine_legacy_tables(self) -> bool:
+        """Move ownerless v1 tables aside without ever assigning their rows.
+
+        This runs inside the schema transaction.  A crash or injected failure
+        therefore leaves either the untouched legacy tables or the complete
+        v2 schema; opening the database again safely retries the operation.
+        """
+        quarantined = False
+        for table in ("matches", "sync_queue"):
+            if not self._table_exists_unlocked(table):
+                continue
+            columns = set(self._table_columns_unlocked(table))
+            required_columns = (
+                {
+                    "owner_key",
+                    "match_id",
+                    "played_at",
+                    "patch",
+                    "role",
+                    "champion",
+                    "win",
+                    "duration_s",
+                    "features_json",
+                }
+                if table == "matches"
+                else {
+                    "owner_key",
+                    "match_id",
+                    "region_route",
+                    "priority",
+                    "state",
+                    "attempts",
+                    "added_at",
+                }
+            )
+            if required_columns <= columns:
+                continue
+            target = f"legacy_{table}"
+            if not self._table_exists_unlocked(target):
+                self._conn.execute(
+                    f"ALTER TABLE {self._quote_identifier(table)} "
+                    f"RENAME TO {self._quote_identifier(target)}"
+                )
+            else:
+                # A prior externally interrupted migration may have left both
+                # names behind. Never merge with INSERT OR IGNORE: duplicate
+                # primary keys could silently discard an unknown legacy row.
+                # Keep the source under a deterministic extra quarantine name.
+                remainder = f"{target}_remainder"
+                suffix = 2
+                while self._table_exists_unlocked(remainder):
+                    remainder = f"{target}_remainder_{suffix}"
+                    suffix += 1
+                self._conn.execute(
+                    f"ALTER TABLE {self._quote_identifier(table)} "
+                    f"RENAME TO {self._quote_identifier(remainder)}"
+                )
+            quarantined = True
+
+        return quarantined
+
+    def _set_unassigned_after_quarantine(self) -> None:
+        for key, value in {
+            "owner_key": None,
+            "owner_state": "unassigned",
+            "owner_error": None,
+        }.items():
+            if value is None:
+                self._conn.execute("DELETE FROM settings WHERE key = ?", (key,))
+            else:
+                self._conn.execute(
+                    "INSERT INTO settings (key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    (key, value),
+                )
+
+    def _recover_interrupted_transition(self) -> None:
+        """Make a persisted in-progress resolution resumable after restart."""
+        if self._raw_setting_unlocked("owner_state") != "resolving":
+            return
+        self._conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('owner_state', 'unassigned') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+        self._conn.execute("DELETE FROM settings WHERE key = 'owner_key'")
+        self._conn.execute("DELETE FROM settings WHERE key = 'owner_error'")
+
 
     def close(self) -> None:
         with self._lock:

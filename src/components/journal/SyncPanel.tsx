@@ -66,7 +66,8 @@ export function SyncPanel() {
   const [riotIdTouched, setRiotIdTouched] = useState(false);
   const [attempted, setAttempted] = useState(false);
   const riotIdValid = isValidRiotId(riotId);
-  const showRiotIdError = !riotIdValid && (riotIdTouched || attempted);
+  const clearingIdentity = riotId.trim() === "" && Boolean(settings.data?.riot_id);
+  const showRiotIdError = !riotIdValid && !clearingIdentity && (riotIdTouched || attempted);
 
   useEffect(() => {
     if (settings.data) {
@@ -79,8 +80,7 @@ export function SyncPanel() {
   function onSave(e: FormEvent) {
     e.preventDefault();
     setAttempted(true);
-    setRiotIdTouched(true);
-    if (!riotIdValid) return;
+    if (!riotIdValid && !clearingIdentity) return;
 
     const patch: SettingsPatch = {
       riot_id: riotId.trim() || null,
@@ -99,15 +99,19 @@ export function SyncPanel() {
   }
 
   const requestPending = save.isPending || start.isPending || cancel.isPending;
+  const ownerCanInitiate =
+    ownerState === "active" ||
+    ((ownerState === "unassigned" || ownerState === "error") &&
+      Boolean(settings.data?.riot_id));
   const startDisabledReason = running
     ? "Backfill is running."
     : requestPending
       ? "Loading…"
       : ownerState === "resolving"
         ? "Resolving Riot account before starting Backfill."
-        : ownerState === "error"
+        : ownerState === "error" && !ownerCanInitiate
           ? ownerStatusCopy
-          : ownerState !== "active"
+          : !ownerCanInitiate
             ? "Assign a Riot account before starting Backfill."
             : !riotIdValid
               ? "Enter a valid Riot ID before starting Backfill."

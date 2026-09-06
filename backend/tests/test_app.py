@@ -354,6 +354,125 @@ def test_settings_save_resolves_first_and_changed_owner(client):
     assert service.store.capture_owner_scope()["owner_key"] == second_owner
     assert resolved_ids == ["FirstPlayer#A001", "SecondPlayer#A002"]
 
+def test_settings_retries_failed_resolution_without_changing_identity(client):
+    service = client.app.state.sync_service
+    calls = 0
+
+    class FlakyResolverClient:
+        async def account_by_riot_id(self, _riot_id: str) -> dict[str, str]:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise RuntimeError("temporary resolver failure")
+            return {"puuid": "retry-puuid"}
+
+        async def aclose(self) -> None:
+            return None
+
+    service._client_factory = lambda _key, _route: FlakyResolverClient()
+    first = client.put(
+        "/settings",
+        headers=AUTH,
+        json={"riot_id": "RetryPlayer#A001", "riot_key": "RGAPI-test"},
+    )
+    assert first.status_code == 200
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        if service.store.capture_owner_scope()["owner_state"] == "error":
+            break
+        time.sleep(0.01)
+    assert service.store.capture_owner_scope()["owner_state"] == "error"
+
+    retried = client.put(
+        "/settings",
+        headers=AUTH,
+        json={"riot_id": "RetryPlayer#A001"},
+    )
+    assert retried.status_code == 200
+    assert retried.json()["owner_state"] == "resolving"
+    owner_key = service.store.owner_key_for_puuid("retry-puuid")
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        if service.store.capture_owner_scope()["owner_key"] == owner_key:
+            break
+        time.sleep(0.01)
+    assert service.store.capture_owner_scope()["owner_key"] == owner_key
+
+def test_settings_rename_same_resolved_puuid_preserves_history(client):
+    service = client.app.state.sync_service
+
+    class StableResolverClient:
+        async def account_by_riot_id(self, _riot_id: str) -> dict[str, str]:
+            return {"puuid": "stable-puuid-for-rename"}
+
+        async def aclose(self) -> None:
+            return None
+
+    service._client_factory = lambda _key, _route: StableResolverClient()
+    first = client.put(
+        "/settings",
+        headers=AUTH,
+        json={"riot_id": "BeforeRename#A001", "riot_key": "RGAPI-test"},
+    )
+    assert first.status_code == 200
+    owner_key = service.store.owner_key_for_puuid("stable-puuid-for-rename")
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        if service.store.capture_owner_scope()["owner_key"] == owner_key:
+            break
+        time.sleep(0.01)
+    assert service.store.capture_owner_scope()["owner_key"] == owner_key
+    service.store.upsert_match(
+        "rename-match",
+        "2026-01-01T00:00:00Z",
+        "16.1",
+        "MIDDLE",
+        "Ahri",
+        True,
+        1800,
+        "{}",
+        owner_key=owner_key,
+    )
+    generation_before = service.store.capture_owner_scope()["generation"]
+
+    changed = client.put(
+        "/settings",
+        headers=AUTH,
+        json={"riot_id": "AfterRename#A001"},
+    )
+    assert changed.status_code == 200
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        scope = service.store.capture_owner_scope()
+        if scope["owner_key"] == owner_key and scope["owner_state"] == "active":
+            break
+        time.sleep(0.01)
+    scope = service.store.capture_owner_scope()
+    assert scope["owner_key"] == owner_key
+    assert scope["generation"] > generation_before
+    assert service.store.match_count(owner_key=owner_key) == 1
+    assert client.get("/settings", headers=AUTH).json()["riot_id"] == "AfterRename#A001"
+
+def test_settings_missing_key_publishes_explicit_owner_error(client):
+    service = client.app.state.sync_service
+    service._client_factory = lambda _key, _route: pytest.fail("resolver must not run without key")
+    response = client.put(
+        "/settings",
+        headers=AUTH,
+        json={"riot_id": "NoKey#A001"},
+    )
+    assert response.status_code == 200
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        scope = service.store.capture_owner_scope()
+        if scope["owner_state"] == "error":
+            break
+        time.sleep(0.01)
+    scope = service.store.capture_owner_scope()
+    assert scope["owner_state"] == "error"
+    assert scope["owner_error"] == "Riot API key required"
+
+
 def test_settings_key_delete(client):
     saved = client.put("/settings", headers=AUTH, json={"riot_key": "RGAPI-test"})
     assert saved.status_code == 200

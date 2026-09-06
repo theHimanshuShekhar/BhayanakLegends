@@ -269,6 +269,7 @@ def create_app(
     def put_settings(patch: SettingsPatch) -> Settings:
         current_riot_id = store.get_setting("riot_id")
         current_region = store.get_setting("region_route") or "sea"
+        current_scope = store.capture_owner_scope()
         next_riot_id = (
             patch.riot_id.strip() if patch.riot_id is not None else None
         ) if "riot_id" in patch.model_fields_set else current_riot_id
@@ -281,6 +282,14 @@ def create_app(
             ("riot_id" in patch.model_fields_set and current_riot_id != next_riot_id)
             or ("region_route" in patch.model_fields_set and current_region != next_region)
             or ("riot_id" in patch.model_fields_set and next_riot_id is None)
+            or (
+                current_scope["owner_state"] == "error"
+                and _is_valid_riot_id(next_riot_id)
+                and bool(
+                    {"riot_id", "region_route", "riot_key"}
+                    & patch.model_fields_set
+                )
+            )
         )
         credential_changed = "riot_key" in patch.model_fields_set
         transition_generation: int | None = None
@@ -398,6 +407,11 @@ def create_app(
             result = await asyncio.to_thread(svc.import_from_dir, canonical_dir, loop)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from None
+        except RuntimeError:
+            raise HTTPException(
+                status_code=409,
+                detail="Backfill is still stopping; retry import",
+            ) from None
         return SyncStatus.model_validate(result)
 
     @app.get("/live/status", response_model=LiveStatus)

@@ -53,6 +53,7 @@ def seed(
     played_at="2026-01-01T00:00:00Z",
     features=None,
     duration_s=1800,
+    owner_key=None,
 ):
     store.upsert_match(
         match_id,
@@ -63,7 +64,7 @@ def seed(
         win,
         duration_s,
         json.dumps(features or {}),
-        owner_key=store.active_owner_key(),
+        owner_key=owner_key or store.active_owner_key(),
     )
 
 
@@ -83,6 +84,87 @@ def test_history_summary_aggregates(tmp_path: Path):
     roles = {r["role"]: r for r in body["by_role"]}
     assert roles["MIDDLE"]["games"] == 2 and roles["MIDDLE"]["wins"] == 1
     assert roles["BOTTOM"]["games"] == 1 and roles["BOTTOM"]["wins"] == 1
+def test_all_personal_routes_follow_a_to_b_to_a_owner_scope(tmp_path: Path):
+    client = build_client(tmp_path, pack=SHIPPED_PACK)
+    store = client.app.state.store
+    owner_a = store.active_owner_key()
+    assert owner_a is not None
+    owner_b = store.owner_key_for_puuid("other-puuid")
+    a_features = _v2_features(cs10=70, level10=9, gold_diff_10=400)
+    b_features = _v2_features(cs10=40, level10=7, gold_diff_10=-250)
+    seed(
+        store,
+        "shared-match",
+        role="MIDDLE",
+        champion="Ahri",
+        win=True,
+        features=a_features,
+        owner_key=owner_a,
+    )
+    assert store.enqueue(["shared-match"], owner_key=owner_a, region_route="sea") == 0
+    # An existing A row must not suppress B's download of the same game.
+    assert store.enqueue(["shared-match"], owner_key=owner_b, region_route="europe") == 1
+    assert store.claim_next_pending(owner_key=owner_b) is not None
+    assert store.complete_match(
+        "shared-match",
+        "2026-01-02T00:00:00Z",
+        "16.8",
+        "BOTTOM",
+        "Jinx",
+        False,
+        1500,
+        json.dumps(b_features),
+        owner_key=owner_b,
+    )
+    assert store.queue_stats(owner_key=owner_a)["done"] == 0
+    assert store.queue_stats(owner_key=owner_b)["done"] == 1
+
+
+    with client:
+        a_summary = client.get("/history/summary", headers=AUTH).json()
+        a_latest = client.get("/postgame/latest", headers=AUTH).json()
+        assert a_summary["matches"] == 1
+        assert a_summary["win_rate"] == 1.0
+        assert a_latest["champion"] == "Ahri"
+
+        generation_b = store.begin_owner_transition("resolving")
+        store.activate_owner("other-puuid", "Other#0002", "europe", generation_b)
+
+        b_summary = client.get("/history/summary", headers=AUTH).json()
+        b_insights = client.get("/history/insights", headers=AUTH).json()
+        b_aggregates = client.get("/progress/aggregates", headers=AUTH).json()
+        b_trajectory = client.get("/progress/trajectories", headers=AUTH).json()
+        b_latest = client.get("/postgame/latest", headers=AUTH).json()
+        b_what_if = client.post(
+            "/history/what-if",
+            headers=AUTH,
+            json={"adjustments": {"cs10": 5}},
+        ).json()
+        b_benchmarks = client.get("/benchmarks", headers=AUTH).json()
+        b_sync = client.get("/sync/status", headers=AUTH).json()
+
+        assert b_summary["matches"] == 1
+        assert b_summary["win_rate"] == 0.0
+        assert b_insights["sample_size"] == 1
+        assert b_insights["champions"][0]["champion"] == "Jinx"
+        assert b_aggregates == [
+            {"patch": "16.8", "games": 1, "wins": 0, "win_rate": 0.0}
+        ]
+        assert b_trajectory[0]["champion"] == "Jinx"
+        assert b_latest["champion"] == "Jinx"
+        assert b_what_if["status"] == "suppressed"
+        assert b_benchmarks == {"state": "contract-suppressed", "rows": []}
+        assert b_sync["owner_key"] == owner_b
+        assert b_sync["generation"] == generation_b
+
+        generation_a_again = store.begin_owner_transition("resolving")
+        store.activate_owner("test-puuid", "TestPlayer#1234", "sea", generation_a_again)
+        restored = client.get("/history/summary", headers=AUTH).json()
+        restored_latest = client.get("/postgame/latest", headers=AUTH).json()
+        assert restored["matches"] == 1
+        assert restored["win_rate"] == 1.0
+        assert restored_latest["champion"] == "Ahri"
+
 
 
 def test_history_summary_sorts_patch_ranges_numerically(tmp_path: Path):

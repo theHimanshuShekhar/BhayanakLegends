@@ -229,8 +229,14 @@ class SyncService:
             self.store.set_owner_error(
                 generation, "Riot identity is temporarily unavailable"
             )
+        except ValueError as exc:
+            if "API key" in str(exc):
+                self.store.set_owner_error(generation, "Riot API key required")
+            else:
+                log.warning("Riot account resolution failed")
+                self.store.set_owner_error(generation, "Riot identity is unavailable")
         except Exception:
-            log.exception("Riot account resolution failed")
+            log.warning("Riot account resolution failed")
             self.store.set_owner_error(generation, "Riot identity is unavailable")
         finally:
             with self._resolution_lock:
@@ -309,6 +315,23 @@ class SyncService:
     def import_from_dir(
         self, dir: Path, loop: asyncio.AbstractEventLoop | None = None
     ) -> dict[str, Any]:
+        """Ingest a directory while making it visible to transition barriers."""
+        worker = threading.current_thread()
+        with self._start_lock:
+            if self._thread is not None and self._thread.is_alive() and self._thread is not worker:
+                raise RuntimeError("Backfill is already running")
+            self._cancel.clear()
+            self._thread = worker
+        try:
+            return self._import_from_dir(dir, loop)
+        finally:
+            with self._start_lock:
+                if self._thread is worker:
+                    self._thread = None
+
+    def _import_from_dir(
+        self, dir: Path, loop: asyncio.AbstractEventLoop | None = None
+    ) -> dict[str, Any]:
         """Ingest a LoLTrends-layout folder into its resolved owner namespace."""
         canonical_dir = canonical_import_directory(dir, self._import_roots)
         if loop is None:
@@ -326,11 +349,16 @@ class SyncService:
             raise ValueError("import fetch state is missing puuid")
         settings = self._get_settings()
         scope = self.store.capture_owner_scope()
+        if self._cancel.is_set():
+            return self._cancelled_status(scope)
         if (
             scope["owner_state"] != "active"
             or self.store._puuid_for_owner(scope.get("owner_key") or "") != puuid
         ):
-            if not self.quiesce():
+            if (
+                self._thread is not threading.current_thread()
+                and not self.quiesce()
+            ):
                 raise RuntimeError("previous Backfill did not quiesce")
             generation = self.store.begin_owner_transition("resolving")
             scope = self.store.capture_owner_scope()
@@ -345,7 +373,7 @@ class SyncService:
             owner_key = str(scope["owner_key"])
             generation = int(scope["generation"])
         if self._cancel.is_set():
-            self._cancel.clear()
+            return self._cancelled_status(scope)
         self.store.set_setting("sync_mode", "import")
         self.store.set_setting("import_dir", str(canonical_dir))
         detail_paths = [
@@ -460,7 +488,20 @@ class SyncService:
     ) -> None:
         region_route = str(settings.get("region_route") or "sea")
         riot_id = str(settings.get("riot_id") or "").strip()
-        client = self._client_factory(str(settings["riot_key"]), region_route)
+        api_key = str(settings["riot_key"])
+        client = self._client_factory(api_key, region_route)
+        clients: dict[str, Any] = {region_route: client}
+
+        async def fetch_item(item: dict[str, Any]) -> tuple[Any, Any]:
+            item_route = str(item.get("region_route") or region_route)
+            item_client = clients.get(item_route)
+            if item_client is None:
+                item_client = self._client_factory(api_key, item_route)
+                clients[item_route] = item_client
+            detail = await item_client.match(str(item["match_id"]))
+            timeline = await item_client.timeline(str(item["match_id"]))
+            return detail, timeline
+
         try:
             puuid = (
                 self.store._puuid_for_owner(owner_key)
@@ -507,6 +548,7 @@ class SyncService:
                 puuid,
                 owner_key=owner_key,
                 owner_generation=owner_generation,
+                fetch_item=fetch_item,
             )
         except _Cancelled:
             raise
@@ -527,7 +569,20 @@ class SyncService:
             self.store.set_owner_error(owner_generation, "Riot identity is unavailable")
             raise
         finally:
-            await client.aclose()
+            for item_client in clients.values():
+                try:
+                    await item_client.aclose()
+                except Exception:
+                    log.warning("Riot client close failed")
+
+    def _cancelled_status(self, scope: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            self._run_owner_key = scope.get("owner_key")
+            self._run_owner_generation = int(scope.get("generation") or 0)
+            self._run_owner_state = scope.get("owner_state") or "unassigned"
+            self._status.update(state="cancelled", current_match_id=None)
+        return self.status()
+
 
     async def _process(
         self,
@@ -536,6 +591,7 @@ class SyncService:
         *,
         owner_key: str | None = None,
         owner_generation: int | None = None,
+        fetch_item: Callable[[dict[str, Any]], Awaitable[tuple[Any, Any]]] | None = None,
     ) -> None:
         if not owner_key:
             raise RuntimeError("owner-scoped processing requires an active owner namespace")
@@ -553,7 +609,9 @@ class SyncService:
             with self._lock:
                 self._status["current_match_id"] = match_id
             try:
-                detail, timeline = await fetch_pair(match_id)
+                detail, timeline = await (
+                    fetch_item(item) if fetch_item is not None else fetch_pair(match_id)
+                )
                 if self._cancel.is_set() or (
                     owner_generation is not None
                     and int(self.store.capture_owner_scope()["generation"])

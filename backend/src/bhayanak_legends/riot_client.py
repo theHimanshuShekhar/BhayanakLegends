@@ -174,7 +174,7 @@ class RiotClient:
             try:
                 response = await self._client.get(path, params=params)
             except httpx.TransportError as exc:
-                error = RiotRecoverableError(f"transport failure for {path}")
+                error = RiotRecoverableError("transport failure")
                 if attempt == self.max_retries:
                     raise error from exc
                 await self._sleep(fallback_delays[min(attempt, len(fallback_delays) - 1)])
@@ -201,7 +201,7 @@ class RiotClient:
                 continue
             if 500 <= response.status_code <= 599:
                 error = RiotRecoverableError(
-                    f"{response.status_code} for {path}",
+                    f"{response.status_code} response",
                     status_code=response.status_code,
                 )
                 if attempt == self.max_retries:
@@ -209,10 +209,10 @@ class RiotClient:
                 await self._sleep(fallback_delays[min(attempt, len(fallback_delays) - 1)])
                 continue
             if response.status_code == 404:
-                raise RiotNotFound(f"404 for {path}")
+                raise RiotNotFound("Riot resource was not found")
             if response.status_code == 403:
-                raise RiotForbidden(f"403 for {path}")
+                raise RiotForbidden("Riot API key was rejected")
             if response.is_success:
-                raise RiotError(f"unexpected {response.status_code} for {path}")
+                raise RiotError(f"unexpected {response.status_code} response")
             response.raise_for_status()
         raise RiotError("retry budget exhausted")

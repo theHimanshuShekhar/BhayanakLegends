@@ -160,6 +160,28 @@ describe("SyncPanel", () => {
     expect(screen.getByTestId("save-settings")).toHaveStyle({ background: "var(--color-surface-2)" });
     expect(screen.getByTestId("cancel-sync")).toBeDisabled();
   });
+  it("can restart Backfill after an interrupted owner resolution", async () => {
+    vi.mocked(api.settings).mockResolvedValue({
+      ...settings,
+      riot_id: "Restart#0001",
+      owner_key: null,
+      owner_state: "unassigned",
+      generation: settings.generation + 1,
+    });
+    vi.mocked(api.startSync).mockResolvedValue({
+      ...idle,
+      owner_key: null,
+      owner_state: "unassigned",
+      generation: settings.generation + 1,
+    });
+    renderPanel();
+
+    const startButton = await screen.findByTestId("start-sync");
+    await waitFor(() => expect(startButton).not.toBeDisabled());
+    fireEvent.click(startButton);
+    await waitFor(() => expect(api.startSync).toHaveBeenCalledTimes(1));
+  });
+
 
   it("blocks Start while local settings are dirty until Save completes", async () => {
     renderPanel();
@@ -219,6 +241,30 @@ describe("SyncPanel", () => {
     });
     expect(await screen.findByTestId("save-ok")).toBeInTheDocument();
   });
+  it("allows clearing an existing saved identity", async () => {
+    vi.mocked(api.updateSettings).mockResolvedValue({
+      ...settings,
+      riot_id: null,
+      owner_key: null,
+      generation: settings.generation + 1,
+      owner_state: "unassigned",
+    });
+    renderPanel();
+
+    const riotId = await screen.findByTestId("input-riot-id");
+    await waitFor(() => expect(riotId).toHaveValue(settings.riot_id));
+    fireEvent.change(riotId, { target: { value: "" } });
+    expect(screen.queryByTestId("riot-id-error")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("save-settings"));
+
+    await waitFor(() => expect(api.updateSettings).toHaveBeenCalledTimes(1));
+    expect(api.updateSettings).toHaveBeenCalledWith({
+      riot_id: null,
+      region_route: "sea",
+      auto_sync: true,
+    });
+  });
+
 
   it("reflects polled sync status and overlays fresher SSE progress", async () => {
     vi.mocked(api.startSync).mockResolvedValue(running);

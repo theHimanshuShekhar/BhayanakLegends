@@ -153,6 +153,36 @@ def test_dev_import_endpoint_guarded(tmp_path: Path):
         res = client.post("/dev/import", json=body, headers=AUTH)
     assert res.status_code == 403
     assert res.json()["detail"] == "dev import disabled"
+def test_import_worker_is_quiesced_before_owner_transition(tmp_path: Path):
+    fixture_dir = Path(__file__).parent / "fixtures"
+    detail = json.loads((fixture_dir / "SG2_170114893.json").read_text())
+    timeline = json.loads((fixture_dir / "SG2_170114893_timeline.json").read_text())
+    import_dir = tmp_path / "import"
+    import_dir.mkdir()
+    (import_dir / "fetch_state.json").write_text(
+        json.dumps({"puuid": PUUID}), encoding="utf-8"
+    )
+    (import_dir / "SG2_170114893.json").write_text("{}", encoding="utf-8")
+
+    store = Store(tmp_path / "app.db")
+    service = SyncService(store, Hub(), lambda: {}, import_roots=[tmp_path])
+    entered = threading.Event()
+    release = threading.Event()
+
+    async def fetch(_match_id: str) -> tuple[dict, dict]:
+        entered.set()
+        await asyncio.to_thread(release.wait)
+        return detail, timeline
+
+    service._file_fetcher = lambda _dir: fetch  # type: ignore[method-assign]
+    worker = threading.Thread(target=service.import_from_dir, args=(import_dir,))
+    worker.start()
+    assert entered.wait(1.0)
+    assert service.quiesce(timeout=0.01) is False
+    release.set()
+    worker.join(2.0)
+    assert not worker.is_alive()
+
 
 
 class FakeRiotClient:
@@ -256,6 +286,53 @@ async def test_riot_backfill_resolves_and_persists_match(tmp_path: Path):
     assert events[-1]["type"] == "sync.done"
     assert events[-1]["data"] == status
 
+def test_backfill_uses_each_queue_items_captured_region_route(tmp_path: Path):
+    fixture_dir = Path(__file__).parent / "fixtures"
+    detail = json.loads((fixture_dir / "SG2_170114893.json").read_text())
+    timeline = json.loads((fixture_dir / "SG2_170114893_timeline.json").read_text())
+    store = Store(tmp_path / "app.db")
+    owner_key = activate_owner(store, PUUID)
+    match_id = str(detail["metadata"]["matchId"])
+    store.enqueue([match_id], owner_key=owner_key, region_route="americas")
+    routes: list[str] = []
+    fetched_routes: list[str] = []
+
+    class RoutedClient:
+        def __init__(self, route: str) -> None:
+            self.route = route
+            routes.append(route)
+
+        async def match_ids(self, _puuid: str, _total: int) -> list[str]:
+            return []
+
+        async def match(self, _match_id: str) -> dict:
+            fetched_routes.append(self.route)
+            return detail
+
+        async def timeline(self, _match_id: str) -> dict:
+            return timeline
+
+        async def aclose(self) -> None:
+            return None
+
+    service = SyncService(
+        store,
+        Hub(),
+        lambda: {
+            "riot_key": "test-key",
+            "riot_id": "Player#1234",
+            "region_route": "europe",
+        },
+        client_factory=lambda _key, route: RoutedClient(route),
+    )
+    service.start()
+    assert service._thread is not None
+    service._thread.join(2.0)
+
+    assert routes == ["europe", "americas"]
+    assert fetched_routes == ["americas"]
+    assert store.queue_stats(owner_key=owner_key)["done"] == 1
+
 
 def test_stale_owner_resolution_cannot_activate_after_a_to_b_to_a(
     tmp_path: Path,
@@ -350,7 +427,7 @@ def test_store_initializes_owner_scoped_schema_v2(tmp_path: Path):
 
 
 
-@pytest.mark.parametrize("version", [1, 3])
+@pytest.mark.parametrize("version", [3])
 def test_store_rejects_unsupported_schema_version(tmp_path: Path, version: int):
     path = tmp_path / f"schema-{version}.db"
     conn = sqlite3.connect(path)
@@ -360,6 +437,108 @@ def test_store_rejects_unsupported_schema_version(tmp_path: Path, version: int):
 
     with pytest.raises(RuntimeError, match="unsupported database schema version"):
         Store(path)
+def make_legacy_v1_database(path: Path) -> None:
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """
+        CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE matches (
+            match_id TEXT PRIMARY KEY,
+            played_at TEXT,
+            patch TEXT,
+            role TEXT,
+            champion TEXT,
+            win INTEGER,
+            duration_s INTEGER,
+            features_json TEXT
+        );
+        CREATE TABLE sync_queue (
+            match_id TEXT PRIMARY KEY,
+            priority INTEGER NOT NULL DEFAULT 100,
+            state TEXT NOT NULL DEFAULT 'pending',
+            attempts INTEGER NOT NULL DEFAULT 0,
+            added_at TEXT
+        );
+        INSERT INTO settings (key, value) VALUES
+            ('riot_id', 'Legacy#0001'),
+            ('owner_key', 'must-not-attribute'),
+            ('owner_state', 'active');
+        INSERT INTO matches VALUES
+            ('legacy-a', '2026-01-01T00:00:00Z', '16.1', 'TOP', 'Aatrox', 1, 1800, '{}'),
+            ('legacy-b', '2026-01-02T00:00:00Z', '16.1', 'BOTTOM', 'Jinx', 0, 1500, '{"mixed":true}');
+        INSERT INTO sync_queue VALUES
+            ('legacy-a', 0, 'done', 1, '2026-01-01T00:00:00Z'),
+            ('legacy-c', 1, 'pending', 0, '2026-01-02T00:00:00Z');
+        PRAGMA user_version = 1;
+        """
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_legacy_rows_are_quarantined_without_owner_attribution(tmp_path: Path):
+    path = tmp_path / "legacy.db"
+    make_legacy_v1_database(path)
+
+    store = Store(path)
+    with store._lock:
+        version = store._conn.execute("PRAGMA user_version").fetchone()[0]
+        tables = {
+            row[0]
+            for row in store._conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        legacy_matches = store._conn.execute(
+            "SELECT match_id, champion, features_json FROM legacy_matches ORDER BY match_id"
+        ).fetchall()
+        legacy_queue = store._conn.execute(
+            "SELECT match_id, state, attempts FROM legacy_sync_queue ORDER BY match_id"
+        ).fetchall()
+
+    assert version == 2
+    assert {"matches", "sync_queue", "legacy_matches", "legacy_sync_queue"} <= tables
+    assert [tuple(row) for row in legacy_matches] == [
+        ("legacy-a", "Aatrox", "{}"),
+        ("legacy-b", "Jinx", '{"mixed":true}'),
+    ]
+    assert [tuple(row) for row in legacy_queue] == [
+        ("legacy-a", "done", 1),
+        ("legacy-c", "pending", 0),
+    ]
+    assert store.match_count(store.owner_key_for_puuid("legacy-puuid")) == 0
+    scope = store.capture_owner_scope()
+    assert scope["owner_key"] is None
+    assert scope["owner_state"] == "unassigned"
+
+    store.close()
+    retry = Store(path)
+    with retry._lock:
+        assert retry._conn.execute("SELECT COUNT(*) FROM legacy_matches").fetchone()[0] == 2
+        assert retry._conn.execute("SELECT COUNT(*) FROM legacy_sync_queue").fetchone()[0] == 2
+
+
+def test_legacy_quarantine_rolls_back_and_retries_after_interruption(
+    tmp_path: Path, monkeypatch
+):
+    path = tmp_path / "legacy-interrupted.db"
+    make_legacy_v1_database(path)
+    original = Store._quarantine_legacy_tables
+
+    def interrupted(store: Store) -> bool:
+        original(store)
+        raise RuntimeError("simulated migration interruption")
+
+    monkeypatch.setattr(Store, "_quarantine_legacy_tables", interrupted)
+    with pytest.raises(RuntimeError, match="simulated migration interruption"):
+        Store(path)
+
+    monkeypatch.setattr(Store, "_quarantine_legacy_tables", original)
+    store = Store(path)
+    with store._lock:
+        assert store._conn.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert store._conn.execute("SELECT COUNT(*) FROM legacy_matches").fetchone()[0] == 2
+        assert store._conn.execute("SELECT COUNT(*) FROM legacy_sync_queue").fetchone()[0] == 2
 
 
 def test_queue_claim_and_match_completion_are_atomic(tmp_path: Path):
@@ -425,6 +604,53 @@ async def test_timeline_failure_never_completes_match(tmp_path: Path):
     assert store.match_count(owner_key=owner_key) == 0
     assert store.queue_stats(owner_key=owner_key)["done"] == 0
 
+
+async def test_deferred_old_owner_response_is_requeued_during_identity_switch(
+    tmp_path: Path,
+):
+    store, owner_a = prepared_store(tmp_path)
+    match_id = "deferred-switch"
+    store.enqueue([match_id], owner_key=owner_a)
+    service = service_for(store, owner_a)
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def fetch(_match_id: str) -> tuple[dict, dict]:
+        entered.set()
+        await release.wait()
+        return {}, {}
+
+    processing = asyncio.create_task(
+        service._process(
+            fetch,
+            PUUID,
+            owner_key=owner_a,
+            owner_generation=store.capture_owner_scope()["generation"],
+        )
+    )
+    await entered.wait()
+    generation_b = store.begin_owner_transition("resolving")
+    service.cancel()
+    release.set()
+    await processing
+
+    assert store.match_count(owner_key=owner_a) == 0
+    assert queue_row(store, match_id, owner_a) == {"state": "pending", "attempts": 0}
+    assert store.capture_owner_scope()["generation"] == generation_b
+    assert store.capture_owner_scope()["owner_key"] is None
+
+def test_restart_recovers_persisted_owner_resolution_transition(tmp_path: Path):
+    path = tmp_path / "restart.db"
+    store = Store(path)
+    store.set_setting("riot_id", "Restart#0001")
+    generation = store.begin_owner_transition("resolving")
+    store.close()
+
+    restarted = Store(path)
+    scope = restarted.capture_owner_scope()
+    assert scope["generation"] == generation
+    assert scope["owner_key"] is None
+    assert scope["owner_state"] == "unassigned"
 
 def queue_row(store: Store, match_id: str, owner_key: str) -> dict:
     with store._lock:
