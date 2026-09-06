@@ -49,6 +49,15 @@ CoordinateValidationV2 = Literal["validated", "approximate", "unavailable"]
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _GENERATOR_REVISION = re.compile(r"sha256:[0-9a-f]{64}")
 
+# Surrender Advisor is intentionally withheld until its surrendered-state
+# validation gap is closed.  Keeping the denylist in the contract module means
+# both pack validation and runtime callers share the same release gate.
+EXECUTABLE_MODEL_KEYS = frozenset({"personal_what_if", "live_wp"})
+WITHHELD_MODEL_KEYS = frozenset({"surrender_advisor"})
+SUPPORTED_PREPROCESSING_OPERATIONS = frozenset(
+    {"identity", "standardize", "z_score", "minmax", "min_max"}
+)
+
 
 class PackV2Model(BaseModel):
     """Closed model base for v2; unknown fields are a contract failure."""
@@ -432,6 +441,23 @@ class PackV2PreprocessingStep(PackV2Model):
     operation: str = Field(min_length=1)
     parameters: list[FiniteFloat] | None = None
 
+    @model_validator(mode="after")
+    def supported_and_bounded(self) -> "PackV2PreprocessingStep":
+        operation = self.operation.strip().lower()
+        if operation not in SUPPORTED_PREPROCESSING_OPERATIONS:
+            raise ValueError(f"unsupported model preprocessing operation {self.operation!r}")
+        parameters = self.parameters or []
+        if operation == "identity" and parameters:
+            raise ValueError("identity preprocessing does not accept parameters")
+        if operation in {"standardize", "z_score", "minmax", "min_max"}:
+            if len(parameters) != 2:
+                raise ValueError(f"{operation} preprocessing requires two parameters")
+            if operation in {"standardize", "z_score"} and parameters[1] == 0:
+                raise ValueError("standardize preprocessing scale must be nonzero")
+            if operation in {"minmax", "min_max"} and parameters[1] <= parameters[0]:
+                raise ValueError("minmax preprocessing bounds must be ordered")
+        return self
+
 
 class PackV2SmokeTest(PackV2Model):
     features: list[FiniteFloat] = Field(min_length=1)
@@ -469,10 +495,27 @@ class PackV2ModelCard(PackV2Model):
             raise ValueError("model feature_order must equal ordered feature declarations")
         if len(set(names)) != len(names):
             raise ValueError("model feature names must be unique")
-        if any(name not in self.bounds for name in names):
-            raise ValueError("model bounds must cover every ordered feature")
+        if len(self.input_names) != 1 or len(self.output_names) != 1:
+            raise ValueError("model cards must declare exactly one ordered input and output")
+        if len(set(self.input_names)) != len(self.input_names) or len(
+            set(self.output_names)
+        ) != len(self.output_names):
+            raise ValueError("model input/output names must be unique")
+        if set(self.input_names) & set(self.output_names):
+            raise ValueError("model input/output names must be disjoint")
+        if set(self.bounds) != set(names):
+            raise ValueError("model bounds must exactly cover ordered features")
+        for feature in self.features:
+            if self.bounds[feature.name] != feature.bounds:
+                raise ValueError("model feature bounds disagree with the bounds map")
         if len(self.smoke_test.features) != len(names):
             raise ValueError("model smoke test must contain one value per feature")
+        for value, feature in zip(self.smoke_test.features, self.features, strict=True):
+            if not feature.bounds.min <= value <= feature.bounds.max:
+                raise ValueError("model smoke test contains an out-of-domain feature")
+        for step in self.preprocessing:
+            if step.feature not in names:
+                raise ValueError("model preprocessing references an undeclared feature")
         if any(not name for name in self.input_names + self.output_names):
             raise ValueError("model input/output names must be nonempty")
         if any(not isinstance(caveat, str) or not caveat.strip() for caveat in self.caveats):
@@ -486,11 +529,15 @@ class PackV2Artifact(PackV2Model):
     sha256: str
     size: StrictInt = Field(gt=0)
     model_card_path: str = Field(min_length=1)
+    model_card_sha256: str
+    model_card_size: StrictInt = Field(gt=0)
 
     @model_validator(mode="after")
-    def hash_is_canonical(self) -> "PackV2Artifact":
+    def hashes_are_canonical(self) -> "PackV2Artifact":
         if _SHA256.fullmatch(self.sha256) is None:
             raise ValueError("model artifact sha256 must be lowercase SHA-256 hex")
+        if _SHA256.fullmatch(self.model_card_sha256) is None:
+            raise ValueError("model card sha256 must be lowercase SHA-256 hex")
         _safe_relative_path(self.path)
         _safe_relative_path(self.model_card_path)
         return self
@@ -677,6 +724,27 @@ def _validate_lists(pack: FindingsPackV2) -> None:
         raise ValueError("unsupported Baron comeback lift must be absent from v2")
 
 
+def _validate_model_declarations(pack: FindingsPackV2) -> None:
+    contracts = pack.feature_contracts.models or {}
+    for key, model in (pack.models or {}).items():
+        if key in WITHHELD_MODEL_KEYS and model.release_status == "available":
+            raise ValueError("Surrender Advisor cannot be activated before its validation gate passes")
+        if model.release_status == "available" and key not in EXECUTABLE_MODEL_KEYS:
+            raise ValueError(f"model {key!r} is not an executable Pack v2 model key")
+        if model.release_status != "available":
+            continue
+        card = model.model_card
+        artifact = model.artifact
+        if card is None or artifact is None:
+            raise ValueError(f"available model {key!r} has no executable declaration")
+        if card.validation.gates is not None and not all(card.validation.gates.values()):
+            raise ValueError(f"model {key!r} validation gates are not satisfied")
+        expected_contract = contracts.get(key)
+        if expected_contract != card.feature_contract_version:
+            raise ValueError(f"model {key!r} feature contract does not match the pack")
+        if not _within_patch_range(card.patch_scope, pack.patch_range):
+            raise ValueError(f"model {key!r} patch scope lies outside the pack range")
+
 def validate_pack_v2_semantics(pack: FindingsPackV2) -> None:
     """Validate cross-row v2 semantics after Pydantic shape validation."""
 
@@ -687,14 +755,10 @@ def validate_pack_v2_semantics(pack: FindingsPackV2) -> None:
     for row in pack.ban_context:
         if row.tier != "diagnostic":
             raise ValueError("ban context is diagnostic only")
-    for model in (pack.models or {}).values():
-        if model.artifact is not None and model.artifact.format != "onnx":
-            raise ValueError("only ONNX model artifacts are accepted")
-
-
-
+    _validate_model_declarations(pack)
 
 __all__ = [
+    "EXECUTABLE_MODEL_KEYS",
     "FindingsPackV2",
     "PackV2Artifact",
     "PackV2BanContext",
@@ -714,9 +778,13 @@ __all__ = [
     "PackV2Objective",
     "PackV2ObservationWindow",
     "PackV2PatchRange",
+    "PackV2PreprocessingStep",
     "PackV2Provenance",
     "PackV2RouteArchetype",
+    "PackV2SmokeTest",
     "PackV2TierEntry",
+    "SUPPORTED_PREPROCESSING_OPERATIONS",
+    "WITHHELD_MODEL_KEYS",
     "validate_pack_v2_semantics",
 ]
 

@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
+from numbers import Real
 from pathlib import Path
 from typing import Any
 
+from .model_runtime import ModelRuntimeError, load_onnx_session, run_model
 from .models import LiveInference, WhatIfResponse
 from .pack import PackError, PackStore
-from .pack_v2 import FindingsPackV2
 from .live_features import FEATURE_ORDER, LIVE_WP_CONTRACT_VERSION, LiveFeatureVector
+from .pack_v2 import EXECUTABLE_MODEL_KEYS, FindingsPackV2, WITHHELD_MODEL_KEYS
 
 
 class InferenceRuntime:
@@ -18,27 +20,38 @@ class InferenceRuntime:
 
     def __init__(self, pack: PackStore) -> None:
         self._pack_store = pack
-        self._sessions: dict[str, tuple[object, object]] = {}
+        self._sessions: dict[str, tuple[object, object, tuple[str, ...]]] = {}
 
     @staticmethod
     def _finite(value: object) -> bool:
-        return (
-            isinstance(value, (int, float))
-            and not isinstance(value, bool)
-            and math.isfinite(float(value))
-        )
+        if isinstance(value, bool):
+            return False
+        try:
+            return isinstance(value, Real) and math.isfinite(float(value))
+        except (TypeError, ValueError, OverflowError):
+            return False
+
+    @staticmethod
+    def _pack_error_reason(error: object) -> str:
+        """Map detailed loader failures to display-safe diagnostics."""
+        text = str(error).lower()
+        if "runtime" in text and "unavailable" in text:
+            return "model runtime is unavailable"
+        if "missing" in text or "unavailable" in text:
+            return "active Findings Pack is unavailable"
+        return "active Findings Pack failed model validation"
 
     def _pack_v2(self) -> tuple[FindingsPackV2 | None, str | None]:
         try:
             payload = self._pack_store.load()
         except PackError as exc:
-            return None, str(exc)
+            return None, self._pack_error_reason(exc)
         if payload.get("schema_version") != 2:
             return None, "active pack has no v2 model declarations"
         try:
             return FindingsPackV2.model_validate(payload), None
         except Exception:
-            return None, "active v2 pack model declarations are invalid"
+            return None, "active Findings Pack failed model validation"
 
     def _declaration(self, model_key: str) -> tuple[FindingsPackV2 | None, Any, str | None]:
         pack, error = self._pack_v2()
@@ -47,15 +60,22 @@ class InferenceRuntime:
         declaration = (pack.models or {}).get(model_key)
         if declaration is None:
             return pack, None, "model declaration unavailable"
+        # This is deliberately checked before release_status and before any
+        # artifact access.  It protects the gate even when a caller supplies a
+        # malformed object that bypassed FindingsPackV2 validation.
+        if model_key in WITHHELD_MODEL_KEYS:
+            return pack, None, "Surrender Advisor is unavailable"
+        if model_key not in EXECUTABLE_MODEL_KEYS:
+            return pack, None, "model declaration unavailable"
         if declaration.release_status != "available":
-            return pack, declaration, declaration.release_reason or "model is not released"
+            return pack, None, declaration.release_reason or "model is not released"
         if declaration.artifact is None or declaration.model_card is None:
-            return pack, declaration, "model artifact or card unavailable"
+            return pack, None, "model artifact or card unavailable"
         expected_contract = (pack.feature_contracts.models or {}).get(model_key)
         if expected_contract != declaration.model_card.feature_contract_version:
             return (
                 pack,
-                declaration,
+                None,
                 "model card feature contract is incompatible with the active pack",
             )
         return pack, declaration, None
@@ -84,25 +104,26 @@ class InferenceRuntime:
         )
 
     def _session(self, model_key: str, declaration: Any, root: Path) -> tuple[object, object]:
-        cached = self._sessions.get(model_key)
-        if cached is not None:
-            return cached
-        try:
-            import onnxruntime as ort  # type: ignore[import-not-found]
-        except ImportError as exc:
-            raise RuntimeError("ONNX runtime is unavailable") from exc
-        artifact = root / declaration.artifact.path
-        options = ort.SessionOptions()
-        options.intra_op_num_threads = 1
-        options.inter_op_num_threads = 1
-        options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-        session = ort.InferenceSession(
-            str(artifact),
-            sess_options=options,
-            providers=["CPUExecutionProvider"],
+        artifact = declaration.artifact
+        card = declaration.model_card
+        if artifact is None or card is None:
+            raise ModelRuntimeError("model artifact or card unavailable")
+        fingerprint = (
+            artifact.path,
+            artifact.sha256,
+            artifact.model_card_sha256,
+            card.model_version,
         )
-        self._sessions[model_key] = (session, declaration.model_card)
-        return session, declaration.model_card
+        try:
+            resolved_root = root.resolve()
+            artifact_path = (root / artifact.path).resolve()
+        except OSError as exc:
+            raise ModelRuntimeError("model artifact path could not be resolved") from exc
+        if resolved_root not in artifact_path.parents or not artifact_path.is_file():
+            raise ModelRuntimeError("model artifact is unavailable")
+        session = load_onnx_session(artifact_path, card)
+        self._sessions[model_key] = (session, card, fingerprint)
+        return session, card
 
     def _features(
         self,
@@ -110,20 +131,22 @@ class InferenceRuntime:
         values: Mapping[str, object],
         *,
         adjustable_only: bool = False,
-    ) -> tuple[list[float] | None, list[str], str | None]:
+    ) -> tuple[dict[str, float] | None, list[str], str | None]:
         card = declaration.model_card
         if card is None:
             return None, [], "model card unavailable"
         expected = list(card.feature_order)
-        provided = set(values)
         expected_set = set(expected)
+        provided = set(values)
+        if any(not isinstance(name, str) for name in provided):
+            return None, [], "model feature names must be strings"
         rejected = sorted(provided - expected_set)
         if rejected:
             return None, rejected, "input contains undeclared features"
-        if set(values) != expected_set:
+        if provided != expected_set:
             missing = sorted(expected_set - provided)
             return None, missing, "required model features are missing"
-        output: list[float] = []
+        output: dict[str, float] = {}
         for feature in card.features:
             value = values.get(feature.name)
             if not self._finite(value):
@@ -133,19 +156,34 @@ class InferenceRuntime:
                 return None, [feature.name], "model feature is outside its declared domain"
             if adjustable_only and not feature.adjustable:
                 return None, [feature.name], "model feature is not adjustable"
-            output.append(numeric)
+            output[feature.name] = numeric
         return output, [], None
 
     @staticmethod
     def _output_value(raw: object) -> float | None:
         value = raw
+        tolist = getattr(value, "tolist", None)
+        if callable(tolist):
+            try:
+                value = tolist()
+            except Exception:
+                return None
         while isinstance(value, (list, tuple)):
             if len(value) != 1:
                 return None
             value = value[0]
-        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            tolist = getattr(value, "tolist", None)
+            if callable(tolist):
+                try:
+                    value = tolist()
+                except Exception:
+                    return None
+        if isinstance(value, bool):
             return None
-        result = float(value)
+        try:
+            result = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
         return result if math.isfinite(result) and 0 <= result <= 1 else None
 
     def predict(
@@ -159,45 +197,64 @@ class InferenceRuntime:
         pack, declaration, reason = self._declaration(model_key)
         if pack is None or declaration is None:
             return LiveInference(status="suppressed", reason=reason)
-        if not self._patch_in_scope(patch, declaration.model_card.patch_scope):
+        if not isinstance(values, Mapping):
+            return LiveInference(
+                status="suppressed",
+                reason="model feature vector unavailable",
+            )
+        card = declaration.model_card
+        if card is None:
+            return LiveInference(
+                status="suppressed",
+                pack_version=pack.pack_version,
+                reason="model card unavailable",
+            )
+        if not self._patch_in_scope(patch, card.patch_scope):
             return LiveInference(
                 status="unsupported-patch",
-                model_version=declaration.model_card.model_version,
+                model_version=card.model_version,
                 pack_version=pack.pack_version,
                 observed_game_time_s=observed_game_time_s,
                 reason="patch is outside the model card scope",
             )
-        vector, rejected, error = self._features(declaration, values)
+        vector, _rejected, error = self._features(declaration, values)
         if vector is None:
             status = "out-of-domain" if error and "domain" in error else "suppressed"
             return LiveInference(
                 status=status,
-                model_version=declaration.model_card.model_version,
+                model_version=card.model_version,
                 pack_version=pack.pack_version,
                 observed_game_time_s=observed_game_time_s,
                 reason=error,
             )
         try:
-            root = self._pack_store.pack_dir
-            session, card = self._session(model_key, declaration, root)
-            inputs = {card.input_names[0]: [vector]}
-            output = session.run(list(card.output_names), inputs)
-            probability = self._output_value(output[0] if output else None)
-            if probability is None:
-                raise RuntimeError("model output is not a bounded probability")
-        except Exception as exc:
+            session, session_card = self._session(
+                model_key,
+                declaration,
+                self._pack_store.pack_dir,
+            )
+            probability = run_model(session, session_card, vector)
+        except ModelRuntimeError as exc:
             return LiveInference(
                 status="error",
-                model_version=declaration.model_card.model_version,
+                model_version=card.model_version,
                 pack_version=pack.pack_version,
                 observed_game_time_s=observed_game_time_s,
-                reason=str(exc)[:200],
+                reason=str(exc),
+            )
+        except Exception:
+            return LiveInference(
+                status="error",
+                model_version=card.model_version,
+                pack_version=pack.pack_version,
+                observed_game_time_s=observed_game_time_s,
+                reason="model inference failed",
             )
         return LiveInference(
             status="available",
             probability=probability,
             observed_game_time_s=observed_game_time_s,
-            model_version=declaration.model_card.model_version,
+            model_version=card.model_version,
             pack_version=pack.pack_version,
         )
 
@@ -210,10 +267,18 @@ class InferenceRuntime:
     ) -> WhatIfResponse:
         pack, declaration, reason = self._declaration("personal_what_if")
         if pack is None or declaration is None:
-            return WhatIfResponse(status="suppressed", pack_version=pack.pack_version if pack else None, reason=reason)
+            return WhatIfResponse(
+                status="suppressed",
+                pack_version=pack.pack_version if pack else None,
+                reason=reason,
+            )
         card = declaration.model_card
         if card is None:
-            return WhatIfResponse(status="suppressed", pack_version=pack.pack_version, reason="model card unavailable")
+            return WhatIfResponse(
+                status="suppressed",
+                pack_version=pack.pack_version,
+                reason="model card unavailable",
+            )
         expected = {feature.name for feature in card.features}
         adjustable = {feature.name for feature in card.features if feature.adjustable}
         rejected = sorted(set(adjustments) - adjustable)
@@ -243,7 +308,9 @@ class InferenceRuntime:
                 baseline_probability=baseline_result.probability,
                 model_version=changed_result.model_version or baseline_result.model_version,
                 pack_version=changed_result.pack_version or baseline_result.pack_version,
-                adjusted_features={key: float(value) for key, value in changed.items() if self._finite(value)},
+                adjusted_features={
+                    key: float(value) for key, value in changed.items() if self._finite(value)
+                },
                 reason=changed_result.reason or baseline_result.reason,
             )
         return WhatIfResponse(
@@ -346,8 +413,6 @@ class InferenceRuntime:
             )
         baseline = {feature.name: features.get(feature.name) for feature in card.features}
         return self.what_if(adjustments, baseline, patch=patch)
-
-
 
     def clear(self) -> None:
         self._sessions.clear()

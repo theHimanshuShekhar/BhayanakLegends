@@ -265,6 +265,7 @@ export interface PackV2ModelValidation {
 export interface PackV2ModelCard {
   model_id: string;
   model_version: string;
+  feature_contract_version: string;
   input_names: string[];
   output_names: string[];
   features: PackV2ModelFeature[];
@@ -283,6 +284,8 @@ export interface PackV2Artifact {
   sha256: string;
   size: number;
   model_card_path: string;
+  model_card_sha256: string;
+  model_card_size: number;
 }
 
 export interface PackV2ModelDeclaration {

@@ -32,7 +32,8 @@ from .manifest_signing import (
     ManifestSignatureError,
     verify_manifest_signature,
 )
-from .pack_v2 import FindingsPackV2
+from .pack import PackError, validate_pack_directory
+from .pack_v2 import EXECUTABLE_MODEL_KEYS, FindingsPackV2
 
 MANIFEST_MAX_BYTES = 256 * 1024
 COMPRESSED_ASSET_MAX_BYTES = 64 * 1024 * 1024
@@ -304,6 +305,23 @@ def _artifact_specs(value: Any) -> tuple[dict[str, str], ...]:
             if not isinstance(item["model_card_path"], str):
                 raise ReleaseChannelError("invalid model card path")
             entry["model_card_path"] = item["model_card_path"]
+        for key in ("model_card_sha256",):
+            if item.get(key) is not None:
+                value_for_key = item[key]
+                if not isinstance(value_for_key, str) or not re.fullmatch(
+                    r"[0-9a-fA-F]{64}", value_for_key
+                ):
+                    raise ReleaseChannelError("invalid model card hash")
+                entry[key] = value_for_key.lower()
+        if item.get("model_card_size") is not None:
+            card_size = item["model_card_size"]
+            if (
+                isinstance(card_size, bool)
+                or not isinstance(card_size, int)
+                or card_size < 0
+            ):
+                raise ReleaseChannelError("invalid model card size")
+            entry["model_card_size"] = str(card_size)
         result.append(entry)
     return tuple(result)
 
@@ -475,37 +493,58 @@ def _validate_declared_artifacts(
             raise ReleaseChannelError("invalid model artifact declaration") from exc
         path = directory.joinpath(*relative.parts)
         if not path.is_file():
-            raise ReleaseChannelError(f"release model artifact is missing: {artifact['path']}")
+            raise ReleaseChannelError("release model artifact is missing")
+        try:
+            actual_size = path.stat().st_size
+        except OSError as exc:
+            raise ReleaseChannelError("release model artifact could not be inspected") from exc
+        if actual_size <= 0 or actual_size > EXPANDED_ASSET_MAX_BYTES:
+            raise ReleaseChannelError("release model artifact exceeds size limits")
         expected_hash = artifact.get("sha256")
         if expected_hash is not None:
             if not re.fullmatch(r"[0-9a-f]{64}", expected_hash):
                 raise ReleaseChannelError("release model artifact hash is invalid")
             if _read_sha256(path) != expected_hash:
-                raise ReleaseChannelError(
-                    f"release model artifact hash mismatch: {artifact['path']}"
-                )
+                raise ReleaseChannelError("release model artifact hash mismatch")
         expected_size = artifact.get("size")
         if expected_size is not None:
             try:
-                actual_size = path.stat().st_size
                 declared_size = int(expected_size)
-            except (OSError, ValueError) as exc:
-                raise ReleaseChannelError(
-                    f"release model artifact size is invalid: {artifact['path']}"
-                ) from exc
-            if actual_size != declared_size:
-                raise ReleaseChannelError(
-                    f"release model artifact size mismatch: {artifact['path']}"
-                )
-        model_card = artifact.get("model_card_path")
-        if model_card is not None:
-            try:
-                card_relative = _safe_member(model_card)
             except (TypeError, ValueError) as exc:
-                raise ReleaseChannelError("release model card path is invalid") from exc
-            card_path = directory.joinpath(*card_relative.parts)
-            if not card_path.is_file():
-                raise ReleaseChannelError(f"release model card is missing: {model_card}")
+                raise ReleaseChannelError("release model artifact size is invalid") from exc
+            if actual_size != declared_size:
+                raise ReleaseChannelError("release model artifact size mismatch")
+
+        model_card = artifact.get("model_card_path")
+        if model_card is None:
+            continue
+        try:
+            card_relative = _safe_member(model_card)
+        except (TypeError, ValueError) as exc:
+            raise ReleaseChannelError("release model card path is invalid") from exc
+        card_path = directory.joinpath(*card_relative.parts)
+        if not card_path.is_file():
+            raise ReleaseChannelError("release model card is missing")
+        try:
+            card_size = card_path.stat().st_size
+        except OSError as exc:
+            raise ReleaseChannelError("release model card could not be inspected") from exc
+        if card_size <= 0 or card_size > 1024 * 1024:
+            raise ReleaseChannelError("release model card exceeds size limits")
+        card_hash = artifact.get("model_card_sha256")
+        if card_hash is not None:
+            if not re.fullmatch(r"[0-9a-f]{64}", card_hash):
+                raise ReleaseChannelError("release model card hash is invalid")
+            if _read_sha256(card_path) != card_hash:
+                raise ReleaseChannelError("release model card hash mismatch")
+        card_size_value = artifact.get("model_card_size")
+        if card_size_value is not None:
+            try:
+                declared_card_size = int(card_size_value)
+            except (TypeError, ValueError) as exc:
+                raise ReleaseChannelError("release model card size is invalid") from exc
+            if card_size != declared_card_size:
+                raise ReleaseChannelError("release model card size mismatch")
 
 
 def _validate_v2_candidate(
@@ -521,26 +560,42 @@ def _validate_v2_candidate(
     if not isinstance(candidate_contracts, dict):
         raise ReleaseChannelError("release Findings Pack v2 has no feature contracts")
     declared_contracts = dict(release.feature_contract_versions)
-    if any(candidate_contracts.get(key) != value for key, value in declared_contracts.items()):
+    declared_model_contracts = candidate_contracts.get("models")
+    if not isinstance(declared_model_contracts, dict):
+        declared_model_contracts = {}
+    if any(
+        (
+            declared_model_contracts.get(key)
+            if key in EXECUTABLE_MODEL_KEYS
+            else candidate_contracts.get(key)
+        )
+        != value
+        for key, value in declared_contracts.items()
+    ):
         raise ReleaseChannelError("release feature contract is incompatible")
 
-    declared_artifacts: list[dict[str, str]] = list(release.required_model_artifacts)
+    manifest_artifacts = release.required_model_artifacts
+    declared_artifacts: list[dict[str, str]] = list(manifest_artifacts)
     for model in (parsed.models or {}).values():
-        if model.artifact is None:
+        if model.release_status != "available":
             continue
         artifact = model.artifact
-        declared_artifacts.append(
-            {
-                "path": artifact.path,
-                "sha256": artifact.sha256,
-                "size": str(artifact.size),
-            }
-        )
-        card_path = directory.joinpath(*_safe_member(artifact.model_card_path).parts)
-        if not card_path.is_file():
-            raise ReleaseChannelError(
-                f"release model card is missing: {artifact.model_card_path}"
-            )
+        if artifact is None:
+            raise ReleaseChannelError("available release model has no artifact")
+        expected = {
+            "path": artifact.path,
+            "sha256": artifact.sha256,
+            "size": str(artifact.size),
+            "model_card_path": artifact.model_card_path,
+            "model_card_sha256": artifact.model_card_sha256,
+            "model_card_size": str(artifact.model_card_size),
+        }
+        if not any(
+            all(spec.get(key) == value for key, value in expected.items())
+            for spec in manifest_artifacts
+        ):
+            raise ReleaseChannelError("release manifest does not pin the model artifact and card")
+        declared_artifacts.append(expected)
     _validate_declared_artifacts(directory, tuple(declared_artifacts))
 
 
@@ -569,6 +624,21 @@ def _validate_candidate(
         raise ReleaseChannelError("release is not compatible with this app")
 
     _validate_v2_candidate(directory, pack, release)
+    candidate_schema = directory / SCHEMA_FILENAME
+    try:
+        validate_pack_directory(
+            directory,
+            schema_path=(
+                candidate_schema
+                if candidate_schema.exists()
+                else schema_path
+                if schema_path is not None and schema_path.exists()
+                else None
+            ),
+            require_schema=False,
+        )
+    except PackError as exc:
+        raise ReleaseChannelError("release model payload failed validation") from exc
     return pack
 
 

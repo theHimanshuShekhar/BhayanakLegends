@@ -197,6 +197,7 @@ async def test_typed_live_vector_reaches_runtime_model_session() -> None:
         patch_scope=SimpleNamespace(min="14.17", max="16.17"),
         input_names=["features"],
         output_names=["probability"],
+        preprocessing=[],
         model_version="fixture-live-v1",
     )
     declaration = SimpleNamespace(model_card=card, artifact=SimpleNamespace(path="model.onnx"))

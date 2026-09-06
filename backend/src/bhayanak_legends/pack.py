@@ -14,11 +14,13 @@ from typing import Iterable
 import jsonschema
 from pydantic import ValidationError
 
+from .model_runtime import ModelRuntimeError, validate_model_artifact
 from .pack_v2 import FindingsPackV2, validate_pack_v2_semantics
 
 PACK_FILENAME = "findings-pack.v2.json"
 SCHEMA_FILENAME = "pack.schema.json"
 MAX_MODEL_ARTIFACT_BYTES = 256 * 1024 * 1024
+MAX_MODEL_CARD_BYTES = 1024 * 1024
 
 
 class PackError(Exception):
@@ -31,11 +33,16 @@ def _pack_path(directory: Path) -> Path:
 
 def _safe_relative_path(path: str) -> Path:
     candidate = Path(path)
-    if candidate.is_absolute() or not candidate.parts or ".." in candidate.parts:
+    normalized = path.replace("\\", "/")
+    if (
+        candidate.is_absolute()
+        or not candidate.parts
+        or "\\" in path
+        or any(part in {"", ".", ".."} for part in normalized.split("/"))
+        or ":" in normalized.split("/")[0]
+    ):
         raise PackError("Findings Pack artifact path must remain inside the active pack")
-    if any(part in {"", "."} for part in candidate.parts):
-        raise PackError("Findings Pack artifact path is not canonical")
-    return candidate
+    return Path(*normalized.split("/"))
 
 
 def _artifact_digest(path: Path) -> str:
@@ -51,26 +58,29 @@ def _validate_artifact(
     artifact_path: Path,
     expected_sha256: str | None,
     expected_size: int | None = None,
+    *,
+    label: str = "model artifact",
 ) -> None:
     try:
         resolved_root = root.resolve()
         resolved = artifact_path.resolve()
     except OSError as exc:
-        raise PackError("Findings Pack model artifact path could not be resolved") from exc
+        raise PackError(f"Findings Pack {label} path could not be resolved") from exc
     if resolved_root not in resolved.parents:
-        raise PackError("Findings Pack model artifact path escapes the active pack")
+        raise PackError(f"Findings Pack {label} path escapes the active pack")
     if not artifact_path.is_file():
-        raise PackError(f"Findings Pack model artifact missing at {artifact_path}")
+        raise PackError(f"Findings Pack {label} is missing")
     try:
         size = artifact_path.stat().st_size
     except OSError as exc:
-        raise PackError(f"Findings Pack model artifact could not be inspected: {artifact_path}") from exc
-    if size <= 0 or size > MAX_MODEL_ARTIFACT_BYTES:
-        raise PackError(f"Findings Pack model artifact exceeds size limits: {artifact_path}")
+        raise PackError(f"Findings Pack {label} could not be inspected") from exc
+    max_size = MAX_MODEL_CARD_BYTES if label == "model card" else MAX_MODEL_ARTIFACT_BYTES
+    if size <= 0 or size > max_size:
+        raise PackError(f"Findings Pack {label} exceeds size limits")
     if expected_size is not None and size != expected_size:
-        raise PackError(f"Findings Pack model artifact size mismatch: {artifact_path}")
+        raise PackError(f"Findings Pack {label} size mismatch")
     if expected_sha256 and _artifact_digest(artifact_path) != expected_sha256.lower():
-        raise PackError(f"Findings Pack model artifact hash mismatch: {artifact_path}")
+        raise PackError(f"Findings Pack {label} hash mismatch")
 
 
 def _validate_declared_v2_artifacts(directory: Path, pack: FindingsPackV2) -> None:
@@ -85,23 +95,36 @@ def _validate_declared_v2_artifacts(directory: Path, pack: FindingsPackV2) -> No
         artifact_path = directory / artifact_rel
         _validate_artifact(directory, artifact_path, model.artifact.sha256, model.artifact.size)
         declared.add(artifact_rel)
+
         # Cards are JSON data and are bounded independently of executable
-        # artifacts.  The card is also embedded in the pack so consumers can
-        # inspect it without opening arbitrary files; the path pins the file
-        # included in the release archive.
+        # artifacts.  The embedded card and the on-disk card must both match
+        # the signed declaration, including their exact pinned digest/size.
         card_path = directory / card_rel
-        if not card_path.is_file():
-            raise PackError(f"Findings Pack model card missing at {card_path}")
-        if card_path.stat().st_size <= 0 or card_path.stat().st_size > 1024 * 1024:
-            raise PackError(f"Findings Pack model card exceeds size limits: {card_path}")
+        _validate_artifact(
+            directory,
+            card_path,
+            model.artifact.model_card_sha256,
+            model.artifact.model_card_size,
+            label="model card",
+        )
         try:
             card_payload = json.loads(card_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, JSONDecodeError) as exc:
-            raise PackError(f"Findings Pack model card could not be read: {card_path}") from exc
+            raise PackError("Findings Pack model card could not be read") from exc
         if card_payload != model.model_card.model_dump(mode="json"):
-            raise PackError(f"Findings Pack model card does not match declaration: {card_path}")
+            raise PackError("Findings Pack model card does not match its declaration")
         declared.add(card_rel)
 
+        try:
+            validate_model_artifact(artifact_path, model.model_card)
+        except ModelRuntimeError as exc:
+            raise PackError(f"Findings Pack model {model.model_id!r} failed runtime validation") from exc
+
+    # A model directory is an executable payload boundary.  Every file below
+    # it must be named by an available declaration (cards included); this
+    # rejects undeclared model/pickle/joblib/skops payloads before activation.
+    if not any(model.release_status == "available" for model in (pack.models or {}).values()):
+        return
     models_dir = directory / "models"
     if models_dir.is_dir():
         try:
@@ -114,7 +137,7 @@ def _validate_declared_v2_artifacts(directory: Path, pack: FindingsPackV2) -> No
             raise PackError("Findings Pack model directory could not be inspected") from exc
         extra = sorted(actual - declared)
         if extra:
-            raise PackError(f"Findings Pack contains undeclared model artifacts: {extra[0]}")
+            raise PackError("Findings Pack contains undeclared model artifacts")
 
 
 def _validate_required_artifacts(
@@ -159,63 +182,126 @@ def validate_pack_directory(
         parsed = FindingsPackV2.model_validate(pack)
         validate_pack_v2_semantics(parsed)
         _validate_declared_v2_artifacts(root, parsed)
-    except (ValidationError, ValueError, TypeError) as exc:
+    except (ModelRuntimeError, ValidationError, ValueError, TypeError) as exc:
         raise PackError(f"Findings Pack failed contract validation: {exc}") from exc
     _validate_required_artifacts(root, required_model_artifacts)
     return pack
 
 
 class PackStore:
-    """Durable active Findings Pack v2 store."""
+    """Durable active Findings Pack v2 store with crash-safe recovery."""
 
     def __init__(self, pack_dir: Path, *, bundled_dir: Path | None = None) -> None:
         self.pack_dir = Path(pack_dir)
         self.bundled_dir = Path(bundled_dir) if bundled_dir is not None else None
         self._pack: dict | None = None
 
-    def initialize(self) -> None:
-        """Commit the bundled seed once, without ever writing to its directory."""
-        active_pack = _pack_path(self.pack_dir)
-        self.pack_dir.parent.mkdir(parents=True, exist_ok=True)
-        if active_pack.is_file():
-            return
-        if self.bundled_dir is None:
-            return
-        if not self.bundled_dir.is_dir():
-            raise PackError(f"bundled Findings Pack missing at {self.bundled_dir}")
+    @property
+    def last_known_good_dir(self) -> Path:
+        return self.pack_dir.parent / f".{self.pack_dir.name}-last-known-good"
 
+    def _validate_existing(self, directory: Path) -> dict:
+        schema_path = directory / SCHEMA_FILENAME
+        return validate_pack_directory(
+            directory,
+            schema_path=schema_path if schema_path.exists() else None,
+            require_schema=False,
+        )
+
+    def _snapshot_last_known_good(self) -> None:
+        if not self.pack_dir.is_dir():
+            return
         staging = Path(
-            tempfile.mkdtemp(prefix=f".{self.pack_dir.name}-seed-", dir=self.pack_dir.parent)
+            tempfile.mkdtemp(
+                prefix=f".{self.pack_dir.name}-known-good-",
+                dir=self.pack_dir.parent,
+            )
         )
         try:
-            shutil.copytree(self.bundled_dir, staging, dirs_exist_ok=True)
-            validate_pack_directory(staging)
-            if self.pack_dir.exists():
-                shutil.rmtree(self.pack_dir)
-            os.replace(staging, self.pack_dir)
-        except PackError:
-            shutil.rmtree(staging, ignore_errors=True)
-            raise
+            shutil.copytree(self.pack_dir, staging, dirs_exist_ok=True)
+            previous = self.last_known_good_dir
+            if previous.exists():
+                shutil.rmtree(previous)
+            os.replace(staging, previous)
         except (OSError, shutil.Error) as exc:
             shutil.rmtree(staging, ignore_errors=True)
-            raise PackError(f"bundled Findings Pack could not be seeded: {exc}") from exc
+            raise PackError("Findings Pack last-known-good snapshot failed") from exc
+
+    def _replace_active_from(self, source: Path, *, prefix: str) -> None:
+        staging = Path(tempfile.mkdtemp(prefix=prefix, dir=self.pack_dir.parent))
+        quarantine: Path | None = None
+        try:
+            shutil.copytree(source, staging, dirs_exist_ok=True)
+            self._validate_existing(staging)
+            if self.pack_dir.exists():
+                quarantine = Path(
+                    tempfile.mkdtemp(
+                        prefix=f".{self.pack_dir.name}-corrupt-",
+                        dir=self.pack_dir.parent,
+                    )
+                )
+                quarantine.rmdir()
+                os.replace(self.pack_dir, quarantine)
+            os.replace(staging, self.pack_dir)
+            if quarantine is not None:
+                shutil.rmtree(quarantine, ignore_errors=True)
+        except (OSError, shutil.Error, PackError) as exc:
+            shutil.rmtree(staging, ignore_errors=True)
+            if quarantine is not None and not self.pack_dir.exists():
+                try:
+                    os.replace(quarantine, self.pack_dir)
+                except OSError:
+                    pass
+            if isinstance(exc, PackError):
+                raise
+            raise PackError("Findings Pack activation directory could not be replaced") from exc
+
+    def initialize(self) -> None:
+        """Validate the active pack and recover a known-good copy if needed."""
+        self.pack_dir.parent.mkdir(parents=True, exist_ok=True)
+        if self.pack_dir.exists():
+            try:
+                self._validate_existing(self.pack_dir)
+            except PackError:
+                pass
+            else:
+                self._snapshot_last_known_good()
+                return
+
+        known_good = self.last_known_good_dir
+        if known_good.is_dir():
+            try:
+                self._replace_active_from(
+                    known_good,
+                    prefix=f".{self.pack_dir.name}-recover-",
+                )
+            except PackError:
+                pass
+            else:
+                return
+
+        if self.bundled_dir is None:
+            if self.pack_dir.exists():
+                raise PackError("active Findings Pack failed validation")
+            return
+        if not self.bundled_dir.is_dir():
+            raise PackError("bundled Findings Pack is unavailable")
+        self._replace_active_from(
+            self.bundled_dir,
+            prefix=f".{self.pack_dir.name}-seed-",
+        )
+        self._snapshot_last_known_good()
 
     def load(self) -> dict:
         if self._pack is not None:
             return self._pack
-        path = _pack_path(self.pack_dir)
-        schema_path = self.pack_dir / SCHEMA_FILENAME
-        if not path.is_file():
-            raise PackError(f"Findings Pack missing at {path}")
         try:
-            pack = validate_pack_directory(
-                self.pack_dir,
-                schema_path=schema_path if schema_path.exists() else None,
-                require_schema=False,
-            )
+            pack = self._validate_existing(self.pack_dir)
         except PackError:
             raise
         self._pack = pack
+        # A validated load is the commit point for the durable recovery copy.
+        self._snapshot_last_known_good()
         return pack
 
     def version(self) -> str:

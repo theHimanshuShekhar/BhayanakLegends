@@ -13,6 +13,15 @@
           "title": "Model Card Path",
           "type": "string"
         },
+        "model_card_sha256": {
+          "title": "Model Card Sha256",
+          "type": "string"
+        },
+        "model_card_size": {
+          "exclusiveMinimum": 0,
+          "title": "Model Card Size",
+          "type": "integer"
+        },
         "path": {
           "minLength": 1,
           "title": "Path",
@@ -33,7 +42,9 @@
         "format",
         "sha256",
         "size",
-        "model_card_path"
+        "model_card_path",
+        "model_card_sha256",
+        "model_card_size"
       ],
       "title": "PackV2Artifact",
       "type": "object"

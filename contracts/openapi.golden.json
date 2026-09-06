@@ -1177,6 +1177,13 @@
             "minLength": 1,
             "type": "string"
           },
+          "model_card_sha256": {
+            "type": "string"
+          },
+          "model_card_size": {
+            "exclusiveMinimum": 0.0,
+            "type": "integer"
+          },
           "path": {
             "minLength": 1,
             "type": "string"
@@ -1194,7 +1201,9 @@
           "format",
           "sha256",
           "size",
-          "model_card_path"
+          "model_card_path",
+          "model_card_sha256",
+          "model_card_size"
         ],
         "type": "object"
       },
