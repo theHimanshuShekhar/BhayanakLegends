@@ -118,56 +118,88 @@ def test_every_evidence_row_references_matching_provenance():
             assert row.source_ref == provenance.source_ref
 
 
-def test_generator_reproduces_deterministically_from_declared_feature_store(tmp_path: Path):
-    pd = pytest.importorskip("pandas")
-    rows = [
-        {
-            "match_id": f"match-{role.lower()}",
-            "champion_name": "Ahri",
-            "opponent_champion_name": None,
-            "role": role,
-            "win": True,
-            "patch": "16.16",
-            "lane_minions_first_10m": 10,
-        }
-        for role in ("TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY")
-    ]
-    feature_store = tmp_path / "feature_store"
-    feature_store.mkdir()
-    pd.DataFrame(rows).to_parquet(feature_store / "analysis_rows.parquet")
-    pd.DataFrame(
-        [{"match_id": row["match_id"], "champion_name": "Ahri"} for row in rows]
-    ).to_parquet(feature_store / "champion_bans.parquet")
+def test_bootstrap_copies_checked_in_diagnostic_seed(tmp_path: Path):
+    output_dir = tmp_path / "bootstrap"
+    generator_path = REPO_ROOT / "backend" / "tools" / "build_pack.py"
+    subprocess.run(
+        [
+            sys.executable,
+            str(generator_path),
+            "--bootstrap",
+            "--out",
+            str(output_dir),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
 
-    outputs = []
-    generator = REPO_ROOT / "backend" / "tools" / "build_pack.py"
-    for index in (1, 2):
-        output_dir = tmp_path / f"output-{index}"
-        subprocess.run(
-            [
-                sys.executable,
-                str(generator),
-                "--feature-store",
-                str(feature_store),
-                "--out",
-                str(output_dir),
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        generated = json.loads(
-            (output_dir / "findings-pack.v2.json").read_text(encoding="utf-8")
-        )
-        generated_schema = json.loads(
-            (output_dir / "pack.schema.json").read_text(encoding="utf-8")
-        )
-        Draft202012Validator(generated_schema).validate(generated)
-        FindingsPackV2.model_validate(generated)
-        assert generated_schema == SCHEMA
-        generated.pop("generated_at")
-        outputs.append(generated)
-    assert outputs[0] == outputs[1]
+    assert (output_dir / "findings-pack.v2.json").read_bytes() == (
+        PACK_DIR / "findings-pack.v2.json"
+    ).read_bytes()
+    generated_schema = json.loads(
+        (output_dir / "pack.schema.json").read_text(encoding="utf-8")
+    )
+    assert generated_schema == SCHEMA
+    seed = json.loads((output_dir / "findings-pack.v2.json").read_text(encoding="utf-8"))
+    assert seed["dataset"]["tracked_players"] > 0
+    assert seed["dataset"]["patch_buckets"] == len(seed["dataset"]["patches"])
+    assert seed["dataset"]["median_game_minutes"] != 0
+    assert seed["dataset"]["surrender_rate"] is not None
+    FindingsPackV2.model_validate(seed)
+
+
+def test_generator_copies_explicit_artifact_without_recomputation(tmp_path: Path):
+    artifact = tmp_path / "findings-pack.v2.json"
+    artifact_bytes = (PACK_DIR / "findings-pack.v2.json").read_bytes()
+    artifact.write_bytes(artifact_bytes)
+    output_dir = tmp_path / "output"
+
+    subprocess.run(
+        [
+            sys.executable,
+            str(REPO_ROOT / "backend" / "tools" / "build_pack.py"),
+            "--artifact",
+            str(artifact),
+            "--out",
+            str(output_dir),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert (output_dir / "findings-pack.v2.json").read_bytes() == artifact_bytes
+    FindingsPackV2.model_validate(
+        json.loads((output_dir / "findings-pack.v2.json").read_text(encoding="utf-8"))
+    )
+
+
+def test_generator_fails_closed_on_incompatible_upstream_shape(tmp_path: Path):
+    artifact = tmp_path / "findings-pack.v2.json"
+    broken = copy.deepcopy(PACK)
+    broken["benchmarks"] = []
+    artifact.write_text(json.dumps(broken), encoding="utf-8")
+    output_dir = tmp_path / "output"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(REPO_ROOT / "backend" / "tools" / "build_pack.py"),
+            "--artifact",
+            str(artifact),
+            "--out",
+            str(output_dir),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "cross-repo Pack v2 contract mismatch" in result.stderr
+    assert "benchmarks" in result.stderr
+    assert not output_dir.exists()
 
 
 def test_header_and_release_contract_fields_are_v2_only():

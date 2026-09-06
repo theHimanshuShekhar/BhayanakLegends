@@ -76,14 +76,13 @@ jobs:
           "SMOKE_VALID_VERSION=0.1.1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "SMOKE_INVALID_VERSION=0.1.2" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Generate canonical v2 Findings Pack smoke asset
+      - name: Copy canonical diagnostic Findings Pack smoke asset
         shell: pwsh
         run: |
           $packDir = Join-Path $env:SMOKE_ARTIFACTS "pack-v2"
           New-Item -ItemType Directory -Force -Path $packDir | Out-Null
           uv run --project backend --locked python backend/tools/build_pack.py `
             --bootstrap --out $packDir
-          Copy-Item "pack/pack.schema.json" (Join-Path $packDir "pack.schema.json")
           "SMOKE_PACK_DIR=$packDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Build genuinely signed higher-version updater artifact

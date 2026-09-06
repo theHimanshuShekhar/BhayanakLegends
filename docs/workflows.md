@@ -24,14 +24,17 @@ password in the runner's temporary workspace/environment only. It builds a
 genuinely signed higher-version NSIS updater archive with
 `createUpdaterArtifacts: true`, retains the emitted detached signature, and
 serves those exact files from `tools/windows_updater_fixture.py`. The fixture
-also runs the canonical Findings Pack v2 producer in bootstrap mode, creates an
-ephemeral Ed25519 keypair, signs the exact raw pack manifest, and serves the
-manifest, detached signature, and pack asset. The workflow passes that public
-key only with the literal loopback manifest URL; production remains pinned to
-the application key. The fixture binds only to literal `127.0.0.1`, records
-path-only requests, advertises the valid higher version first, then advertises
-a second higher version whose artifact bytes were changed without changing the
-detached signature.
+copies the checked-in diagnostic Findings Pack v2 seed through the
+consumer-side bridge (`--bootstrap`); it does not build population metrics.
+Production pack assets must instead be supplied explicitly with
+`backend/tools/build_pack.py --artifact <LoLTrends-exported-artifact>`.
+The bridge validates the artifact against the canonical companion schema and
+fails closed on a cross-repo shape mismatch; it never translates an upstream
+catalog or Feature Store export. The fixture creates an ephemeral Ed25519
+keypair, signs the exact raw pack manifest, and serves the manifest, detached
+signature, and pack asset. It records path-only requests, advertises the valid
+higher version first, then advertises a second higher version whose artifact
+bytes were changed without changing the detached signature.
 `tools/patch_updater_endpoint.py` temporarily replaces the endpoint, paired
 public key, app version, and smoke-only `dangerousInsecureTransport` setting;
 the workflow restores the production endpoint, public key, version, and
