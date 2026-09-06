@@ -38,6 +38,13 @@ interface SyncRequestToken {
   observerId: number | null;
 }
 
+class SupersededSyncObservation extends Error {
+  constructor() {
+    super("sync status observation was superseded");
+    this.name = "SupersededSyncObservation";
+  }
+}
+
 interface SyncStatusArbiter {
   serial: number;
   latestSerial: number;
@@ -115,6 +122,7 @@ function ownerQueryKey(
 }
 
 function ensureSyncOwner(
+  queryClient: QueryClient,
   arbiter: SyncStatusArbiter,
   nextOwnerKey: string | null,
   nextGeneration: number,
@@ -130,9 +138,14 @@ function ensureSyncOwner(
   arbiter.ownerEpoch += 1;
   arbiter.latest = undefined;
   arbiter.latestSerial = arbiter.serial;
+  void queryClient.cancelQueries(
+    { queryKey: ["sync-status"] },
+    { revert: false, silent: true },
+  );
+  queryClient.removeQueries({ queryKey: ["sync-status"] });
 }
 
-function useSyncObserver(arbiter: SyncStatusArbiter): number {
+function useSyncObserver(arbiter: SyncStatusArbiter, queryClient: QueryClient): number {
   const idRef = useRef<number | null>(null);
   if (idRef.current == null) idRef.current = arbiter.nextObserverId++;
   const id = idRef.current;
@@ -144,9 +157,14 @@ function useSyncObserver(arbiter: SyncStatusArbiter): number {
         arbiter.ownerEpoch += 1;
         arbiter.latest = undefined;
         arbiter.latestSerial = arbiter.serial;
+        void queryClient.cancelQueries(
+          { queryKey: ["sync-status"] },
+          { revert: false, silent: true },
+        );
+        queryClient.removeQueries({ queryKey: ["sync-status"] });
       }
     },
-    [arbiter, id],
+    [arbiter, id, queryClient],
   );
   return id;
 }
@@ -231,10 +249,15 @@ function acceptSyncObservation(
     token.ownerGeneration === arbiter.ownerGeneration;
   const observerIsCurrent =
     token.observerId === null || arbiter.observers.has(token.observerId);
+  const latest =
+    arbiter.latest &&
+    sameSyncOwner(arbiter.latest, token.ownerKey, token.ownerGeneration)
+      ? arbiter.latest
+      : undefined;
   if (!ownerIsCurrent || !observerIsCurrent || !sameSyncOwner(status, token.ownerKey, token.ownerGeneration)) {
-    return arbiter.latest ?? status;
+    return latest ?? status;
   }
-  if (token.serial < arbiter.latestSerial) return arbiter.latest ?? status;
+  if (token.serial < arbiter.latestSerial) return latest ?? status;
   arbiter.latestSerial = token.serial;
   arbiter.latest = status;
   queryClient.setQueryData(
@@ -289,6 +312,51 @@ function settingsResponseIsStale(
       next.owner_key !== undefined &&
       next.owner_key !== current.owner_key,
   );
+}
+
+interface SyncOwnerStatusUpdate {
+  queryKeyChanged: boolean;
+}
+
+function updateSettingsFromSyncStatus(
+  queryClient: QueryClient,
+  status: SyncStatus,
+): SyncOwnerStatusUpdate {
+  const arbiter = settingsArbiterFor(queryClient);
+  const current = arbiter.latest ?? queryClient.getQueryData<Settings>(["settings"]);
+  if (!current) return { queryKeyChanged: false };
+
+  const currentGeneration = current.generation ?? 0;
+  if (
+    status.generation < currentGeneration ||
+    (status.generation === currentGeneration &&
+      current.owner_key !== null &&
+      status.owner_key !== current.owner_key)
+  ) {
+    return { queryKeyChanged: false };
+  }
+
+  const queryKeyChanged =
+    current.owner_key !== status.owner_key || currentGeneration !== status.generation;
+  const changed =
+    queryKeyChanged ||
+    current.owner_state !== status.owner_state ||
+    current.owner_error !== status.owner_error;
+  if (!changed) return { queryKeyChanged: false };
+
+  const next: Settings = {
+    ...current,
+    owner_key: status.owner_key,
+    generation: status.generation,
+    owner_state: status.owner_state,
+    owner_error: status.owner_error,
+  };
+  arbiter.generation = Math.max(arbiter.generation, status.generation);
+  arbiter.ownerKey = status.owner_key;
+  arbiter.ownerState = status.owner_state;
+  arbiter.latest = next;
+  queryClient.setQueryData(["settings"], next);
+  return { queryKeyChanged };
 }
 
 export function useHealth() {
@@ -471,8 +539,8 @@ export function useStartSync() {
   const qc = useQueryClient();
   const owner = useOwnerContext();
   const arbiter = syncStatusArbiterFor(qc);
-  ensureSyncOwner(arbiter, owner.ownerKey, owner.generation);
-  const observerId = useSyncObserver(arbiter);
+  ensureSyncOwner(qc, arbiter, owner.ownerKey, owner.generation);
+  const observerId = useSyncObserver(arbiter, qc);
   const ownerEpochAtRender = arbiter.ownerEpoch;
   return useMutation({
     mutationFn: async () => {
@@ -484,6 +552,17 @@ export function useStartSync() {
         ownerEpochAtRender,
       );
       const status = await api.startSync();
+      const ownerUpdate = updateSettingsFromSyncStatus(qc, status);
+      if (ownerUpdate.queryKeyChanged) {
+        ensureSyncOwner(qc, arbiter, status.owner_key, status.generation);
+        const transitionedToken = beginSyncRequest(
+          arbiter,
+          status.owner_key,
+          status.generation,
+          observerId,
+        );
+        return acceptSyncObservation(qc, arbiter, status, transitionedToken);
+      }
       return acceptSyncObservation(qc, arbiter, status, token);
     },
   });
@@ -493,8 +572,8 @@ export function useCancelSync() {
   const qc = useQueryClient();
   const owner = useOwnerContext();
   const arbiter = syncStatusArbiterFor(qc);
-  ensureSyncOwner(arbiter, owner.ownerKey, owner.generation);
-  const observerId = useSyncObserver(arbiter);
+  ensureSyncOwner(qc, arbiter, owner.ownerKey, owner.generation);
+  const observerId = useSyncObserver(arbiter, qc);
   const ownerEpochAtRender = arbiter.ownerEpoch;
   return useMutation({
     mutationFn: async () => {
@@ -506,6 +585,17 @@ export function useCancelSync() {
         ownerEpochAtRender,
       );
       const status = await api.cancelSync();
+      const ownerUpdate = updateSettingsFromSyncStatus(qc, status);
+      if (ownerUpdate.queryKeyChanged) {
+        ensureSyncOwner(qc, arbiter, status.owner_key, status.generation);
+        const transitionedToken = beginSyncRequest(
+          arbiter,
+          status.owner_key,
+          status.generation,
+          observerId,
+        );
+        return acceptSyncObservation(qc, arbiter, status, transitionedToken);
+      }
       return acceptSyncObservation(qc, arbiter, status, token);
     },
   });
@@ -517,11 +607,16 @@ export function useSyncStatus() {
   const arbiter = syncStatusArbiterFor(qc);
   const nextOwnerKey = ownerKey(settings.data);
   const nextGeneration = ownerGeneration(settings.data);
-  ensureSyncOwner(arbiter, nextOwnerKey, nextGeneration);
-  const observerId = useSyncObserver(arbiter);
+  ensureSyncOwner(qc, arbiter, nextOwnerKey, nextGeneration);
+  const observerId = useSyncObserver(arbiter, qc);
   const ownerEpochAtRender = arbiter.ownerEpoch;
+  const key = ["sync-status", nextOwnerKey, nextGeneration] as const;
   useEvents((message) => {
     if (message.type !== "sync.progress" && message.type !== "sync.done") return;
+    const ownerUpdate = updateSettingsFromSyncStatus(qc, message.data);
+    if (ownerUpdate.queryKeyChanged) {
+      ensureSyncOwner(qc, arbiter, message.data.owner_key, message.data.generation);
+    }
     const token = beginSyncRequest(
       arbiter,
       arbiter.ownerKey,
@@ -530,7 +625,6 @@ export function useSyncStatus() {
     );
     acceptSyncObservation(qc, arbiter, message.data, token);
   });
-  const key = ["sync-status", nextOwnerKey, nextGeneration] as const;
   return useQuery({
     queryKey: key,
     queryFn: async () => {
@@ -542,6 +636,18 @@ export function useSyncStatus() {
         ownerEpochAtRender,
       );
       const status = await api.syncStatus();
+      const ownerUpdate = updateSettingsFromSyncStatus(qc, status);
+      if (ownerUpdate.queryKeyChanged) {
+        ensureSyncOwner(qc, arbiter, status.owner_key, status.generation);
+        const transitionedToken = beginSyncRequest(
+          arbiter,
+          status.owner_key,
+          status.generation,
+          observerId,
+        );
+        acceptSyncObservation(qc, arbiter, status, transitionedToken);
+        throw new SupersededSyncObservation();
+      }
       return acceptSyncObservation(qc, arbiter, status, token);
     },
     enabled: settings.data !== undefined,

@@ -35,15 +35,23 @@ vi.mock("../../api/sse", () => ({
   }),
 }));
 
-function renderPanel() {
-  const qc = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((complete) => {
+    resolve = complete;
   });
-  return render(
-    <QueryClientProvider client={qc}>
+  return { promise, resolve };
+}
+
+function renderPanel(queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+})) {
+  const rendered = render(
+    <QueryClientProvider client={queryClient}>
       <SyncPanel />
     </QueryClientProvider>,
   );
+  return { queryClient, ...rendered };
 }
 
 const ownerContext = {
@@ -246,6 +254,332 @@ describe("SyncPanel", () => {
     // while running, Start is disabled and Cancel is armed
     expect(screen.getByTestId("start-sync")).toBeDisabled();
     expect(screen.getByTestId("cancel-sync")).not.toBeDisabled();
+  });
+  it("recovers idle → running → completed through successive polls when SSE is unavailable", async () => {
+    const completed = {
+      ...running,
+      state: "idle" as const,
+      downloaded: 25,
+      current_match_id: null,
+    };
+    const { queryClient } = renderPanel();
+
+    await waitFor(() => expect(screen.getByTestId("sync-counters")).toHaveTextContent("0 / 0 matches"));
+
+    vi.mocked(api.syncStatus).mockResolvedValueOnce(running);
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["sync-status"] });
+    });
+    await waitFor(() => expect(screen.getByTestId("sync-counters")).toHaveTextContent("5 / 25 matches"));
+    expect(screen.getByTestId("start-sync")).toBeDisabled();
+    expect(screen.getByTestId("cancel-sync")).not.toBeDisabled();
+
+    vi.mocked(api.syncStatus).mockResolvedValueOnce(completed);
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["sync-status"] });
+    });
+    await waitFor(() => expect(screen.getByTestId("sync-counters")).toHaveTextContent("25 / 25 matches"));
+    expect(screen.getByTestId("start-sync")).not.toBeDisabled();
+    expect(screen.getByTestId("cancel-sync")).toBeDisabled();
+  });
+  it("recovers idle → running → failed through successive polls without claiming completion", async () => {
+    const failed = {
+      ...running,
+      state: "error" as const,
+      downloaded: 8,
+      current_match_id: null,
+    };
+    const { queryClient } = renderPanel();
+
+    await waitFor(() => expect(screen.getByTestId("sync-counters")).toHaveTextContent("0 / 0 matches"));
+
+    vi.mocked(api.syncStatus).mockResolvedValueOnce(running);
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["sync-status"] });
+    });
+    await waitFor(() => expect(screen.getByTestId("sync-counters")).toHaveTextContent("5 / 25 matches"));
+
+    vi.mocked(api.syncStatus).mockResolvedValueOnce(failed);
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["sync-status"] });
+    });
+    await waitFor(() => expect(screen.getByTestId("sync-status-error")).toBeInTheDocument());
+    expect(screen.getByTestId("sync-counters")).toHaveTextContent("8 / 25 matches");
+    expect(screen.getByTestId("start-sync")).not.toBeDisabled();
+    expect(screen.getByTestId("cancel-sync")).toBeDisabled();
+  });
+  it("keeps an event-driven running state over a stale idle poll, then accepts a later current poll", async () => {
+    const firstPoll = deferred<typeof idle>();
+    const completed = {
+      ...running,
+      state: "idle" as const,
+      downloaded: 25,
+      current_match_id: null,
+    };
+    vi.mocked(api.syncStatus).mockReturnValueOnce(firstPoll.promise);
+    const { queryClient } = renderPanel();
+
+    await waitFor(() => expect(api.syncStatus).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      sseHandler?.({
+        type: "sync.progress",
+        ts: "event-running",
+        data: running,
+      });
+    });
+    await waitFor(() => expect(screen.getByTestId("sync-counters")).toHaveTextContent("5 / 25 matches"));
+    expect(screen.getByTestId("cancel-sync")).not.toBeDisabled();
+
+    firstPoll.resolve(idle);
+    await act(async () => {
+      await firstPoll.promise;
+    });
+    expect(screen.getByTestId("sync-counters")).toHaveTextContent("5 / 25 matches");
+
+    vi.mocked(api.syncStatus).mockResolvedValueOnce(completed);
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["sync-status"] });
+    });
+    await waitFor(() => expect(screen.getByTestId("sync-counters")).toHaveTextContent("25 / 25 matches"));
+    expect(screen.getByTestId("start-sync")).not.toBeDisabled();
+  });
+  it("refreshes owner state from status polls after resolution completes", async () => {
+    const resolvingOwner = {
+      owner_key: null,
+      generation: 2,
+      owner_state: "resolving" as const,
+      owner_error: null,
+    };
+    const activeOwner = {
+      owner_key: "resolved-owner",
+      generation: 2,
+      owner_state: "active" as const,
+      owner_error: null,
+    };
+    const resolvingSettings = { ...settings, ...resolvingOwner };
+    const resolvingStatus = { ...idle, ...resolvingOwner };
+    const activeStatus = { ...idle, ...activeOwner };
+    vi.mocked(api.settings).mockResolvedValue(resolvingSettings);
+    vi.mocked(api.syncStatus).mockResolvedValueOnce(resolvingStatus);
+    const { queryClient } = renderPanel();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("sync-owner-status")).toHaveTextContent("Resolving Riot account…"),
+    );
+    await waitFor(() => expect(api.syncStatus).toHaveBeenCalledTimes(1));
+
+    vi.mocked(api.syncStatus).mockResolvedValueOnce(activeStatus);
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["sync-status"] });
+    });
+
+    await waitFor(() => expect(screen.getByTestId("sync-owner-status")).toHaveTextContent("Riot account active."));
+    expect(screen.getByTestId("start-sync")).not.toBeDisabled();
+  });
+  it("refreshes owner errors from status polls without showing prior queue data", async () => {
+    const resolvingOwner = {
+      owner_key: null,
+      generation: 3,
+      owner_state: "resolving" as const,
+      owner_error: null,
+    };
+    const errorOwner = {
+      owner_key: null,
+      generation: 3,
+      owner_state: "error" as const,
+      owner_error: "Riot ID could not be resolved",
+    };
+    vi.mocked(api.settings).mockResolvedValue({ ...settings, ...resolvingOwner });
+    vi.mocked(api.syncStatus).mockResolvedValueOnce({ ...idle, ...resolvingOwner });
+    const { queryClient } = renderPanel();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("sync-owner-status")).toHaveTextContent("Resolving Riot account…"),
+    );
+    vi.mocked(api.syncStatus).mockResolvedValueOnce({ ...idle, ...errorOwner });
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["sync-status"] });
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("sync-owner-status")).toHaveTextContent(
+        "Unavailable: Riot account resolution failed — Riot ID could not be resolved",
+      ),
+    );
+    expect(screen.queryByTestId("sync-progress")).toBeNull();
+    expect(screen.getByTestId("start-sync")).toBeDisabled();
+  });
+  it("detaches an old-owner poll and event when settings switch generations", async () => {
+    const oldPoll = deferred<typeof running>();
+    const nextOwnerContext = {
+      owner_key: "next-owner",
+      generation: 2,
+      owner_state: "active" as const,
+      owner_error: null,
+    };
+    const nextSettings = {
+      ...nextOwnerContext,
+      riot_id: "NextPlayer04#BL04",
+      region_route: "europe" as const,
+      has_key: false,
+      auto_sync: true,
+    };
+    const nextIdle = { ...idle, ...nextOwnerContext };
+    vi.mocked(api.syncStatus).mockReturnValueOnce(oldPoll.promise);
+    const { queryClient } = renderPanel();
+    await waitFor(() => expect(api.syncStatus).toHaveBeenCalledTimes(1));
+
+    vi.mocked(api.settings).mockResolvedValueOnce(nextSettings);
+    vi.mocked(api.syncStatus).mockResolvedValueOnce(nextIdle);
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["settings"] });
+    });
+    await waitFor(() => expect(screen.getByTestId("input-riot-id")).toHaveValue(nextSettings.riot_id));
+    await waitFor(() => expect(screen.getByTestId("sync-counters")).toHaveTextContent("0 / 0 matches"));
+
+    await act(async () => {
+      sseHandler?.({
+        type: "sync.progress",
+        ts: "old-owner-event",
+        data: running,
+      });
+    });
+    oldPoll.resolve(running);
+    await act(async () => {
+      await oldPoll.promise;
+    });
+
+    expect(screen.getByTestId("input-riot-id")).toHaveValue(nextSettings.riot_id);
+    expect(screen.getByTestId("sync-counters")).toHaveTextContent("0 / 0 matches");
+    expect(screen.queryByTestId("sync-current")).toBeNull();
+  });
+  it("does not let a delayed running poll undo a newer completed event", async () => {
+    const delayedPoll = deferred<typeof running>();
+    const completed = {
+      ...running,
+      state: "idle" as const,
+      downloaded: 25,
+      current_match_id: null,
+    };
+    const { queryClient } = renderPanel();
+    await waitFor(() => expect(screen.getByTestId("sync-counters")).toHaveTextContent("0 / 0 matches"));
+
+    vi.mocked(api.syncStatus).mockReturnValueOnce(delayedPoll.promise);
+    let refresh!: Promise<void>;
+    await act(async () => {
+      refresh = queryClient.invalidateQueries({ queryKey: ["sync-status"] });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(api.syncStatus).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      sseHandler?.({
+        type: "sync.done",
+        ts: "event-completed",
+        data: completed,
+      });
+    });
+    await waitFor(() => expect(screen.getByTestId("sync-counters")).toHaveTextContent("25 / 25 matches"));
+    expect(screen.getByTestId("cancel-sync")).toBeDisabled();
+
+    delayedPoll.resolve(running);
+    await act(async () => {
+      await delayedPoll.promise;
+      await refresh;
+    });
+    expect(screen.getByTestId("sync-counters")).toHaveTextContent("25 / 25 matches");
+    expect(screen.getByTestId("cancel-sync")).toBeDisabled();
+  });
+  it("lets a newer start acknowledgement reset progress while ignoring an older poll", async () => {
+    const previousRun = {
+      ...running,
+      state: "idle" as const,
+      downloaded: 25,
+      current_match_id: null,
+    };
+    const delayedPoll = deferred<typeof running>();
+    const nextRun = {
+      ...running,
+      downloaded: 0,
+      current_match_id: "EUW1_2",
+      started_at: "2026-08-24T11:00:00Z",
+    };
+    vi.mocked(api.syncStatus).mockResolvedValueOnce(previousRun);
+    const { queryClient } = renderPanel();
+    await waitFor(() => expect(screen.getByTestId("sync-counters")).toHaveTextContent("25 / 25 matches"));
+
+    vi.mocked(api.syncStatus).mockReturnValueOnce(delayedPoll.promise);
+    let refresh!: Promise<void>;
+    await act(async () => {
+      refresh = queryClient.invalidateQueries({ queryKey: ["sync-status"] });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(api.syncStatus).toHaveBeenCalledTimes(2));
+
+    vi.mocked(api.startSync).mockResolvedValueOnce(nextRun);
+    fireEvent.click(screen.getByTestId("start-sync"));
+    await waitFor(() => expect(api.startSync).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByTestId("sync-counters")).toHaveTextContent("0 / 25 matches"));
+    expect(screen.getByTestId("sync-current")).toHaveTextContent("EUW1_2");
+
+    delayedPoll.resolve({ ...running, downloaded: 20, current_match_id: "EUW1_1" });
+    await act(async () => {
+      await delayedPoll.promise;
+      await refresh;
+    });
+    expect(screen.getByTestId("sync-counters")).toHaveTextContent("0 / 25 matches");
+    expect(screen.getByTestId("sync-current")).toHaveTextContent("EUW1_2");
+  });
+  it("does not let an in-flight poll repopulate the cache after unmount", async () => {
+    const oldPoll = deferred<typeof running>();
+    vi.mocked(api.syncStatus).mockReturnValueOnce(oldPoll.promise);
+    const { queryClient, unmount } = renderPanel();
+    await waitFor(() => expect(api.syncStatus).toHaveBeenCalledTimes(1));
+
+    unmount();
+    oldPoll.resolve(running);
+    await act(async () => {
+      await oldPoll.promise;
+    });
+
+    expect(queryClient.getQueryData(["sync-status", ownerContext.owner_key, ownerContext.generation])).toBeUndefined();
+
+    vi.mocked(api.syncStatus).mockResolvedValueOnce(idle);
+    renderPanel(queryClient);
+    expect(screen.queryByTestId("sync-current")).toBeNull();
+    await waitFor(() => expect(screen.getByTestId("sync-counters")).toHaveTextContent("0 / 0 matches"));
+  });
+  it("does not let a delayed running poll undo a newer cancel acknowledgement", async () => {
+    const delayedPoll = deferred<typeof running>();
+    const cancelled = {
+      ...running,
+      state: "cancelled" as const,
+      downloaded: 7,
+      current_match_id: null,
+    };
+    vi.mocked(api.syncStatus).mockResolvedValueOnce(running);
+    const { queryClient } = renderPanel();
+    await waitFor(() => expect(screen.getByTestId("sync-counters")).toHaveTextContent("5 / 25 matches"));
+
+    vi.mocked(api.syncStatus).mockReturnValueOnce(delayedPoll.promise);
+    let refresh!: Promise<void>;
+    await act(async () => {
+      refresh = queryClient.invalidateQueries({ queryKey: ["sync-status"] });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(api.syncStatus).toHaveBeenCalledTimes(2));
+
+    vi.mocked(api.cancelSync).mockResolvedValueOnce(cancelled);
+    fireEvent.click(screen.getByTestId("cancel-sync"));
+    await waitFor(() => expect(screen.getByText(/queue resumes next session/)).toBeInTheDocument());
+
+    delayedPoll.resolve({ ...running, downloaded: 6 });
+    await act(async () => {
+      await delayedPoll.promise;
+      await refresh;
+    });
+    expect(screen.getByTestId("sync-counters")).toHaveTextContent("7 / 25 matches");
+    expect(screen.getByTestId("cancel-sync")).toBeDisabled();
   });
 
   it("cancels a running sync via the API", async () => {
