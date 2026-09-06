@@ -956,6 +956,16 @@
               }
             ]
           },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "name": {
             "enum": [
               "GameStart",
@@ -971,6 +981,38 @@
             ],
             "type": "string"
           },
+          "pack_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "post_observed_game_time_s": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pre_observed_game_time_s": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "reason": {
             "anyOf": [
               {
@@ -981,7 +1023,11 @@
               }
             ]
           },
-          "status": {
+          "source_order": {
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "suppression_status": {
             "enum": [
               "available",
               "suppressed",
@@ -1000,6 +1046,7 @@
         },
         "required": [
           "event_id",
+          "source_order",
           "name",
           "t_s"
         ],

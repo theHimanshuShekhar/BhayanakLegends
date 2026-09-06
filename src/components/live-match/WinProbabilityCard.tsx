@@ -5,10 +5,14 @@ import { SectionHead } from "../ui";
 
 function eventDeltaLabel(delta: LiveEventDelta): string {
   const value =
-    delta.status === "available" && delta.delta_probability != null
+    delta.suppression_status === "available" && delta.delta_probability != null
       ? formatPercentagePoints(delta.delta_probability * 100)
       : formatUnavailable(delta.reason ?? "event delta unavailable");
-  return `${delta.name} @${formatClock(delta.t_s)} · ${value}`;
+  const provenance =
+    delta.suppression_status === "available"
+      ? ` · ${formatClock(delta.pre_observed_game_time_s ?? delta.t_s)}→${formatClock(delta.post_observed_game_time_s ?? delta.t_s)}`
+      : "";
+  return `${delta.name} @${formatClock(delta.t_s)} · ${value}${provenance}`;
 }
 
 export function WinProbabilityCard({

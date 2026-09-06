@@ -294,12 +294,17 @@ export interface LiveInference {
 
 export interface LiveEventDelta {
   event_id: string;
+  source_order: number;
   name: LiveEventName;
   t_s: number;
   baseline_probability: number | null;
   event_probability: number | null;
   delta_probability: number | null;
-  status: LiveInferenceStatus;
+  pre_observed_game_time_s: number | null;
+  post_observed_game_time_s: number | null;
+  model_version: string | null;
+  pack_version: string | null;
+  suppression_status: LiveInferenceStatus;
   reason: string | null;
 }
 

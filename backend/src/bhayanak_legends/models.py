@@ -248,12 +248,17 @@ class LiveInference(ContractModel):
 
 class LiveEventDelta(ContractModel):
     event_id: str
+    source_order: int = Field(ge=0)
     name: LiveEventName
     t_s: float = Field(ge=0)
     baseline_probability: float | None = Field(default=None, ge=0, le=1)
     event_probability: float | None = Field(default=None, ge=0, le=1)
     delta_probability: float | None = Field(default=None, ge=-1, le=1)
-    status: LiveInferenceStatus = "suppressed"
+    pre_observed_game_time_s: float | None = Field(default=None, ge=0)
+    post_observed_game_time_s: float | None = Field(default=None, ge=0)
+    model_version: str | None = None
+    pack_version: str | None = None
+    suppression_status: LiveInferenceStatus = "suppressed"
     reason: str | None = None
 
 

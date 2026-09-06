@@ -206,22 +206,35 @@ function isLiveEventDelta(value: unknown): boolean {
     isRecord(value) &&
     hasExactKeys(value, [
       "event_id",
+      "source_order",
       "name",
       "t_s",
       "baseline_probability",
       "event_probability",
       "delta_probability",
-      "status",
+      "pre_observed_game_time_s",
+      "post_observed_game_time_s",
+      "model_version",
+      "pack_version",
+      "suppression_status",
       "reason",
     ]) &&
     typeof value.event_id === "string" &&
+    Number.isInteger(value.source_order) &&
+    value.source_order >= 0 &&
     isEnum(LIVE_EVENT_NAMES, value.name) &&
     isFiniteNumber(value.t_s) &&
     isNullableProbability(value.baseline_probability) &&
     isNullableProbability(value.event_probability) &&
     (value.delta_probability === null ||
       (isFiniteNumber(value.delta_probability) && value.delta_probability >= -1 && value.delta_probability <= 1)) &&
-    isEnum(LIVE_INFERENCE_STATUSES, value.status) &&
+    (value.pre_observed_game_time_s === null ||
+      (isFiniteNumber(value.pre_observed_game_time_s) && value.pre_observed_game_time_s >= 0)) &&
+    (value.post_observed_game_time_s === null ||
+      (isFiniteNumber(value.post_observed_game_time_s) && value.post_observed_game_time_s >= 0)) &&
+    isNullableString(value.model_version) &&
+    isNullableString(value.pack_version) &&
+    isEnum(LIVE_INFERENCE_STATUSES, value.suppression_status) &&
     isNullableString(value.reason)
   );
 }

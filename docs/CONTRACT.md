@@ -271,12 +271,17 @@ interface LiveInference {
 }
 interface LiveEventDelta {
   event_id: string;
+  source_order: number;
   name: LiveEvent["name"];
   t_s: number;
   baseline_probability: number|null;
   event_probability: number|null;
   delta_probability: number|null;
-  status: LiveInferenceStatus;
+  pre_observed_game_time_s: number|null;
+  post_observed_game_time_s: number|null;
+  model_version: string|null;
+  pack_version: string|null;
+  suppression_status: LiveInferenceStatus;
   reason: string|null;
 }
 interface WhatIfRequest { adjustments: Record<string, number>; }
@@ -397,9 +402,14 @@ contain undeclared artifacts. The personal what-if model key is
 `InGameSnapshot.inference.status` is one of `available`, `suppressed`,
 `stale`, `incompatible`, `unsupported-patch`, `out-of-domain`, or `error`.
 Probability, model version, pack version, and observed time are nullable and
-omitted unless the status supports them. `event_deltas` identify the source
-event and contain nullable baseline/event/delta probabilities plus a truthful
-status and reason. No live probability is inferred from clock time alone.
+omitted unless the status supports them. `event_deltas` contain one correlated
+entry for each supported live event kind (`DragonKill`, `HeraldKill`,
+`BaronKill`, and `TurretKilled`) once observed. Each entry carries stable
+`event_id`/`source_order`, causal pre/post observation times, model/pack
+provenance, and a nullable `delta_probability`; `suppression_status` and
+`reason` distinguish an unavailable delta from an exact zero movement.
+Unsupported event kinds stay in `events` but do not create delta entries.
+No live probability is inferred from clock time alone.
 
 `POST /history/what-if` accepts only local JSON
 `{"adjustments": Record<string, number>}`. The backend accepts exactly the
