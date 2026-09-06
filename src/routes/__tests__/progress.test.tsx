@@ -193,23 +193,16 @@ describe("ProgressPage", () => {
   });
 
 
-  it("renders the four pack habits with canonical multiplier units and neutral bars", async () => {
+  it("withholds lever adoption when canonical habit evidence is absent", async () => {
     renderPage(<ProgressPage />);
 
-    expect(await screen.findByTestId("habit-row-recall_safety")).toHaveTextContent("×2.32");
-    expect(screen.getByTestId("habit-row-recall_safety")).toHaveTextContent("odds ratio per standard deviation");
-    expect(screen.getByTestId("habit-row-recall_safety")).not.toHaveTextContent(/WR per SD|% per SD/);
-    expect(screen.getByTestId("habit-row-fast_first_dragon")).toHaveTextContent("×0.77");
-    expect(screen.getByTestId("habit-row-spend_before_backing")).toHaveTextContent("×0.80");
-    expect(screen.getByTestId("habit-row-plates_by_14")).toHaveTextContent("×1.03");
-
-    for (const key of ["recall_safety", "fast_first_dragon", "spend_before_backing", "plates_by_14"]) {
-      const bar = screen.getByTestId(`habit-bar-${key}`);
-      const fill = bar.firstElementChild as HTMLElement;
-      // neutral: zero-width fill, no trend color claimed
-      expect(fill.style.width).toMatch(/^0(px)?$/);
-      expect(bar.parentElement).not.toHaveTextContent(/trending|regressing/i);
-    }
+    expect(await screen.findByTestId("habit-evidence-unavailable")).toHaveTextContent(
+      "compatible v2 habit evidence unavailable",
+    );
+    expect(screen.queryByTestId("habit-row-recall_safety")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("habit-row-fast_first_dragon")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("habit-row-spend_before_backing")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("habit-row-plates_by_14")).not.toBeInTheDocument();
     expect(screen.getByTestId("lever-adoption")).toHaveTextContent("Findings Pack v2");
     expect(screen.getByTestId("lever-adoption")).toHaveTextContent(/population associations/i);
   });

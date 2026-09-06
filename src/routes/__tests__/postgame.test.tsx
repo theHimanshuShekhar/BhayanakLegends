@@ -146,8 +146,8 @@ describe("PostGamePage", () => {
     expect(observations).toHaveTextContent("8:32");
     expect(observations).toHaveTextContent("Plates taken by 14 minutes");
     expect(observations).toHaveTextContent("2 plates");
-    expect(observations).toHaveTextContent(/Timing association only/i);
-    expect(observations).toHaveTextContent(/Diagnostic · era-sensitive/i);
+    expect(observations).toHaveTextContent(/Timing association context unavailable/i);
+    expect(observations).toHaveTextContent(/Diagnostic · era-sensitive population context unavailable/i);
     expect(observations).not.toHaveTextContent(/fight more|take dragon|must/i);
   });
 
@@ -156,9 +156,10 @@ describe("PostGamePage", () => {
     renderPage();
 
     await screen.findByText("Defeat");
-    await waitFor(() => expect(screen.getByTestId("read-dragon")).toHaveTextContent("60.3%"));
-    expect(screen.getByTestId("read-herald")).toHaveTextContent("66.6%");
-    expect(screen.getByTestId("read-baron")).toHaveTextContent("81.4%");
+    await waitFor(() => expect(screen.getByTestId("read-dragon-before_time_rate")).toHaveTextContent("60.1%"));
+    expect(screen.getByTestId("read-dragon-possession_rate")).toHaveTextContent("58.6%");
+    expect(screen.getByTestId("read-herald-before_time_rate")).toHaveTextContent("66.4%");
+    expect(screen.getByTestId("read-baron-before_time_rate")).toHaveTextContent("81.4%");
     expect(screen.getByTestId("comeback-value")).toHaveTextContent("Unavailable: no supported population band");
     expect(screen.getByTestId("comeback-note")).toHaveTextContent(/minimum 2,000g cohort/i);
     expect(screen.getByTestId("surrender-read")).toHaveTextContent(/release check failed/i);
@@ -206,5 +207,14 @@ describe("PostGamePage", () => {
         personal_history_eligibility: "ineligible",
       }),
     ).toEqual({ match: null, reason: "ineligible-observation" });
+  });
+
+  it("rejects conflicting duplicate team-state sources instead of choosing one", () => {
+    const conflicting = digestAt(-2500);
+    conflicting.team_state = { ...conflicting.team_state!, team_gold_diff_15m: -2600 };
+    expect(matchComebackBucket(packWithAvailableComebackRates(), conflicting)).toEqual({
+      match: null,
+      reason: "invalid-input",
+    });
   });
 });

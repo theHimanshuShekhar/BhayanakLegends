@@ -1,7 +1,9 @@
-import type { PackV2Habit } from "../../api/pack-v2";
+import type { FindingsPackV2 } from "../../api/pack-v2";
+import { habitEvidence } from "../populationEvidence";
 import { SectionHead, Unavailable } from "../ui";
 
-export function LeverAdoption({ habits }: { habits: PackV2Habit[] }) {
+export function LeverAdoption({ pack }: { pack: FindingsPackV2 | undefined }) {
+  const habits = habitEvidence(pack);
   return (
     <div
       className="card3b"

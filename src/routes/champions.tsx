@@ -7,6 +7,7 @@ import { RoleChips } from "../components/champions/RoleChips";
 import { MatchupsCard } from "../components/champions/MatchupsCard";
 import { RoleTierList } from "../components/champions/RoleTierList";
 import { BuildOrderCard } from "../components/champions/BuildOrderCard";
+import { RouteArchetypesCard } from "../components/champions/RouteArchetypesCard";
 import { TrajectoryCard } from "../components/champions/TrajectoryCard";
 import { CompCard, DamageFitCard, GoldWasteCard } from "../components/champions/CompFitCards";
 import {
@@ -135,7 +136,8 @@ export function ChampionsPage() {
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
-            <BuildOrderCard />
+            <BuildOrderCard pack={pack.data} />
+            <RouteArchetypesCard pack={pack.data} />
             <TrajectoryCard
               champion={selectedChampion}
               points={trajectories.data ?? []}

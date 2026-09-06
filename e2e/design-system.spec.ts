@@ -261,10 +261,10 @@ test.describe("design system evidence", () => {
         evidence.add("route", `${route.path} loaded, no forbidden vocabulary`, { viewport: vp });
       }
 
-      // v2 pack recall_safety renders with multiplier semantics on /progress.
+      // Habit effects stay unavailable until canonical evidence is released.
       await gotoRoute(page, ROUTES[3]);
-      await expect(page.getByTestId("lever-adoption")).toContainText(/×2\.32/);
-      evidence.add("units", "recall_safety renders ×2.32 as an odds-ratio multiplier, never % or pp", { viewport: vp });
+      await expect(page.getByTestId("habit-evidence-unavailable")).toContainText(/compatible v2 habit evidence unavailable/i);
+      evidence.add("units", "canonical habits unavailable without released population evidence", { viewport: vp });
       // The remaining sections deliberately provoke 503s/error states; Chrome logs those (and
       // any react-query retry against the now-unrouted real endpoint) as console errors on their
       // own schedule regardless of app-level handling. ui-integrity's equivalent fixture test

@@ -94,6 +94,66 @@ def test_v2_semantics_require_withheld_findings_to_explain_release():
     with pytest.raises(PydanticValidationError):
         FindingsPackV2.model_validate(broken)
 
+def test_v2_semantics_pin_mastery_and_ban_release_values():
+    broken = copy.deepcopy(PACK)
+    next(row for row in broken["findings"] if row["key"] == "mastery_premium")["value"] = 1.95
+    with pytest.raises(PydanticValidationError):
+        FindingsPackV2.model_validate(broken)
+
+    broken = copy.deepcopy(PACK)
+    next(row for row in broken["ban_context"] if row["metric_kind"] == "ban_rate_win_rate_correlation")["value"] = 0.07
+    with pytest.raises(PydanticValidationError):
+        FindingsPackV2.model_validate(broken)
+
+
+def test_v2_semantics_keep_objective_families_typed_and_diagnostic():
+    broken = copy.deepcopy(PACK)
+    row = next(
+        row
+        for row in broken["objectives"]
+        if row["metric_kind"] == "before_time_rate"
+    )
+    row["window"] = {
+        "kind": "full_match",
+        "start_seconds": None,
+        "end_seconds": None,
+        "include_start": True,
+        "include_end": True,
+        "rule": "wrong window",
+    }
+    with pytest.raises(PydanticValidationError):
+        FindingsPackV2.model_validate(broken)
+
+    broken = copy.deepcopy(PACK)
+    broken["objectives"][0]["metric_kind"] = "matched_effect"
+    with pytest.raises(PydanticValidationError):
+        FindingsPackV2.model_validate(broken)
+
+
+def test_v2_semantics_reject_noncanonical_tier_and_matchup_rows():
+    broken = copy.deepcopy(PACK)
+    broken["tier_list"][0], broken["tier_list"][1] = broken["tier_list"][1], broken["tier_list"][0]
+    with pytest.raises(PydanticValidationError):
+        FindingsPackV2.model_validate(broken)
+
+    broken = copy.deepcopy(PACK)
+    row = broken["matchup_examples"][0]
+    row["estimate"] = row["interval"]["upper"] + 0.01
+    with pytest.raises(PydanticValidationError):
+        FindingsPackV2.model_validate(broken)
+
+
+def test_v2_semantics_bound_route_outcomes_and_withheld_comeback_rows():
+    broken = copy.deepcopy(PACK)
+    broken["route_archetypes"][0]["observed_outcome"] = 1.01
+    with pytest.raises(PydanticValidationError):
+        FindingsPackV2.model_validate(broken)
+
+    broken = copy.deepcopy(PACK)
+    broken["comeback_odds"][0]["rate"] = 0.2
+    with pytest.raises(PydanticValidationError):
+        FindingsPackV2.model_validate(broken)
+
 
 def test_every_evidence_row_references_matching_provenance():
     model = FindingsPackV2.model_validate(PACK)

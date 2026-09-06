@@ -112,7 +112,7 @@ export function ProgressPage() {
             <h2 id="lever-adoption-heading" className="route-panel-heading">
               Lever adoption
             </h2>
-            <LeverAdoption habits={packV2?.habits ?? []} />
+            <LeverAdoption pack={packV2 ?? undefined} />
             {pack.isLoading && (
               <>
                 <ProgressSkeleton />
