@@ -60,7 +60,7 @@ export function PostGamePage() {
 
         <div className="postgame-route-grid">
           <div className="postgame-main-column">
-            <HabitsCard digest={digest} />
+            <HabitsCard digest={digest} pack={packQuery.data} />
             <section className="card3" aria-labelledby="postgame-backfill-heading" style={{ padding: 13, display: "flex", alignItems: "center", gap: 10 }}>
               <h2
                 id="postgame-backfill-heading"

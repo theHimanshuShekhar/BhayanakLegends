@@ -127,6 +127,29 @@ describe("PostGamePage", () => {
     expect(screen.getByTestId("habit-plates_by_14")).toHaveTextContent("bad");
     expect(screen.getByTestId("habit-fast_first_dragon")).toHaveTextContent("n/a");
   });
+  it("renders early-fight, local-team dragon, and plate observations separately", async () => {
+    vi.mocked(api.postgameLatest).mockResolvedValue({
+      ...digest,
+      habits: [],
+      features: {
+        early_fight_participation_rate: 0.4,
+        first_dragon_by_20m_s: 512,
+        plates_taken_by_14m: 2,
+      },
+    });
+    renderPage();
+
+    const observations = await screen.findByTestId("habit-feature-observations");
+    expect(observations).toHaveTextContent("Early-fight participation");
+    expect(observations).toHaveTextContent("40.0%");
+    expect(observations).toHaveTextContent("First local-team dragon timing");
+    expect(observations).toHaveTextContent("8:32");
+    expect(observations).toHaveTextContent("Plates taken by 14 minutes");
+    expect(observations).toHaveTextContent("2 plates");
+    expect(observations).toHaveTextContent(/Timing association only/i);
+    expect(observations).toHaveTextContent(/Diagnostic · era-sensitive/i);
+    expect(observations).not.toHaveTextContent(/fight more|take dragon|must/i);
+  });
 
   it("shows v2 objective rates and withholds comeback bands when exact cohorts are unavailable", async () => {
     vi.mocked(api.postgameLatest).mockResolvedValue(digest);

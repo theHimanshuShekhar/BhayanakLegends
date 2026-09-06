@@ -15,7 +15,7 @@ const PERSONAL_FEATURES = [
   { key: "unseen_recall_share_by_15m", label: "Safe recall share by 15m", unit: "share" },
   { key: "avg_banked_gold_at_recall_by_15m", label: "Banked gold at recall by 15m", unit: "gold" },
   { key: "early_fight_participation_rate", label: "Early-fight participation", unit: "share" },
-  { key: "first_dragon_by_20m_s", label: "First team-dragon timing", unit: "seconds" },
+  { key: "first_dragon_by_20m_s", label: "First local-team dragon timing", unit: "seconds" },
   { key: "plates_taken_by_14m", label: "Plates taken by 14 minutes", unit: "plate_count" },
 ] as const;
 
@@ -75,7 +75,6 @@ export function HabitsCard({
   const idle = digest == null;
   const personalRows = personalFeatureRows(digest);
   const outcomeRows = digest?.habits ?? [];
-  const unavailable = digest != null && outcomeRows.length === 0 && personalRows.length === 0;
   const win = digest?.win ?? false;
   return (
     <section
@@ -104,14 +103,9 @@ export function HabitsCard({
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "16px 8px", borderRadius: 12, border: "1px dashed var(--color-line)", color: "var(--color-dim)", fontSize: 10.5 }}>
           Waiting for the first analyzed game.
         </div>
-      ) : unavailable ? (
-        <div
-          data-testid="habit-unavailable"
-          style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "16px 8px", borderRadius: 12, border: "1px dashed var(--color-line)", color: "var(--color-dim)", fontSize: 10.5, textAlign: "center" }}
-        >
-          <Unavailable reason="no compatible v2 habit observations reported for this game" />
-        </div>
-      ) : outcomeRows.length > 0 ? (
+      ) : (
+        <>
+      {outcomeRows.length > 0 && (
         <ul aria-label="Personal habit outcomes" data-testid="habit-outcomes" style={{ display: "flex", flexDirection: "column", gap: 6, listStyle: "none", margin: 0, padding: 0 }}>
           {outcomeRows.map((habit) => {
             const population = populationHabit(pack, habit.key);
@@ -129,10 +123,24 @@ export function HabitsCard({
             );
           })}
         </ul>
-      ) : (
+      )}
+      {personalRows.length > 0 && (
         <ul aria-label="Personal feature observations" data-testid="habit-feature-observations" style={{ display: "flex", flexDirection: "column", gap: 6, listStyle: "none", margin: 0, padding: 0 }}>
           {personalRows.map((row) => {
             const population = populationHabit(pack, row.feature);
+            const populationContext = population
+              ? row.feature === "first_dragon_by_20m_s"
+                ? `Timing association only · ×${population.effect.toFixed(2)} ${population.unit} · possession and denial are separate objective measures. ${population.caveats[0]}`
+                : row.feature === "plates_taken_by_14m"
+                  ? `Diagnostic · era-sensitive · ×${population.effect.toFixed(2)} ${population.unit} · ${population.caveats[0]}`
+                  : `Population association · ×${population.effect.toFixed(2)} ${population.unit} · ${population.caveats[0]}`
+              : row.feature === "first_dragon_by_20m_s"
+                ? "Timing association context unavailable; possession and denial are separate objective measures."
+                : row.feature === "early_fight_participation_rate"
+                  ? "Diagnostic participation context unavailable for this feature."
+                  : row.feature === "plates_taken_by_14m"
+                    ? "Diagnostic · era-sensitive population context unavailable for this feature."
+                    : "Population context unavailable for this feature.";
             return (
               <li key={row.key} data-testid={`habit-${row.key}`} style={{ display: "flex", flexDirection: "column", gap: 5, padding: "7px 9px", borderRadius: 12, background: "var(--color-surface-2)", boxShadow: "var(--shadow-z1)" }}>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 9 }}>
@@ -142,14 +150,22 @@ export function HabitsCard({
                   </span>
                 </div>
                 <div style={{ fontSize: 8.5, lineHeight: 1.4, color: "var(--color-dimmer)" }}>
-                  {population
-                    ? `${population.key === "plates_by_14" ? "Diagnostic · era-sensitive" : "Population association"} · ×${population.effect.toFixed(2)} ${population.unit} · ${population.caveats[0]}`
-                    : "Population context unavailable for this feature."}
+                  {populationContext}
                 </div>
               </li>
             );
           })}
         </ul>
+      )}
+      {outcomeRows.length === 0 && personalRows.length === 0 && (
+        <div
+          data-testid="habit-unavailable"
+          style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "16px 8px", borderRadius: 12, border: "1px dashed var(--color-line)", color: "var(--color-dim)", fontSize: 10.5, textAlign: "center" }}
+        >
+          <Unavailable reason="no compatible v2 habit observations reported for this game" />
+        </div>
+      )}
+        </>
       )}
       <SectionHead level={3} dot={false} label="Digest headline" />
       <div style={{ marginTop: "auto", display: "flex", gap: 9, padding: 10, borderRadius: 14, background: "var(--color-accent-low)", boxShadow: "var(--shadow-z1)" }}>

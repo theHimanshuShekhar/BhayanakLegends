@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useHistoryInsights } from "../../api/hooks";
+import { FeatureInsights } from "./FeatureInsights";
 import { classifyApiError } from "../../api/client";
 import type { HistoryInsights, InsightWindow, Role } from "../../api/types";
 import { formatRate as pct } from "../format";
@@ -295,6 +296,10 @@ export function InsightsProfiles() {
             <span>·</span>
             <span>Filters apply before the review windows.</span>
           </div>
+          <FeatureInsights
+            insights={insights.data.feature_insights ?? []}
+            trajectories={insights.data.feature_trajectories ?? []}
+          />
           <div>
             <h3 className="route-subheading" style={{ marginBottom: 7 }}>
               Role profiles

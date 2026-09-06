@@ -53,6 +53,8 @@ const available: HistoryInsights = {
     },
   ],
   windows,
+  feature_insights: [],
+  feature_trajectories: [],
 };
 
 const empty: HistoryInsights = {

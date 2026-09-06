@@ -90,6 +90,8 @@ const historyInsights: HistoryInsights = {
   },
   feature_contract_version: null,
   feature_contract_status: "unavailable",
+  feature_insights: [],
+  feature_trajectories: [],
 };
 
 const settings: Settings = {

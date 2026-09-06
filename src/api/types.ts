@@ -116,7 +116,45 @@ export interface HistoryInsights {
   windows: { latest: InsightWindow; preceding: InsightWindow };
   feature_contract_version: string | null;
   feature_contract_status: "available" | "mixed" | "unavailable";
+  feature_insights: HistoryFeatureInsight[];
+  feature_trajectories: HistoryFeatureTrajectoryPoint[];
 }
+export type HistoryFeatureStatus = "available" | "insufficient-sample" | "unavailable";
+export type HistoryFeatureKey =
+  | "cs10"
+  | "level10"
+  | "gold_diff_10"
+  | "team_gold_diff_15m"
+  | "recalls_before_15m"
+  | "avg_banked_gold_at_recall_by_15m"
+  | "avg_banked_gold_at_recall_by_20m"
+  | "unseen_recall_share_by_15m"
+  | "unseen_recall_share_by_20m"
+  | "first_dragon_by_20m_s"
+  | "first_riftherald_by_20m_s"
+  | "first_baron_by_20m_s"
+  | "smite_contests_before_15m"
+  | "smite_contests_before_20m"
+  | "early_fight_participation_rate"
+  | "plates_taken_by_14m";
+export interface HistoryFeatureInsight {
+  feature_key: HistoryFeatureKey;
+  current_value: number | null;
+  role_baseline: number | null;
+  delta: number | null;
+  sample_size: number;
+  status: HistoryFeatureStatus;
+  caveat: string;
+}
+export interface HistoryFeatureTrajectoryPoint {
+  feature_key: HistoryFeatureKey;
+  played_at: string;
+  value: number | null;
+  sample_size: number;
+  status: HistoryFeatureStatus;
+  caveat: string;
+}
+
 
 export interface HistorySummary {
   matches: number;
@@ -168,7 +206,7 @@ export interface PostGameDigest {
   headline: string;
   feature_contract_version: string | null;
   personal_history_eligibility: "eligible" | "ineligible" | "unknown";
-  features: unknown;
+  features: Partial<Record<HistoryFeatureKey, number | null>>;
   team_state: TeamState | null;
 }
 
