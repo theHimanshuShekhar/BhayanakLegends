@@ -6,7 +6,8 @@ param(
   [Parameter(Mandatory = $true)][string]$StatePath,
   [Parameter(Mandatory = $true)][string]$FlipFile,
   [Parameter(Mandatory = $true)][string]$HigherVersion,
-  [Parameter(Mandatory = $true)][string]$RejectedVersion
+  [Parameter(Mandatory = $true)][string]$RejectedVersion,
+  [Parameter(Mandatory = $true)][string]$ExpectedPackVersion
 )
 
 # Proves the full signed-updater lifecycle against the lower-version install
@@ -32,6 +33,7 @@ $state = [ordered]@{
   debug_port        = [int]$DebugPort
   higher_version    = $HigherVersion
   rejected_version  = $RejectedVersion
+  expected_pack_version = $ExpectedPackVersion
   phases            = @()
   owned_sidecars    = @()
   errors            = @()
@@ -158,6 +160,7 @@ function Invoke-WebviewAssertions {
     [Parameter(Mandatory = $true)][string]$Phase,
     [Parameter(Mandatory = $true)][string]$DebugPort,
     [string]$ExpectedVersion,
+    [string]$ExpectedPackVersion,
     [int]$AppExitGraceSeconds = 0,
     [string]$AppStdoutLog,
     [string]$AppStderrLog,
@@ -173,6 +176,7 @@ function Invoke-WebviewAssertions {
   # treated as a crash.
   $nodeArgs = @("tools/windows_packaged_smoke.mjs", "--phase", $Phase, "--debug-port", $DebugPort)
   if ($ExpectedVersion) { $nodeArgs += @("--expected-version", $ExpectedVersion) }
+  if ($ExpectedPackVersion) { $nodeArgs += @("--expected-pack-version", $ExpectedPackVersion) }
   $node = Start-Process -FilePath "node" -ArgumentList $nodeArgs -NoNewWindow -PassThru
   $appExitAt = $null
   try {
@@ -284,7 +288,7 @@ try {
   try {
     # The app may legitimately self-exit mid-phase during install handoff;
     # give node a short grace window to notice the port going dark first.
-    Invoke-WebviewAssertions -App $app1 -Phase "update-available" -DebugPort $DebugPort -ExpectedVersion $HigherVersion -AppExitGraceSeconds 15 `
+    Invoke-WebviewAssertions -App $app1 -Phase "update-available" -DebugPort $DebugPort -ExpectedVersion $HigherVersion -ExpectedPackVersion $ExpectedPackVersion -AppExitGraceSeconds 15 `
       -AppStdoutLog $app1StdoutLog -AppStderrLog $app1StderrLog -AppName $appNameForDiagnostics
     $state.phases += [ordered]@{ name = "update-available"; result = "passed" }
   } catch {
@@ -329,7 +333,7 @@ try {
   $app2 = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru `
     -RedirectStandardOutput $app2StdoutLog -RedirectStandardError $app2StderrLog
   try {
-    Invoke-WebviewAssertions -App $app2 -Phase "updated" -DebugPort $DebugPort `
+    Invoke-WebviewAssertions -App $app2 -Phase "updated" -DebugPort $DebugPort -ExpectedVersion $HigherVersion -ExpectedPackVersion $ExpectedPackVersion `
       -AppStdoutLog $app2StdoutLog -AppStderrLog $app2StderrLog -AppName $appNameForDiagnostics
     $state.phases += [ordered]@{ name = "updated"; result = "passed" }
   } catch {
@@ -356,7 +360,7 @@ try {
   $app3 = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru `
     -RedirectStandardOutput $app3StdoutLog -RedirectStandardError $app3StderrLog
   try {
-    Invoke-WebviewAssertions -App $app3 -Phase "invalid" -DebugPort $DebugPort -ExpectedVersion $RejectedVersion `
+    Invoke-WebviewAssertions -App $app3 -Phase "invalid" -DebugPort $DebugPort -ExpectedVersion $RejectedVersion -ExpectedPackVersion $ExpectedPackVersion `
       -AppStdoutLog $app3StdoutLog -AppStderrLog $app3StderrLog -AppName $appNameForDiagnostics
     $state.phases += [ordered]@{ name = "invalid"; result = "passed" }
   } catch {

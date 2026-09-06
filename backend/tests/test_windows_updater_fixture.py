@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -9,6 +11,7 @@ import sys
 import time
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
+import zipfile
 
 import pytest
 
@@ -105,6 +108,28 @@ def test_fixture_serves_exact_valid_then_mismatched_artifacts(fixture_server) ->
     assert second["version"] == "0.1.2"
     assert _get(port, str(second_platform["url"]).split(f"127.0.0.1:{port}", 1)[1]) == invalid_bytes
     assert first_platform["signature"] == second_platform["signature"]
+    manifest = json.loads(_get(port, "/findings-pack-manifest.json"))
+    packed = _get(port, "/findings-pack.zip")
+    assert manifest["pack_version"] == state["pack_version"]
+    assert manifest["size"] == len(packed) == state["pack_size"]
+    assert manifest["sha256"] == hashlib.sha256(packed).hexdigest() == state["pack_sha256"]
+    assert manifest["required_model_artifacts"] == state["required_model_artifacts"]
+    pack_root = REPO_ROOT / "pack"
+    expected_files = sorted(
+        path.relative_to(pack_root).as_posix()
+        for path in pack_root.rglob("*")
+        if path.is_file()
+    )
+    with zipfile.ZipFile(io.BytesIO(packed)) as archive:
+        assert archive.namelist() == expected_files
+        assert {
+            name: archive.read(name)
+            for name in expected_files
+        } == {
+            name: (pack_root / name).read_bytes()
+            for name in expected_files
+        }
+
 
     requests = Path(str(state["requests_file"])).read_text(encoding="utf-8")
     assert '"path": "/latest.json"' in requests

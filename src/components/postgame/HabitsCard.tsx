@@ -1,7 +1,8 @@
 import type { CSSProperties } from "react";
 import type { HabitOutcome, PostGameDigest } from "../../api/types";
-import type { FindingsPackV2, PackV2Habit } from "../../api/pack-v2";
+import type { FindingsPackV2 } from "../../api/pack-v2";
 import { formatClock, formatRate } from "../format";
+import { habitEvidence } from "../populationEvidence";
 import { SectionHead, Unavailable } from "../ui";
 
 const VERDICT_PILL: Record<HabitOutcome["verdict"], CSSProperties> = {
@@ -59,10 +60,6 @@ function personalFeatureRows(digest: PostGameDigest | null): PersonalFeatureRow[
   });
 }
 
-function populationHabit(pack: FindingsPackV2 | undefined, feature: string): PackV2Habit | null {
-  return pack?.habits.find((habit) => habit.feature === feature) ?? null;
-}
-
 
 /** Personal observations stay separate from Findings Pack population effects. */
 export function HabitsCard({
@@ -75,6 +72,7 @@ export function HabitsCard({
   const idle = digest == null;
   const personalRows = personalFeatureRows(digest);
   const outcomeRows = digest?.habits ?? [];
+  const populationRows = habitEvidence(pack);
   const win = digest?.win ?? false;
   return (
     <section
@@ -108,7 +106,7 @@ export function HabitsCard({
       {outcomeRows.length > 0 && (
         <ul aria-label="Personal habit outcomes" data-testid="habit-outcomes" style={{ display: "flex", flexDirection: "column", gap: 6, listStyle: "none", margin: 0, padding: 0 }}>
           {outcomeRows.map((habit) => {
-            const population = populationHabit(pack, habit.key);
+            const population = populationRows.find((candidate) => candidate.feature === habit.key) ?? null;
             return (
               <li key={habit.key} data-testid={`habit-${habit.key}`} style={{ display: "flex", alignItems: "center", gap: 9, padding: "7px 9px", borderRadius: 12, background: "var(--color-surface-2)", boxShadow: "var(--shadow-z1)" }}>
                 <span className="mono-n" style={{ width: 70, fontSize: 9.5, color: "var(--color-dimmer)" }}>{habit.value}</span>
@@ -127,7 +125,7 @@ export function HabitsCard({
       {personalRows.length > 0 && (
         <ul aria-label="Personal feature observations" data-testid="habit-feature-observations" style={{ display: "flex", flexDirection: "column", gap: 6, listStyle: "none", margin: 0, padding: 0 }}>
           {personalRows.map((row) => {
-            const population = populationHabit(pack, row.feature);
+            const population = populationRows.find((candidate) => candidate.feature === row.feature) ?? null;
             const populationContext = population
               ? row.feature === "first_dragon_by_20m_s"
                 ? `Timing association only · ×${population.effect.toFixed(2)} ${population.unit} · possession and denial are separate objective measures. ${population.caveats[0]}`

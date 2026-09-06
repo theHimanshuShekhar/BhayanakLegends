@@ -62,6 +62,7 @@ function v2DigestFields(digest: PostGameDigest | null): {
   eligibility: Eligibility | null;
   teamGoldDiff: number | null;
   teamGoldPresent: boolean;
+  sourceConflict: boolean;
   observedThrough: number | null;
   nonSurrendered: boolean | null;
   contractVersion: string | null;
@@ -78,6 +79,12 @@ function v2DigestFields(digest: PostGameDigest | null): {
       : null;
   const featureValue = features?.[CANONICAL_FEATURE];
   const teamStateValue = teamState?.[CANONICAL_FEATURE];
+  const bothSourcesPresent = featureValue !== undefined && teamStateValue !== undefined;
+  const bothSourcesMissing = featureValue == null && teamStateValue == null;
+  const sourceConflict =
+    bothSourcesPresent &&
+    !bothSourcesMissing &&
+    (!finite(featureValue) || !finite(teamStateValue) || featureValue !== teamStateValue);
   const rawTeamGold = featureValue !== undefined ? featureValue : teamStateValue;
   const teamStateContractValid =
     teamState?.feature === CANONICAL_FEATURE &&
@@ -86,6 +93,7 @@ function v2DigestFields(digest: PostGameDigest | null): {
     eligibility,
     teamGoldDiff: finite(rawTeamGold) ? rawTeamGold : null,
     teamGoldPresent: rawTeamGold !== undefined && rawTeamGold !== null,
+    sourceConflict,
     observedThrough: finite(teamState?.observed_through_s) ? teamState.observed_through_s : null,
     nonSurrendered: typeof teamState?.non_surrendered === "boolean" ? teamState.non_surrendered : null,
     contractVersion:
@@ -142,7 +150,6 @@ function parseBands(pack: FindingsPackV2 | undefined): PackV2ComebackBand[] | nu
   if (pack.comeback_odds.length !== EXPECTED_BOUNDS.length) return null;
   return pack.comeback_odds.every(validBand) ? pack.comeback_odds : null;
 }
-
 /** Match only the declared v2 team-deficit interval; no personal-gold fallback or extrapolation. */
 export function matchComebackBucket(
   pack: FindingsPackV2 | undefined,
@@ -150,7 +157,11 @@ export function matchComebackBucket(
 ): { match: BucketMatch; reason: null } | { match: null; reason: SuppressionReason } {
   if (!digest) return { match: null, reason: "missing-personal-history" };
   const fields = v2DigestFields(digest);
-  if (!fields.contractVersion || !fields.teamStateContractValid || !fields.teamGoldPresent) {
+  if (fields.sourceConflict) return { match: null, reason: "invalid-input" };
+  if (!fields.contractVersion || !fields.teamStateContractValid) {
+    return { match: null, reason: "incompatible-declaration" };
+  }
+  if (!fields.teamGoldPresent) {
     return { match: null, reason: "missing-personal-history" };
   }
   if (!finite(fields.teamGoldDiff)) return { match: null, reason: "invalid-input" };

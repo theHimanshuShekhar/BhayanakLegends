@@ -73,6 +73,7 @@ def _load_document(path: Path) -> dict[str, object]:
         raise SystemExit("tauri updater configuration is missing")
     return document
 
+
 def _set_browser_args(document: dict[str, object], browser_args: str) -> None:
     if not browser_args.startswith("--remote-debugging-port="):
         raise SystemExit("smoke browser args must set the remote-debugging port")

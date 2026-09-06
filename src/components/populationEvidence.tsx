@@ -3,6 +3,7 @@ import type {
   FindingsPackV2,
   PackV2BuildEvidence,
   PackV2Finding,
+  PackV2Habit,
   PackV2RouteArchetype,
 } from "../api/pack-v2";
 import { isFindingsPackV2 } from "../api/pack-v2";
@@ -115,6 +116,39 @@ const RANK_BANDS: Record<TierEvidenceRow["rankBand"], true> = {
   B: true,
   C: true,
 };
+const MASTERY_PREMIUM = 1.94;
+const BAN_CORRELATION = 0.062353;
+const HABIT_SPECS: Record<
+  string,
+  { feature: string; effect: number; tier: EvidenceTier; era: EvidenceEraStability }
+> = {
+  recall_safety: {
+    feature: "unseen_recall_share_by_15m",
+    effect: 2.32,
+    tier: "actionable",
+    era: "stable",
+  },
+  fast_first_dragon: {
+    feature: "first_dragon_by_20m_s",
+    effect: 0.77,
+    tier: "actionable",
+    era: "stable",
+  },
+  spend_before_backing: {
+    feature: "avg_banked_gold_at_recall_by_15m",
+    effect: 0.8,
+    tier: "actionable",
+    era: "stable",
+  },
+  plates_by_14: {
+    feature: "plates_taken_by_14m",
+    effect: 1.03,
+    tier: "diagnostic",
+    era: "sensitive",
+  },
+};
+const HABIT_METRIC = "odds_ratio_per_standard_deviation";
+const HABIT_UNIT = "odds ratio per standard deviation";
 
 function record(value: unknown): AnyRecord | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -292,8 +326,17 @@ export function masteryEvidence(pack: FindingsPackV2 | undefined): MasteryEviden
   const item = findFinding(pack, "mastery_premium");
   if (!item) return null;
   const metadata = readMetadata(item);
-  if (!metadata) return null;
-  const value = finite(item.value) && item.value >= 0 && item.value <= 100 ? item.value : null;
+  if (
+    !metadata ||
+    metadata.metric !== "percentage_points" ||
+    metadata.unit !== "percentage_points" ||
+    metadata.tier !== "actionable"
+  ) {
+    return null;
+  }
+  const value = finite(item.value) && Math.abs(item.value - MASTERY_PREMIUM) < 1e-9
+    ? item.value
+    : null;
   if (value == null && evidenceUsable(metadata)) return null;
   return {
     value,
@@ -304,17 +347,47 @@ export function masteryEvidence(pack: FindingsPackV2 | undefined): MasteryEviden
 
 export function banCorrelationEvidence(pack: FindingsPackV2 | undefined): BanCorrelationEvidence | null {
   const data = packData(pack);
-  const item = data?.ban_context.find((context) => context.metric_kind === "ban_rate_win_rate_correlation");
-  if (!item || !finite(item.value) || item.value < -1 || item.value > 1) return null;
+  const item = data?.ban_context.find(
+    (context) =>
+      context.key === "ban_win_rate_correlation" &&
+      context.metric_kind === "ban_rate_win_rate_correlation",
+  );
+  if (!item) return null;
   const metadata = readMetadata(item, { metric: item.metric_kind, unit: "correlation" });
-  if (!metadata) return null;
+  if (!metadata || metadata.tier !== "diagnostic") return null;
+  const usable = evidenceUsable(metadata);
+  const value = usable && finite(item.value) && item.value >= -1 && item.value <= 1 &&
+    Math.abs(item.value - BAN_CORRELATION) < 1e-9
+    ? item.value
+    : null;
+  if (value == null && usable) return null;
   return {
     champion: stringValue(item.champion),
-    value: item.value,
+    value,
     statement: "The pooled relationship is descriptive population context, not a deterministic ban signal.",
     sample: positiveInteger(item.sample) ? item.sample : null,
     metadata,
   };
+}
+
+export function habitEvidence(pack: FindingsPackV2 | undefined): PackV2Habit[] {
+  const data = packData(pack);
+  if (!data) return [];
+  return data.habits.filter((habit) => {
+    const expected = HABIT_SPECS[habit.key];
+    if (
+      !expected ||
+      (habit.release_status !== "available" && habit.release_status !== "approximate") ||
+      habit.feature !== expected.feature ||
+      habit.metric_kind !== HABIT_METRIC ||
+      habit.unit !== HABIT_UNIT ||
+      habit.tier !== expected.tier ||
+      habit.era_stability !== expected.era
+    ) {
+      return false;
+    }
+    return finite(habit.effect) && Math.abs(habit.effect - expected.effect) < 1e-9;
+  });
 }
 
 function normalizeTierRow(
@@ -353,10 +426,16 @@ function normalizeTierRow(
 export function tierEvidence(pack: FindingsPackV2 | undefined, role?: string | null): TierEvidenceRow[] {
   const data = packData(pack);
   if (!data) return [];
+  const seen = new Set<string>();
   const rows = data.tier_list
     .map(normalizeTierRow)
     .filter((row): row is TierEvidenceRow => row !== null)
-    .filter((row) => !role || row.role === role);
+    .filter((row) => {
+      const key = `${row.role}\u0000${row.champion}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return !role || row.role === role;
+    });
   return sortTierRows(rows);
 }
 
@@ -396,10 +475,13 @@ function normalizeMatchupRow(item: unknown): MatchupEvidenceRow | null {
   if (
     !champion ||
     !opponent ||
+    champion === opponent ||
     !role ||
     games == null ||
     estimate == null ||
     !interval ||
+    estimate < interval.lower ||
+    estimate > interval.upper ||
     !metadata ||
     metadata.tier !== "diagnostic" ||
     !evidenceUsable(metadata)
@@ -443,11 +525,22 @@ export function routeArchetypeEvidence(pack: FindingsPackV2 | undefined): RouteA
     });
     const archetype = stringValue(route.label);
     const sample = positiveInteger(route.sample) ? route.sample : null;
-    const observed = finite(route.observed_outcome)
+    const observed = probability(route.observed_outcome)
       ? `${(route.observed_outcome * 100).toFixed(1)}% observed win rate`
-      : stringValue(route.observed_outcome);
+      : null;
     const coordinateValidation = stringValue(route.coordinate_validation);
-    if (!metadata || metadata.releaseStatus !== "approximate" || !archetype || sample == null || !observed || !coordinateValidation) continue;
+    const forbidden = /\b(best|optimal|recommend(?:ed)?|pick|choose|should|must|avoid)\b/i;
+    if (
+      !metadata ||
+      metadata.releaseStatus !== "approximate" ||
+      !archetype ||
+      forbidden.test(archetype) ||
+      sample == null ||
+      !observed ||
+      !coordinateValidation
+    ) {
+      continue;
+    }
     rows.push({
       archetype,
       sample,

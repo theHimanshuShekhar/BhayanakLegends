@@ -21,10 +21,10 @@ for (let index = 2; index < process.argv.length; index += 2) {
 const phase = args.get("--phase");
 const debugPort = args.get("--debug-port");
 const expectedVersion = args.get("--expected-version");
-
-if (!["update-available", "updated", "invalid"].includes(phase) || !debugPort) {
+const expectedPackVersion = args.get("--expected-pack-version");
+if (!["update-available", "updated", "invalid"].includes(phase) || !debugPort || !expectedVersion || !expectedPackVersion) {
   throw new Error(
-    "usage: windows_packaged_smoke.mjs --phase update-available|updated|invalid --debug-port PORT [--expected-version V]",
+    "usage: windows_packaged_smoke.mjs --phase update-available|updated|invalid --debug-port PORT --expected-version VERSION --expected-pack-version PACK_VERSION",
   );
 }
 if ((phase === "update-available" || phase === "invalid") && !expectedVersion) {
@@ -142,6 +142,147 @@ async function fetchAuthenticatedHealth(page, sidecarInfo) {
   );
 }
 
+async function assertCoreRoutes(page, sidecarInfo) {
+  const routes = [
+    "/health",
+    "/pack",
+    "/history/summary",
+    "/history/insights",
+    "/benchmarks",
+    "/postgame/latest",
+    "/live/status",
+    "/live/session",
+    "/live/ingame",
+  ];
+  const results = await page.evaluate(async ({ port, token, paths }) => {
+    return Promise.all(
+      paths.map(async (path) => {
+        try {
+          const response = await fetch(`http://127.0.0.1:${port}${path}`, {
+            headers: { "X-BL-Token": token },
+          });
+          return { path, status: response.status };
+        } catch {
+          return { path, status: 0 };
+        }
+      }),
+    );
+  }, { port: sidecarInfo.port, token: sidecarInfo.token, paths: routes });
+  const failed = results.filter((result) => result.status !== 200);
+  if (failed.length > 0) {
+    throw new Error(`packaged core route check failed: ${JSON.stringify(failed)}`);
+  }
+}
+
+async function fetchActivePack(page, sidecarInfo) {
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline) {
+    try {
+      const pack = await page.evaluate(
+        async ({ port, token }) => {
+          const response = await fetch(`http://127.0.0.1:${port}/pack`, {
+            headers: { "X-BL-Token": token },
+          });
+          return response.ok ? response.json() : null;
+        },
+        { port: sidecarInfo.port, token: sidecarInfo.token },
+      );
+      if (pack?.pack_version === expectedPackVersion) return pack;
+    } catch {
+      // The sidecar may still be binding or completing its startup release check.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return null;
+}
+
+function assertModelInventory(pack) {
+  if (!pack || pack.schema_version !== 2 || pack.pack_version !== expectedPackVersion) {
+    throw new Error("packaged sidecar did not return the exact canonical Findings Pack");
+  }
+  if (!pack.models || typeof pack.models !== "object" || Array.isArray(pack.models)) {
+    throw new Error("packaged Findings Pack has no model inventory");
+  }
+  const available = [];
+  for (const [key, declaration] of Object.entries(pack.models)) {
+    if (!declaration || typeof declaration !== "object") {
+      throw new Error(`model declaration ${key} is malformed`);
+    }
+    if (declaration.release_status === "available") {
+      if (!declaration.artifact || !declaration.model_card) {
+        throw new Error(`available model ${key} is missing its artifact/card`);
+      }
+      if (declaration.artifact.format !== "onnx") {
+        throw new Error(`available model ${key} is not an ONNX artifact`);
+      }
+      available.push({
+        key,
+        model_version: declaration.model_card.model_version,
+        artifact_path: declaration.artifact.path,
+        card_path: declaration.artifact.model_card_path,
+      });
+    } else if (key === "surrender_advisor" && declaration.release_status !== "withheld") {
+      throw new Error("Surrender Advisor must remain withheld in the packaged smoke");
+    }
+  }
+  return available;
+}
+
+async function assertAvailableModelInference(page, sidecarInfo, availableModels) {
+  if (availableModels.length === 0) {
+    return { attempted: false, status: "no-available-model", model_count: 0 };
+  }
+  const result = await page.evaluate(
+    async ({ port, token }) => {
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/history/what-if`, {
+          method: "POST",
+          headers: {
+            "X-BL-Token": token,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ adjustments: {} }),
+        });
+        return response.ok ? response.json() : { status: `http-${response.status}` };
+      } catch (error) {
+        return { status: "request-failed", reason: String(error) };
+      }
+    },
+    { port: sidecarInfo.port, token: sidecarInfo.token },
+  );
+  if (result.status === "available") {
+    if (
+      typeof result.probability !== "number" ||
+      !Number.isFinite(result.probability) ||
+      result.probability < 0 ||
+      result.probability > 1 ||
+      typeof result.model_version !== "string" ||
+      result.pack_version !== expectedPackVersion
+    ) {
+      throw new Error("available Personal What-If inference returned an invalid result");
+    }
+  } else if (result.status === "error" || result.status === "request-failed") {
+    throw new Error(`available model inference failed: ${result.reason ?? result.status}`);
+  }
+  return {
+    attempted: true,
+    status: result.status,
+    model_count: availableModels.length,
+  };
+}
+
+async function assertPackContract(page, sidecarInfo) {
+  const activePack = await fetchActivePack(page, sidecarInfo);
+  const availableModels = assertModelInventory(activePack);
+  await assertCoreRoutes(page, sidecarInfo);
+  const inference = await assertAvailableModelInference(page, sidecarInfo, availableModels);
+  return {
+    pack_version: expectedPackVersion,
+    model_count: availableModels.length,
+    inference,
+  };
+}
+
 async function runUpdateAvailablePhase(page) {
   try {
     await waitUpdaterText(page, new RegExp(`^Version ${escapeRegExp(expectedVersion)} is available\\.$`), 30_000);
@@ -192,9 +333,10 @@ async function runUpdatedPhase(page) {
 
   await page.getByText("Findings Pack v2", { exact: true }).waitFor({ state: "visible", timeout: 15_000 });
   const health = await fetchAuthenticatedHealth(page, sidecarInfo);
-  if (!health || health.pack_version !== "v2-smoke") {
+  if (!health || health.pack_version !== expectedPackVersion) {
     throw new Error("active Findings Pack release did not survive the signed update and relaunch");
   }
+  const packProof = await assertPackContract(page, sidecarInfo);
 
   // Give the mount-time updater check time to land, then require the exact
   // steady-state copy: the fixture now serves same-version metadata for the
@@ -204,11 +346,12 @@ async function runUpdatedPhase(page) {
   if (text !== "Bhayanak Legends is up to date.") {
     throw new Error(`relaunched app did not settle on up-to-date status: ${text}`);
   }
-  return { sidecar_port: sidecarInfo.port, sidecar_status: sidecarInfo.status, pack_version: health.pack_version };
+  return { sidecar_port: sidecarInfo.port, sidecar_status: sidecarInfo.status, ...packProof };
 }
 
 async function runInvalidPhase(page) {
   const sidecarInfo = await assertSidecarConnected(page);
+  const packProof = await assertPackContract(page, sidecarInfo);
 
   await waitUpdaterText(page, new RegExp(`^Version ${escapeRegExp(expectedVersion)} is available\\.$`), 30_000);
   await page.getByRole("button", { name: "Install update" }).click();
@@ -220,7 +363,7 @@ async function runInvalidPhase(page) {
 
   // The rejection must not have torn down the process or the sidecar.
   await assertSidecarConnected(page);
-  return { sidecar_port: sidecarInfo.port, sidecar_status: sidecarInfo.status, rejected_message: failureText };
+  return { sidecar_port: sidecarInfo.port, sidecar_status: sidecarInfo.status, ...packProof, rejected_message: failureText };
 }
 
 async function waitForAppPage(browser, deadlineMs) {
@@ -249,7 +392,6 @@ async function waitForAppPage(browser, deadlineMs) {
 // harness watches the app process and kills this script early if the app
 // itself dies, so a long wait here only costs time when progress is real.
 const browser = await waitForCdp(120_000);
-
 try {
   const page = await waitForAppPage(browser, 30_000);
 
@@ -257,8 +399,9 @@ try {
 
   let result;
   if (phase === "update-available") {
-    await assertSidecarConnected(page);
-    result = await runUpdateAvailablePhase(page);
+    const sidecarInfo = await assertSidecarConnected(page);
+    const packProof = await assertPackContract(page, sidecarInfo);
+    result = { ...packProof, ...await runUpdateAvailablePhase(page) };
   } else if (phase === "updated") {
     result = await runUpdatedPhase(page);
   } else {

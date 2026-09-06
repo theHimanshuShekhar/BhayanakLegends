@@ -70,15 +70,55 @@ jobs:
       - name: Build Python sidecar binary
         shell: bash
         run: uv run --project backend --locked python tools/build_windows_sidecar.py
+      - name: Build canonical Findings Pack release payload
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          uv run --project backend --locked python tools/build_findings_pack_release.py \
+            --pack-dir pack \
+            --asset "$RUNNER_TEMP/findings-pack.v2.zip" \
+            --manifest "$RUNNER_TEMP/findings-pack-manifest.json" \
+            --download-url "findings-pack.v2.zip" \
+            --min-app-version "0.1.0"
 
       - name: Sign Findings Pack manifest
-        if: ${{ hashFiles('pack/findings-pack-manifest.json') != '' }}
         shell: bash
         env:
           FINDINGS_PACK_MANIFEST_SIGNING_KEY: ${{ secrets.FINDINGS_PACK_MANIFEST_SIGNING_KEY }}
         run: |
           uv run --project backend --locked python tools/sign_findings_pack_manifest.py \
-            pack/findings-pack-manifest.json
+            "$RUNNER_TEMP/findings-pack-manifest.json" \
+            --output "$RUNNER_TEMP/findings-pack-manifest.json.sig"
+      - name: Verify generated Findings Pack payload
+        shell: bash
+        env:
+          PACK_MANIFEST_PATH: ${{ runner.temp }}/findings-pack-manifest.json
+          PACK_SIGNATURE_PATH: ${{ runner.temp }}/findings-pack-manifest.json.sig
+          PACK_ASSET_PATH: ${{ runner.temp }}/findings-pack.v2.zip
+        run: |
+          uv run --project backend --locked python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          from bhayanak_legends.manifest_signing import verify_manifest_signature
+
+          manifest_path = Path(os.environ["PACK_MANIFEST_PATH"])
+          signature_path = Path(os.environ["PACK_SIGNATURE_PATH"])
+          asset_path = Path(os.environ["PACK_ASSET_PATH"])
+          raw_manifest = manifest_path.read_bytes()
+          manifest = json.loads(raw_manifest.decode("utf-8"))
+          asset = asset_path.read_bytes()
+          if manifest["schema_version"] != 2:
+              raise SystemExit("generated Findings Pack manifest is not schema v2")
+          if manifest["size"] != len(asset):
+              raise SystemExit("generated Findings Pack manifest size is stale")
+          if manifest["sha256"] != hashlib.sha256(asset).hexdigest():
+              raise SystemExit("generated Findings Pack manifest hash is stale")
+          verify_manifest_signature(raw_manifest, signature_path.read_bytes())
+          print("generated Findings Pack manifest, payload, and signature match")
+          PY
+
 
       - name: Verify updater signing prerequisites
         shell: bash
@@ -144,6 +184,18 @@ jobs:
           prerelease: false
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
+      - name: Publish Findings Pack channel assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          TAG="v${VERSION}"
+          gh release upload "$TAG" \
+            "$RUNNER_TEMP/findings-pack.v2.zip" \
+            "$RUNNER_TEMP/findings-pack-manifest.json" \
+            "$RUNNER_TEMP/findings-pack-manifest.json.sig" \
+            --clobber
 
       - name: Verify emitted updater artifacts
         if: ${{ !inputs.dry_run }}
@@ -155,6 +207,16 @@ jobs:
           TAG="v${VERSION}"
           ASSETS_FILE="$RUNNER_TEMP/assets.txt"
           gh release view "$TAG" --json assets --jq '.assets[].name' > "$ASSETS_FILE"
-          grep -q 'latest.json' "$ASSETS_FILE" || { echo "latest.json missing from release assets"; exit 1; }
-          grep -q '\.sig$' "$ASSETS_FILE" || { echo "no .sig updater signature in release assets"; exit 1; }
-          echo "updater artifacts verified"
+          for REQUIRED_ASSET in \
+            latest.json \
+            findings-pack.v2.zip \
+            findings-pack-manifest.json \
+            findings-pack-manifest.json.sig
+          do
+            if ! grep -Fxq "$REQUIRED_ASSET" "$ASSETS_FILE"; then
+              echo "$REQUIRED_ASSET missing from release assets"
+              exit 1
+            fi
+          done
+          grep -q '\.sig$' "$ASSETS_FILE" || { echo "no updater signature in release assets"; exit 1; }
+          echo "updater and Findings Pack channel assets verified"

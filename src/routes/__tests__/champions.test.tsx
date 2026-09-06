@@ -231,8 +231,18 @@ describe("ChampionsPage", () => {
 
     const card = await screen.findByTestId("build-order-card");
     expect(card).toHaveTextContent(
-      "Unavailable: the Findings Pack carries no item-sequence features",
+      "Unavailable: Controlled champion/role/patch/purchase-opportunity comparison unavailable",
     );
     expect(card).not.toHaveTextContent(/lands after|arrives|ships/);
+  });
+
+  it("shows approximate route context without ranking or recommendation language", async () => {
+    renderPage(<ChampionsPage />);
+
+    const card = await screen.findByTestId("route-archetypes-card");
+    expect(card).toHaveTextContent("ROUTE ARCHETYPES · DESCRIPTIVE");
+    expect(card).toHaveTextContent(/observed win rate/i);
+    expect(card).toHaveTextContent(/descriptive only/i);
+    expect(card.textContent).not.toMatch(/\b(avoid|ban|pick|play|try|consider|stop|start|don't|dont|do not)\b/i);
   });
 });

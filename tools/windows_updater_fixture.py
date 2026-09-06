@@ -1,27 +1,32 @@
 """Serve real signed updater and Findings Pack assets to Windows smoke.
 
-The fixture deliberately has two updater phases. The first ``latest.json``
-response advertises the supplied higher-version archive and its emitted
-detached signature. Every later response advertises a second higher version
-whose supplied artifact/signature pair is known to be mismatched. It also
-serves a canonical Findings Pack asset with an ephemeral detached Ed25519
-manifest signature. The server binds only to the literal loopback address and
-writes path-only request diagnostics.
+The first ``latest.json`` response advertises the supplied higher-version
+archive and its emitted detached signature. With ``--flip-file``, responses
+after the valid artifact is served continue advertising that same version
+until the file exists, then advertise a second higher version whose supplied
+artifact/signature pair is known to be mismatched. Without ``--flip-file``,
+the second and later responses enter the mismatched-signature phase
+immediately. The fixture also serves a canonical Findings Pack asset with an
+ephemeral detached Ed25519 manifest signature. The server binds only to the
+literal loopback address and writes path-only request diagnostics.
 """
 
 import argparse
 import base64
 import hashlib
-import io
 import json
-import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import quote, urlparse
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-PACK_VERSION = "v2-smoke"
+from findings_pack_payload import archive_pack_directory, build_manifest, manifest_bytes
+
+MANIFEST_SIGNING_SEED = bytes.fromhex(
+    "00112233445566778899aabbccddeeff"
+    "102132435465768798a9bacbdcedfe0f"
+)
 VALID_ARTIFACT_PREFIX = "/artifacts/valid/"
 INVALID_ARTIFACT_PREFIX = "/artifacts/invalid/"
 
@@ -32,20 +37,8 @@ def write_json(path: Path, value: object) -> None:
 
 
 def pack_asset(pack_dir: Path) -> bytes:
-    pack_path = pack_dir / "findings-pack.v2.json"
-    if not pack_path.is_file():
-        raise SystemExit(f"canonical Findings Pack v2 JSON is missing in {pack_dir}")
-    try:
-        pack = json.loads(pack_path.read_text(encoding="utf-8"))
-        schema = (pack_dir / "pack.schema.json").read_bytes()
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise SystemExit(f"canonical Findings Pack v2 cannot be read from {pack_dir}") from exc
-    pack["pack_version"] = PACK_VERSION
-    output = io.BytesIO()
-    with zipfile.ZipFile(output, "w") as archive:
-        archive.writestr("findings-pack.v2.json", json.dumps(pack))
-        archive.writestr("pack.schema.json", schema)
-    return output.getvalue()
+    """Return the exact deterministic archive used by the release builder."""
+    return archive_pack_directory(pack_dir)
 
 
 def _read_artifact(path: Path, label: str) -> bytes:
@@ -130,6 +123,13 @@ def main() -> None:
     requests_file = args.state_file.with_suffix(".requests.jsonl")
     pack_dir = args.pack_dir or Path(__file__).resolve().parents[1] / "pack"
     pack_bytes = pack_asset(pack_dir)
+    manifest_payload = build_manifest(
+        pack_dir,
+        pack_bytes,
+        download_url="findings-pack.zip",
+        min_app_version="0.1.0",
+    )
+    pack_version = str(manifest_payload["pack_version"])
     pack_sha256 = hashlib.sha256(pack_bytes).hexdigest()
     valid_route = _artifact_route(VALID_ARTIFACT_PREFIX, args.valid_artifact.name)
     invalid_route = _artifact_route(INVALID_ARTIFACT_PREFIX, args.invalid_artifact.name)
@@ -175,7 +175,7 @@ def main() -> None:
             self._record(path)
 
             if path == "/findings-pack-manifest.json":
-                _send_bytes(self, manifest_bytes, "application/json")
+                _send_bytes(self, raw_manifest, "application/json")
                 return
 
             if path == "/findings-pack-manifest.json.sig":
@@ -221,33 +221,15 @@ def main() -> None:
                 FixtureHandler.valid_artifact_served = True
                 _send_bytes(self, valid_artifact, "application/octet-stream")
                 return
-
             if path == invalid_route:
                 _send_bytes(self, invalid_artifact, "application/octet-stream")
                 return
-
             self.send_error(404)
-
     server = ThreadingHTTPServer(("127.0.0.1", args.port), FixtureHandler)
-    manifest_payload = {
-        "pack_version": PACK_VERSION,
-        "schema_version": 2,
-        "feature_contract_versions": {
-            "population": "loltrends-population-v2",
-            "personal_history": "loltrends-parity-v2",
-        },
-        "feature_contract_version": "loltrends-population-v2",
-        "download_url": f"http://127.0.0.1:{server.server_port}/findings-pack.zip",
-        "sha256": pack_sha256,
-        "size": len(pack_bytes),
-        "required_model_artifacts": [],
-    }
-    manifest_bytes = json.dumps(
-        manifest_payload, sort_keys=True, separators=(",", ":")
-    ).encode("utf-8")
-    manifest_private_key = Ed25519PrivateKey.generate()
+    raw_manifest = manifest_bytes(manifest_payload)
+    manifest_private_key = Ed25519PrivateKey.from_private_bytes(MANIFEST_SIGNING_SEED)
     manifest_signature = base64.b64encode(
-        manifest_private_key.sign(manifest_bytes)
+        manifest_private_key.sign(raw_manifest)
     ) + b"\n"
     manifest_public_key = base64.b64encode(
         manifest_private_key.public_key().public_bytes_raw()
@@ -258,6 +240,10 @@ def main() -> None:
             "host": "127.0.0.1",
             "port": server.server_port,
             "requests_file": str(requests_file),
+            "pack_version": pack_version,
+            "pack_sha256": pack_sha256,
+            "pack_size": len(pack_bytes),
+            "required_model_artifacts": manifest_payload["required_model_artifacts"],
             "manifest_public_key": manifest_public_key,
             "manifest_signature_sha256": hashlib.sha256(manifest_signature).hexdigest(),
             "valid": {

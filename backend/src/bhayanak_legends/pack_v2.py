@@ -46,6 +46,50 @@ WindowKindV2 = Literal[
 ]
 CoordinateValidationV2 = Literal["validated", "approximate", "unavailable"]
 
+_MASTERY_FINDING_KEY = "mastery_premium"
+_MASTERY_PREMIUM_PP = 1.94
+_BAN_CORRELATION_KEY = "ban_win_rate_correlation"
+_BAN_CORRELATION_VALUE = 0.062353
+_HABIT_SPECS: dict[str, tuple[str, float, FindingTierV2, EraStabilityV2]] = {
+    "recall_safety": (
+        "unseen_recall_share_by_15m",
+        2.32,
+        "actionable",
+        "stable",
+    ),
+    "fast_first_dragon": (
+        "first_dragon_by_20m_s",
+        0.77,
+        "actionable",
+        "stable",
+    ),
+    "spend_before_backing": (
+        "avg_banked_gold_at_recall_by_15m",
+        0.80,
+        "actionable",
+        "stable",
+    ),
+    "plates_by_14": (
+        "plates_taken_by_14m",
+        1.03,
+        "diagnostic",
+        "sensitive",
+    ),
+}
+_HABIT_METRIC = "odds_ratio_per_standard_deviation"
+_HABIT_UNIT = "odds ratio per standard deviation"
+_OBJECTIVE_METRIC_ORDER = (
+    "possession_rate",
+    "before_time_rate",
+    "contested_first_rate",
+    "no_objective_rate",
+    "matched_effect",
+)
+_ROLE_ORDER = {role: index for index, role in enumerate(("TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"))}
+_RANK_ORDER = {band: index for index, band in enumerate(("S", "A", "B", "C"))}
+_MATCHUP_MINIMUM_GAMES = 1
+
+
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _GENERATOR_REVISION = re.compile(r"sha256:[0-9a-f]{64}")
 
@@ -253,10 +297,21 @@ class PackV2Objective(PackV2EvidenceMetadata):
 
     @model_validator(mode="after")
     def metric_window_semantics(self) -> "PackV2Objective":
-        if self.metric_kind == "before_time_rate" and self.window.kind != "before_time":
-            raise ValueError("before_time_rate requires a before_time observation window")
-        if self.metric_kind == "contested_first_rate" and self.window.kind == "pooled":
-            raise ValueError("contested_first_rate requires an observation window")
+        expected_window = {
+            "possession_rate": "full_match",
+            "before_time_rate": "before_time",
+            "contested_first_rate": "full_match",
+            "no_objective_rate": "full_match",
+        }.get(self.metric_kind)
+        if expected_window is None:
+            if self.release_status in {"available", "approximate"}:
+                raise ValueError("matched_effect objective evidence is not released")
+        elif self.window.kind != expected_window:
+            raise ValueError(
+                f"{self.metric_kind} requires a {expected_window} observation window"
+            )
+        if self.tier != "diagnostic":
+            raise ValueError("objective evidence is diagnostic only")
         if self.release_status in {"withheld", "superseded"} and not self.release_reason:
             raise ValueError("withheld or superseded objective requires release_reason")
         return self
@@ -284,11 +339,13 @@ class PackV2ComebackBand(PackV2EvidenceMetadata):
             raise ValueError("comeback upper bound must be greater than lower bound")
         if not self.include_lower:
             raise ValueError("comeback bands include their lower bound")
-        if self.release_status == "available":
+        if self.release_status in {"available", "approximate"}:
             if self.rate is None or self.sample <= 0:
-                raise ValueError("available comeback bands require a rate and positive sample")
-        elif self.rate is not None:
-            raise ValueError("suppressed comeback bands must not carry a rate")
+                raise ValueError(
+                    "released comeback bands require a rate and positive sample"
+                )
+        elif self.rate is not None or self.sample != 0:
+            raise ValueError("suppressed comeback bands must not carry rate or sample")
         if self.release_status in {"withheld", "superseded"} and not self.release_reason:
             raise ValueError("withheld or superseded comeback band requires release_reason")
         return self
@@ -306,8 +363,11 @@ class PackV2BanContext(PackV2EvidenceMetadata):
 
     @model_validator(mode="after")
     def pooled_correlation_has_no_champion(self) -> "PackV2BanContext":
-        if self.metric_kind == "ban_rate_win_rate_correlation" and self.champion is not None:
-            raise ValueError("pooled ban/win correlation must not carry a champion label")
+        if self.metric_kind == "ban_rate_win_rate_correlation":
+            if self.champion is not None:
+                raise ValueError("pooled ban/win correlation must not carry a champion label")
+            if not -1 <= self.value <= 1:
+                raise ValueError("ban/win correlation must lie in [-1,1]")
         if self.release_status in {"withheld", "superseded"} and not self.release_reason:
             raise ValueError("withheld or superseded ban context requires release_reason")
         return self
@@ -362,8 +422,12 @@ class PackV2Matchup(PackV2EvidenceMetadata):
 
     @model_validator(mode="after")
     def no_self_and_release_reason(self) -> "PackV2Matchup":
+        if not self.champion.strip() or not self.opponent.strip():
+            raise ValueError("matchup champion and opponent must be nonempty")
         if self.champion == self.opponent:
             raise ValueError("self-matchup is not valid")
+        if self.games < _MATCHUP_MINIMUM_GAMES:
+            raise ValueError("matchup row does not meet its minimum sample floor")
         if self.release_status in {"withheld", "superseded"} and not self.release_reason:
             raise ValueError("withheld or superseded matchup requires release_reason")
         if not self.interval.lower <= self.estimate <= self.interval.upper:
@@ -396,7 +460,18 @@ class PackV2RouteArchetype(PackV2EvidenceMetadata):
 
     @model_validator(mode="after")
     def no_recommendation_language(self) -> "PackV2RouteArchetype":
-        forbidden = ("best", "optimal", "recommend")
+        if not 0 <= self.observed_outcome <= 1:
+            raise ValueError("route observed outcome must lie in [0,1]")
+        forbidden = (
+            "best",
+            "optimal",
+            "recommend",
+            "pick",
+            "choose",
+            "should",
+            "must",
+            "avoid",
+        )
         text = f"{self.label} {' '.join(self.caveats)}".lower()
         if any(word in text for word in forbidden):
             raise ValueError("route archetypes cannot be presented as recommendations")
@@ -706,6 +781,117 @@ def _validate_comeback_bands(pack: FindingsPackV2) -> None:
         raise ValueError("v2 comeback bands must use team_gold_diff_15m")
 
 
+def _validate_finding_semantics(pack: FindingsPackV2) -> None:
+    for row in pack.findings:
+        if row.key != _MASTERY_FINDING_KEY:
+            continue
+        if row.release_status not in {"available", "approximate"}:
+            continue
+        if row.tier != "actionable":
+            raise ValueError("mastery_premium must remain actionable population evidence")
+        if row.metric_kind != "percentage_points" or row.unit != "percentage_points":
+            raise ValueError("mastery_premium must use percentage-point units")
+        if not isinstance(row.value, (int, float)) or isinstance(row.value, bool):
+            raise ValueError("mastery_premium must carry its finite numeric effect")
+        if not math.isclose(float(row.value), _MASTERY_PREMIUM_PP, rel_tol=0, abs_tol=1e-9):
+            raise ValueError("mastery_premium does not match the current +1.94 pp release")
+
+
+def _validate_habits(pack: FindingsPackV2) -> None:
+    seen_keys: set[str] = set()
+    seen_features: set[str] = set()
+    for row in pack.habits:
+        if row.key in seen_keys or row.feature in seen_features:
+            raise ValueError("v2 habit keys and features must be unique")
+        seen_keys.add(row.key)
+        seen_features.add(row.feature)
+        expected = _HABIT_SPECS.get(row.key)
+        if expected is None:
+            raise ValueError(f"unsupported v2 habit key {row.key!r}")
+        feature, effect, tier, era_stability = expected
+        if row.feature != feature:
+            raise ValueError(f"habit {row.key!r} uses the wrong feature contract")
+        if row.metric_kind != _HABIT_METRIC or row.unit != _HABIT_UNIT:
+            raise ValueError(f"habit {row.key!r} must use odds-ratio-per-SD units")
+        if row.tier != tier:
+            raise ValueError(f"habit {row.key!r} has the wrong evidence tier")
+        if row.era_stability != era_stability:
+            raise ValueError(f"habit {row.key!r} has the wrong era-stability declaration")
+        if row.release_status in {"available", "approximate"} and not math.isclose(
+            row.effect, effect, rel_tol=0, abs_tol=1e-9
+        ):
+            raise ValueError(f"habit {row.key!r} does not match the current release effect")
+
+
+def _validate_objectives(pack: FindingsPackV2) -> None:
+    seen: set[tuple[str, str]] = set()
+    expected_windows = {
+        "possession_rate": "full_match",
+        "before_time_rate": "before_time",
+        "contested_first_rate": "full_match",
+        "no_objective_rate": "full_match",
+    }
+    for row in pack.objectives:
+        identity = (row.objective, row.metric_kind)
+        if identity in seen:
+            raise ValueError("v2 objective metric families must not overlap")
+        seen.add(identity)
+        expected_window = expected_windows.get(row.metric_kind)
+        if expected_window is None:
+            if row.release_status in {"available", "approximate"}:
+                raise ValueError("unsupported available objective metric")
+        elif row.window.kind != expected_window:
+            raise ValueError(
+                f"{row.metric_kind} requires a {expected_window} observation window"
+            )
+        if row.tier != "diagnostic":
+            raise ValueError("objective evidence is diagnostic only")
+
+
+def _validate_tier_rows(pack: FindingsPackV2) -> None:
+    identities = {(row.role, row.champion) for row in pack.tier_list}
+    if len(identities) != len(pack.tier_list):
+        raise ValueError("v2 tier rows must have one row per champion-role pair")
+    expected_order = sorted(
+        pack.tier_list,
+        key=lambda row: (
+            _ROLE_ORDER[row.role],
+            _RANK_ORDER[row.rank_band],
+            -row.observed_win_rate,
+            row.champion,
+        ),
+    )
+    if pack.tier_list != expected_order:
+        raise ValueError("v2 tier rows must be ordered by role, band, win rate, and champion")
+
+
+def _validate_matchup_rows(pack: FindingsPackV2) -> None:
+    expected_order = sorted(
+        pack.matchup_examples,
+        key=lambda row: (row.role, row.champion, row.opponent),
+    )
+    if pack.matchup_examples != expected_order:
+        raise ValueError("v2 matchup rows must be deterministically ordered")
+    if any(row.tier != "diagnostic" for row in pack.matchup_examples):
+        raise ValueError("matchup evidence is diagnostic only")
+
+
+def _validate_ban_context(pack: FindingsPackV2) -> None:
+    seen: set[tuple[str, str]] = set()
+    for row in pack.ban_context:
+        identity = (row.key, row.metric_kind)
+        if identity in seen:
+            raise ValueError("v2 ban-context metrics must be unique")
+        seen.add(identity)
+        if row.metric_kind != "ban_rate_win_rate_correlation":
+            continue
+        if row.key != _BAN_CORRELATION_KEY:
+            raise ValueError("pooled ban/win correlation uses the canonical key")
+        if row.release_status in {"available", "approximate"} and not math.isclose(
+            row.value, _BAN_CORRELATION_VALUE, rel_tol=0, abs_tol=1e-9
+        ):
+            raise ValueError("ban/win correlation does not match the current +0.06 release")
+
 def _validate_lists(pack: FindingsPackV2) -> None:
     if [row.key for row in pack.findings] != sorted(row.key for row in pack.findings):
         raise ValueError("v2 findings must be deterministically ordered by key")
@@ -750,11 +936,14 @@ def validate_pack_v2_semantics(pack: FindingsPackV2) -> None:
 
     _require_provenance(pack)
     _require_metadata_ranges(pack)
+    _validate_finding_semantics(pack)
+    _validate_habits(pack)
+    _validate_objectives(pack)
+    _validate_ban_context(pack)
+    _validate_tier_rows(pack)
+    _validate_matchup_rows(pack)
     _validate_comeback_bands(pack)
     _validate_lists(pack)
-    for row in pack.ban_context:
-        if row.tier != "diagnostic":
-            raise ValueError("ban context is diagnostic only")
     _validate_model_declarations(pack)
 
 __all__ = [

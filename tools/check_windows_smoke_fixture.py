@@ -98,6 +98,8 @@ def main() -> None:
         )
     if paths.index(pack_signature[0]) < paths.index(pack_manifest[0]):
         raise SystemExit("Findings Pack signature was requested before its manifest")
+    if paths.index(pack_asset[0]) < paths.index(pack_signature[0]):
+        raise SystemExit("Findings Pack payload was requested before its signature")
 
     if args.state_file:
         expected_routes = _state_routes(args.state_file)

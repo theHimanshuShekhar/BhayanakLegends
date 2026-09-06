@@ -1182,6 +1182,11 @@ class ReleaseChannel:
         transaction = ActivationTransaction(rollback_dir, changed)
         staged_pack = candidate / PACK_FILENAME
         target_pack = self.pack_dir / PACK_FILENAME
+        candidate_files = {
+            source.relative_to(candidate)
+            for source in candidate.rglob("*")
+            if source.is_file()
+        }
         try:
             # Artifacts are staged first. The JSON is the commit point: readers
             # see either the old validated pack or the complete new pack.
@@ -1200,6 +1205,24 @@ class ReleaseChannel:
                     shutil.copy2(target, backup)
                 changed.append((target, backup))
                 os.replace(source, target)
+            preserved_schema = (
+                PurePosixPath(SCHEMA_FILENAME)
+                if not (candidate / SCHEMA_FILENAME).is_file()
+                else None
+            )
+            for target in sorted(
+                (path for path in self.pack_dir.rglob("*") if path.is_file()),
+                key=lambda path: path.relative_to(self.pack_dir).as_posix(),
+            ):
+                relative = target.relative_to(self.pack_dir)
+                if relative in candidate_files or relative == preserved_schema:
+                    continue
+                backup = rollback_dir / relative
+                backup.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(target, backup)
+                changed.append((target, backup))
+                target.unlink()
+
 
             if not staged_pack.is_file():
                 raise ReleaseChannelError(f"release is missing {staged_pack.name}")
