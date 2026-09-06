@@ -23,22 +23,22 @@ from .import_paths import (
 from .live import ChampSelectSnapshot, InGameSnapshot
 from .models import (
     ChampSelectStatus,
-    FindingsPack,
     Health,
     HistorySummary,
     InGameStatus,
     LiveStatus,
     Settings,
-    LiveState,
     SettingsPatch,
     SyncStatus,
 )
+from .inference import InferenceRuntime
 from .pack import PackError, PackStore
-from .release_channel import DEFAULT_MANIFEST_URL, ReleaseChannel, ReleaseResult
+from .pack_v2 import FindingsPackV2
 from .routers_data import router as data_router
 from .routers_events import build_events_router
 from .sse import Hub
 from .store import Store
+from .release_channel import DEFAULT_MANIFEST_URL, ReleaseChannel, ReleaseResult
 
 APP_VERSION = "0.1.0"
 log = logging.getLogger("bhayanak_legends")
@@ -73,6 +73,7 @@ async def _run_release_channel_check(app: FastAPI, channel: ReleaseChannel) -> N
             return
         try:
             app.state.pack.reload()
+            app.state.inference_runtime.clear()
             app.state.pack_error = None
             app.state.pack_version = app.state.pack.version()
             if result.activation is not None:
@@ -99,7 +100,6 @@ async def _run_release_channel_check(app: FastAPI, channel: ReleaseChannel) -> N
         # Release updates are opportunistic. The bundled/current pack remains
         # the source of truth if activation or reload unexpectedly fails.
         log.exception("Findings Pack release activation failed")
-
 def _startup_release_channel_check(app: FastAPI) -> None:
     manifest_url = os.environ.get("BHAYANAK_PACK_RELEASE_MANIFEST_URL", DEFAULT_MANIFEST_URL)
     channel = ReleaseChannel(
@@ -120,6 +120,7 @@ def create_app(
     config: SidecarConfig | None = None,
     *,
     credential_store: CredentialBackend | None = None,
+    live_feature_provider=None,
 ) -> FastAPI:
     config = config or SidecarConfig()
     data_dir = config.resolved_data_dir()
@@ -133,11 +134,10 @@ def create_app(
     pack_error: str | None = None
     try:
         pack.initialize()
-        FindingsPack.model_validate(pack.load())
-    except (PackError, ValidationError):
+        pack.load()
+    except PackError:
         log.warning("%s", PACK_VALIDATION_ERROR_DETAIL)
         pack_error = PACK_VALIDATION_ERROR_DETAIL
-
     try:
         from .live import LiveService
         from .sync import SyncService
@@ -146,10 +146,14 @@ def create_app(
         SyncService = None  # type: ignore[assignment, misc]
         log.warning("sync/live optional deps missing; services disabled")
     def settings_for_sync() -> dict:
+        scope = store.capture_owner_scope()
         return {
             "riot_key": credentials.load(),
             "riot_id": store.get_setting("riot_id"),
             "region_route": store.get_setting("region_route") or "sea",
+            "owner_key": scope["owner_key"],
+            "generation": scope["generation"],
+            "owner_state": scope["owner_state"],
         }
 
     @asynccontextmanager
@@ -182,6 +186,7 @@ def create_app(
     app.state.hub = hub
     app.state.app_version = APP_VERSION
     app.state.pack_error = pack_error
+    app.state.inference_runtime = InferenceRuntime(pack)
     app.state.pack_version = None if pack_error else pack.version()
     app.state.sync_service = (
         None
@@ -194,16 +199,28 @@ def create_app(
         )
     )
     if LiveService is None:
+        app.state.live_feature_provider = None
         app.state.live_service = None
     else:
-        from .lcu import ChampionDirectory, HttpxIngameTransport, HttpxLcuConnection
+        from .lcu import (
+            ChampionDirectory,
+            DataDragonCatalogProvider,
+            HttpxIngameTransport,
+            HttpxLcuConnection,
+        )
+        from .live_features import LiveWpFeatureProvider
 
         champions = ChampionDirectory(data_dir / "ddragon")
+        item_catalogs = DataDragonCatalogProvider()
+        resolved_feature_provider = live_feature_provider or LiveWpFeatureProvider(item_catalogs)
+        app.state.live_feature_provider = resolved_feature_provider
         app.state.live_service = LiveService(
             HttpxLcuConnection(config.lcu_lockfile),
             HttpxIngameTransport(config.live_client_data_url),
             hub,
             champion_names=champions.get,
+            inference=app.state.inference_runtime,
+            feature_provider=resolved_feature_provider,
         )
 
     app.add_middleware(TokenAuthMiddleware, token=config.token)
@@ -226,9 +243,8 @@ def create_app(
     def health() -> Health:
         if app.state.pack_error is None:
             try:
-                pack_data = pack.load()
-                FindingsPack.model_validate(pack_data)
-                pack_version = pack.version()
+                validated = FindingsPackV2.model_validate(pack.load())
+                pack_version = validated.pack_version
             except (PackError, ValidationError):
                 pack_version = None
         else:
@@ -239,36 +255,83 @@ def create_app(
             pack_version=pack_version,
         )
 
-    @app.get("/pack", response_model=FindingsPack)
-    def get_pack() -> FindingsPack:
+    @app.get("/pack", response_model=FindingsPackV2, response_model_exclude_none=True)
+    def get_pack() -> dict:
         try:
-            return FindingsPack.model_validate(pack.load())
-        except (PackError, ValidationError) as exc:
-            log.debug("Findings Pack request failed: %s", exc, exc_info=True)
+            validated = FindingsPackV2.model_validate(pack.load())
+        except PackError as exc:
+            log.warning("Findings Pack validation failed: %s", exc)
             raise HTTPException(
                 status_code=503,
                 detail=PACK_UNAVAILABLE_DETAIL,
             ) from None
+        except ValidationError as exc:
+            log.warning("Findings Pack validation failed: %s", exc)
+            raise HTTPException(
+                status_code=503,
+                detail=PACK_UNAVAILABLE_DETAIL,
+            ) from None
+        return validated.model_dump(mode="json", exclude_none=True)
+
 
 
     @app.get("/settings", response_model=Settings)
     def get_settings() -> Settings:
         return Settings.model_validate(_settings_view(store, credentials))
+
     @app.put("/settings", response_model=Settings)
     def put_settings(patch: SettingsPatch) -> Settings:
+        current_riot_id = store.get_setting("riot_id")
+        current_region = store.get_setting("region_route") or "sea"
+        current_scope = store.capture_owner_scope()
+        next_riot_id = (
+            patch.riot_id.strip() if patch.riot_id is not None else None
+        ) if "riot_id" in patch.model_fields_set else current_riot_id
+        next_region = (
+            patch.region_route
+            if "region_route" in patch.model_fields_set and patch.region_route is not None
+            else current_region
+        )
+        identity_changed = (
+            ("riot_id" in patch.model_fields_set and current_riot_id != next_riot_id)
+            or ("region_route" in patch.model_fields_set and current_region != next_region)
+            or ("riot_id" in patch.model_fields_set and next_riot_id is None)
+            or (
+                current_scope["owner_state"] == "error"
+                and _is_valid_riot_id(next_riot_id)
+                and bool(
+                    {"riot_id", "region_route", "riot_key"}
+                    & patch.model_fields_set
+                )
+            )
+        )
+        credential_changed = "riot_key" in patch.model_fields_set
+        transition_generation: int | None = None
+        if identity_changed or credential_changed:
+            svc = app.state.sync_service
+            if svc is not None and not svc.quiesce():
+                raise HTTPException(
+                    status_code=409,
+                    detail="Backfill is still stopping; retry settings",
+                )
+            if next_riot_id is None:
+                transition_state = "unassigned"
+                transition_error = None
+            elif _is_valid_riot_id(next_riot_id):
+                transition_state = "resolving"
+                transition_error = None
+            else:
+                transition_state = "error"
+                transition_error = "valid Riot ID required (GameName#TAG)"
+            transition_generation = store.begin_owner_transition(
+                transition_state, transition_error
+            )
         if "riot_id" in patch.model_fields_set:
-            current_riot_id = store.get_setting("riot_id")
-            next_riot_id = patch.riot_id.strip() if patch.riot_id is not None else None
-            if current_riot_id != next_riot_id or next_riot_id is None:
-                store.delete_raw_setting("puuid")
             if next_riot_id is None:
                 store.delete_raw_setting("riot_id")
             else:
                 store.set_setting("riot_id", next_riot_id)
         if "region_route" in patch.model_fields_set and patch.region_route is not None:
-            current_region = store.get_setting("region_route") or "sea"
-            if current_region != patch.region_route:
-                store.delete_raw_setting("puuid")
             store.set_setting("region_route", patch.region_route)
         if "riot_key" in patch.model_fields_set:
             try:
@@ -277,17 +340,39 @@ def create_app(
                 else:
                     credentials.save(patch.riot_key)
             except CredentialError as exc:
+                if transition_generation is not None:
+                    store.set_owner_error(
+                        transition_generation, "Riot API key could not be saved"
+                    )
                 raise HTTPException(status_code=503, detail=str(exc)) from None
+            if (
+                transition_generation is not None
+                and patch.riot_key is None
+                and next_riot_id is not None
+            ):
+                store.set_owner_error(transition_generation, "Riot API key required")
         if "auto_sync" in patch.model_fields_set and patch.auto_sync is not None:
             store.set_setting("auto_sync", "1" if patch.auto_sync else "0")
+        if (
+            transition_generation is not None
+            and _is_valid_riot_id(next_riot_id)
+            and not (
+                "riot_key" in patch.model_fields_set and patch.riot_key is None
+            )
+        ):
+            svc = app.state.sync_service
+            if svc is not None:
+                svc.resolve_owner(transition_generation)
         return Settings.model_validate(_settings_view(store, credentials))
 
     @app.get("/sync/status", response_model=SyncStatus)
     def sync_status() -> SyncStatus:
+        scope = store.capture_owner_scope()
         svc = app.state.sync_service
-        if svc is not None:
-            return SyncStatus.model_validate(svc.status())
-        return SyncStatus()
+        payload = svc.status() if svc is not None else {}
+        payload = {**payload, **_owner_status_fields(scope)}
+        return SyncStatus.model_validate(payload)
+
     @app.post("/sync/start", response_model=SyncStatus)
     def sync_start() -> SyncStatus:
         settings = _settings_view(store, credentials)
@@ -302,7 +387,7 @@ def create_app(
         if svc is None:
             raise HTTPException(status_code=503, detail="sync service not wired yet")
         try:
-            return svc.start()
+            return SyncStatus.model_validate(svc.start())
         except CredentialError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from None
 
@@ -311,7 +396,7 @@ def create_app(
         svc = app.state.sync_service
         if svc is None:
             raise HTTPException(status_code=503, detail="sync service not wired yet")
-        return SyncStatus.model_validate(svc.cancel())
+        return SyncStatus.model_validate(svc.cancel(wait=True))
 
     @app.post("/dev/import", response_model=SyncStatus)
     async def dev_import(body: DevImportRequest) -> SyncStatus:
@@ -332,7 +417,15 @@ def create_app(
         if svc is None:
             raise HTTPException(status_code=503, detail="sync service not wired yet")
         loop = asyncio.get_running_loop()
-        result = await asyncio.to_thread(svc.import_from_dir, canonical_dir, loop)
+        try:
+            result = await asyncio.to_thread(svc.import_from_dir, canonical_dir, loop)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        except RuntimeError:
+            raise HTTPException(
+                status_code=409,
+                detail="Backfill is still stopping; retry import",
+            ) from None
         return SyncStatus.model_validate(result)
 
     @app.get("/live/status", response_model=LiveStatus)
@@ -371,14 +464,25 @@ def _is_valid_riot_id(riot_id: object) -> bool:
     return bool(separator and game_name.strip() and tag_line.strip() and "#" not in tag_line)
 
 
+def _owner_status_fields(scope: dict) -> dict:
+    return {
+        "owner_key": scope.get("owner_key"),
+        "generation": int(scope.get("generation") or 0),
+        "owner_state": scope.get("owner_state") or "unassigned",
+        "owner_error": scope.get("owner_error"),
+    }
+
+
 def _settings_view(
     store: Store, credentials: CredentialBackend | None = None
 ) -> dict:
+    scope = store.capture_owner_scope()
     return {
         "riot_id": store.get_setting("riot_id"),
         "region_route": store.get_setting("region_route") or "sea",
         "has_key": credentials.has_key() if credentials is not None else store.has_setting("riot_key"),
         "auto_sync": (store.get_setting("auto_sync") or "0") == "1",
+        **_owner_status_fields(scope),
     }
 
 

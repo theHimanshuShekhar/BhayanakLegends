@@ -1,5 +1,6 @@
 import { ReactNode, useEffect, useRef } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
+import { usePack } from "../api/hooks";
 import { useEvents } from "../api/sse";
 import { LiveCompanion } from "./LiveCompanion";
 import { UpdaterStatus } from "./UpdaterStatus";
@@ -23,7 +24,7 @@ export function ConnectionStatus({ connected }: { connected: boolean }) {
       aria-atomic="true"
       style={{
         background: connected ? "var(--color-accent-low)" : "var(--color-surface-2)",
-        color: connected ? "#e7e5fe" : "var(--color-dim)",
+        color: connected ? "var(--color-chip-text)" : "var(--color-dim)",
         boxShadow: "var(--shadow-z1)",
       }}
     >
@@ -46,12 +47,24 @@ export function ConnectionStatus({ connected }: { connected: boolean }) {
 export function Layout({ children }: { children: ReactNode }) {
   const connected = useEvents();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const initialPathname = useRef(pathname);
+  const pack = usePack();
+  const dataset = pack.data?.dataset;
+  const matchCount = dataset?.eligible_matches.toLocaleString() ?? "unavailable";
+  const packLabel = pack.data
+    ? `Findings Pack ${pack.data.pack_version} · ${matchCount} matches · ${dataset?.patch_range.min}–${dataset?.patch_range.max}`
+    : "Findings Pack · unavailable";
+  const skipInitialFocus = useRef(true);
   const screenRef = useRef<HTMLElement>(null);
   const focusRafRef = useRef<number>(0);
 
   useEffect(() => {
-    if (pathname === initialPathname.current) return;
+    // Skip only the mount run: opening the app must not steal focus. Every
+    // later navigation — including POP back to the starting route — transfers
+    // focus to the destination heading.
+    if (skipInitialFocus.current) {
+      skipInitialFocus.current = false;
+      return;
+    }
     const screen = screenRef.current;
     if (!screen) return;
 
@@ -91,7 +104,7 @@ export function Layout({ children }: { children: ReactNode }) {
             BHAYANAK LEGENDS
           </span>
           <span className="rc-topbar-tagline" style={{ fontSize: 10.5, color: "var(--color-dimmer)" }}>
-            friends-first · 26k games
+            friends-first · {matchCount} matches
           </span>
         </div>
         <div className="rc-topbar-status">
@@ -125,7 +138,7 @@ export function Layout({ children }: { children: ReactNode }) {
                   active
                     ? {
                         background: "var(--color-accent)",
-                        color: "#0e1020",
+                        color: "var(--color-bg)",
                         boxShadow:
                           "0 3px 0 var(--color-accent-low),0 8px 16px -6px rgba(145,132,217,.6)",
                       }
@@ -148,7 +161,7 @@ export function Layout({ children }: { children: ReactNode }) {
             className="pill"
             style={{
               background: "var(--color-info-low)",
-              color: "#cfe3f9",
+              color: "var(--color-soft-blue)",
               boxShadow: "var(--shadow-z1)",
             }}
           >
@@ -156,7 +169,7 @@ export function Layout({ children }: { children: ReactNode }) {
               aria-hidden="true"
               style={{ width: 6, height: 6, borderRadius: 999, background: "var(--color-info)" }}
             />
-            Findings Pack · 26k games
+            {packLabel}
           </div>
         </div>
       </nav>

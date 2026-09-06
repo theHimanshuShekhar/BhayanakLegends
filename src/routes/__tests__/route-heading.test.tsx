@@ -26,6 +26,7 @@ vi.mock("../../api/hooks", () => {
     useBenchmarks: emptyQuery,
     useCancelSync: emptyMutation,
     useHistorySummary: emptyQuery,
+    useHistoryInsights: emptyQuery,
     useLiveIngame: emptyQuery,
     useLiveSession: emptyQuery,
     useLiveStatus: emptyQuery,
@@ -36,6 +37,7 @@ vi.mock("../../api/hooks", () => {
     useSettings: emptyQuery,
     useStartSync: emptyMutation,
     useSyncStatus: emptyQuery,
+    useWhatIf: emptyMutation,
     useTrajectories: emptyQuery,
   };
 });

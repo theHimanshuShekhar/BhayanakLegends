@@ -1,6 +1,7 @@
 import { useHistorySummary } from "../api/hooks";
 import { classifyApiError } from "../api/client";
 import { CaveatFooter } from "../components/journal/CaveatFooter";
+import { InsightsProfiles } from "../components/journal/InsightsProfiles";
 import { SyncPanel } from "../components/journal/SyncPanel";
 import { Unavailable } from "../components/ui";
 import { formatRate as pct } from "../components/format";
@@ -189,6 +190,8 @@ export function HistoryPage() {
       </section>
 
       <SyncPanel />
+
+      <InsightsProfiles />
 
       <CaveatFooter />
     </div>

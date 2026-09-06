@@ -88,7 +88,7 @@ describe("Layout accessibility", () => {
     ]);
     expect(screen.getByRole("navigation", { name: "Primary" })).toHaveClass("rc-navbar");
     expect(screen.getByTestId("connection-status")).toBeVisible();
-    expect(screen.getByText("Findings Pack · 26k games")).toBeVisible();
+    expect(screen.getByText("Findings Pack · unavailable")).toBeVisible();
   });
 
 });

@@ -1,9 +1,15 @@
+from __future__ import annotations
+
 from collections.abc import Collection
+import hashlib
 import sqlite3
 import threading
 from pathlib import Path
+from typing import Any
 
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
+_OWNER_KEY_PREFIX = b"bhayanak-legends-owner-v2:\0"
+
 _SCHEMA_STATEMENTS = (
     """
     CREATE TABLE IF NOT EXISTS settings (
@@ -12,74 +18,216 @@ _SCHEMA_STATEMENTS = (
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS owner_namespaces (
+        owner_key TEXT PRIMARY KEY,
+        puuid TEXT NOT NULL UNIQUE,
+        last_riot_id TEXT,
+        last_region_route TEXT,
+        created_at TEXT NOT NULL,
+        resolved_at TEXT NOT NULL
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS matches (
-        match_id TEXT PRIMARY KEY,
+        owner_key TEXT NOT NULL,
+        match_id TEXT NOT NULL,
         played_at TEXT,
         patch TEXT,
         role TEXT,
         champion TEXT,
         win INTEGER,
         duration_s INTEGER,
-        features_json TEXT
+        features_json TEXT,
+        PRIMARY KEY (owner_key, match_id)
     )
     """,
     """
     CREATE TABLE IF NOT EXISTS sync_queue (
-        match_id TEXT PRIMARY KEY,
+        owner_key TEXT NOT NULL,
+        match_id TEXT NOT NULL,
+        region_route TEXT NOT NULL DEFAULT 'sea',
         priority INTEGER NOT NULL DEFAULT 100,
         state TEXT NOT NULL DEFAULT 'pending',
         attempts INTEGER NOT NULL DEFAULT 0,
-        added_at TEXT
+        added_at TEXT,
+        PRIMARY KEY (owner_key, match_id)
     )
     """,
+    "CREATE INDEX IF NOT EXISTS idx_matches_owner_played ON matches(owner_key, played_at)",
+    "CREATE INDEX IF NOT EXISTS idx_queue_owner_state ON sync_queue(owner_key, state, priority, match_id)",
 )
 
 
+class StaleOwnerGeneration(RuntimeError):
+    """Raised when an async owner activation crosses a newer transition."""
+
+
 class Store:
-    """Small thread-safe SQLite wrapper for app state and Personal History."""
+    """Thread-safe SQLite state with immutable owner namespaces.
+
+    ``owner_key`` is a one-way namespace derived from a resolved PUUID. The
+    PUUID itself remains local in ``owner_namespaces`` and is never returned by
+    this class's public account/status helpers.
+    """
+
 
     def __init__(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(
-            path, check_same_thread=False, timeout=30.0
-        )
+        self._conn = sqlite3.connect(path, check_same_thread=False, timeout=30.0)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA busy_timeout = 30000")
         self._lock = threading.RLock()
-        self._initialize_schema()
+        try:
+            self._initialize_schema()
+        except Exception:
+            self._conn.close()
+            raise
+
+    @staticmethod
+    def owner_key_for_puuid(puuid: str) -> str:
+        """Return a stable, opaque namespace for one immutable PUUID."""
+        if not isinstance(puuid, str) or not puuid.strip():
+            raise ValueError("resolved PUUID is required")
+        return hashlib.sha256(_OWNER_KEY_PREFIX + puuid.strip().encode("utf-8")).hexdigest()
+
 
     def _initialize_schema(self) -> None:
         version = int(self._conn.execute("PRAGMA user_version").fetchone()[0])
-        if version > _SCHEMA_VERSION:
+        if version not in {0, 1, _SCHEMA_VERSION}:
             raise RuntimeError(
                 f"unsupported database schema version {version}; "
-                f"this build supports up to {_SCHEMA_VERSION}"
+                f"this build supports schema {_SCHEMA_VERSION}"
             )
         with self._lock:
-            self._conn.execute("BEGIN IMMEDIATE")
+            self._begin_immediate()
             try:
-                if version == 0:
-                    for statement in _SCHEMA_STATEMENTS:
-                        self._conn.execute(statement)
-                    self._conn.execute(
-                        """
-                        UPDATE sync_queue
-                        SET state = 'pending'
-                        WHERE state IN ('running', 'failed')
-                           OR (
-                               state = 'done'
-                               AND NOT EXISTS (
-                                   SELECT 1 FROM matches
-                                   WHERE matches.match_id = sync_queue.match_id
-                               )
-                           )
-                        """
-                    )
+                quarantined = self._quarantine_legacy_tables()
+                for statement in _SCHEMA_STATEMENTS:
+                    self._conn.execute(statement)
+                if quarantined:
+                    # A legacy row has no trustworthy immutable owner.  Even
+                    # stale owner metadata from an interrupted earlier build
+                    # must not make it visible through the active namespace.
+                    self._set_unassigned_after_quarantine()
+                self._recover_interrupted_transition()
+                if version != _SCHEMA_VERSION:
                     self._conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
                 self._conn.commit()
             except Exception:
-                self._conn.rollback()
+                self._rollback()
                 raise
+
+    @staticmethod
+    def _quote_identifier(identifier: str) -> str:
+        return '"' + identifier.replace('"', '""') + '"'
+
+    def _table_columns_unlocked(self, table: str) -> list[str]:
+        quoted = self._quote_identifier(table)
+        return [
+            str(row["name"])
+            for row in self._conn.execute(f"PRAGMA table_info({quoted})").fetchall()
+        ]
+
+    def _table_exists_unlocked(self, table: str) -> bool:
+        return (
+            self._conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                (table,),
+            ).fetchone()
+            is not None
+        )
+
+    def _quarantine_legacy_tables(self) -> bool:
+        """Move ownerless v1 tables aside without ever assigning their rows.
+
+        This runs inside the schema transaction.  A crash or injected failure
+        therefore leaves either the untouched legacy tables or the complete
+        v2 schema; opening the database again safely retries the operation.
+        """
+        quarantined = False
+        for table in ("matches", "sync_queue"):
+            if not self._table_exists_unlocked(table):
+                continue
+            columns = set(self._table_columns_unlocked(table))
+            required_columns = (
+                {
+                    "owner_key",
+                    "match_id",
+                    "played_at",
+                    "patch",
+                    "role",
+                    "champion",
+                    "win",
+                    "duration_s",
+                    "features_json",
+                }
+                if table == "matches"
+                else {
+                    "owner_key",
+                    "match_id",
+                    "region_route",
+                    "priority",
+                    "state",
+                    "attempts",
+                    "added_at",
+                }
+            )
+            if required_columns <= columns:
+                continue
+            target = f"legacy_{table}"
+            if not self._table_exists_unlocked(target):
+                self._conn.execute(
+                    f"ALTER TABLE {self._quote_identifier(table)} "
+                    f"RENAME TO {self._quote_identifier(target)}"
+                )
+            else:
+                # A prior externally interrupted migration may have left both
+                # names behind. Never merge with INSERT OR IGNORE: duplicate
+                # primary keys could silently discard an unknown legacy row.
+                # Keep the source under a deterministic extra quarantine name.
+                remainder = f"{target}_remainder"
+                suffix = 2
+                while self._table_exists_unlocked(remainder):
+                    remainder = f"{target}_remainder_{suffix}"
+                    suffix += 1
+                self._conn.execute(
+                    f"ALTER TABLE {self._quote_identifier(table)} "
+                    f"RENAME TO {self._quote_identifier(remainder)}"
+                )
+            quarantined = True
+
+        return quarantined
+
+    def _set_unassigned_after_quarantine(self) -> None:
+        for key, value in {
+            "owner_key": None,
+            "owner_state": "unassigned",
+            "owner_error": None,
+        }.items():
+            if value is None:
+                self._conn.execute("DELETE FROM settings WHERE key = ?", (key,))
+            else:
+                self._conn.execute(
+                    "INSERT INTO settings (key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    (key, value),
+                )
+
+    def _recover_interrupted_transition(self) -> None:
+        """Make a persisted in-progress resolution resumable after restart."""
+        if self._raw_setting_unlocked("owner_state") != "resolving":
+            return
+        self._conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('owner_state', 'unassigned') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+        self._conn.execute("DELETE FROM settings WHERE key = 'owner_key'")
+        self._conn.execute("DELETE FROM settings WHERE key = 'owner_error'")
+
+
+    def close(self) -> None:
+        with self._lock:
+            self._conn.close()
 
     def _begin_immediate(self) -> None:
         self._conn.execute("BEGIN IMMEDIATE")
@@ -92,21 +240,21 @@ class Store:
     def get_setting(self, key: str) -> str | bytes | None:
         return self.get_raw_setting(key)
 
+    def _raw_setting_unlocked(self, key: str) -> str | bytes | None:
+        row = self._conn.execute(
+            "SELECT value FROM settings WHERE key = ?", (key,)
+        ).fetchone()
+        return row["value"] if row else None
+
     def get_raw_setting(self, key: str) -> str | bytes | None:
         with self._lock:
-            row = self._conn.execute(
-                "SELECT value FROM settings WHERE key = ?", (key,)
-            ).fetchone()
-            return row["value"] if row else None
+            return self._raw_setting_unlocked(key)
 
     def has_setting(self, key: str) -> bool:
         with self._lock:
-            return (
-                self._conn.execute(
-                    "SELECT 1 FROM settings WHERE key = ?", (key,)
-                ).fetchone()
-                is not None
-            )
+            return self._conn.execute(
+                "SELECT 1 FROM settings WHERE key = ?", (key,)
+            ).fetchone() is not None
 
     def set_raw_setting(self, key: str, value: str | bytes | None) -> None:
         with self._lock, self._conn:
@@ -125,8 +273,190 @@ class Store:
     def set_setting(self, key: str, value: str | bytes | None) -> None:
         self.set_raw_setting(key, value)
 
+    @staticmethod
+    def _parse_generation(value: object) -> int:
+        try:
+            return max(0, int(value or 0))
+        except (TypeError, ValueError):
+            return 0
 
-    # -- matches --------------------------------------------------------
+    def _owner_context_unlocked(self) -> dict[str, Any]:
+        owner_key = self._raw_setting_unlocked("owner_key")
+        raw_state = self._raw_setting_unlocked("owner_state")
+        generation = self._parse_generation(
+            self._raw_setting_unlocked("owner_generation")
+        )
+        state = str(raw_state or ("active" if owner_key else "unassigned"))
+        if state not in {"unassigned", "resolving", "active", "error"}:
+            state = "unassigned"
+        if state != "active":
+            owner_key = None
+        error = self._raw_setting_unlocked("owner_error") if state == "error" else None
+        return {
+            "owner_key": str(owner_key) if owner_key else None,
+            "generation": generation,
+            "owner_state": state,
+            "owner_error": str(error) if error else None,
+        }
+
+    def capture_owner_scope(self) -> dict[str, Any]:
+        """Capture one immutable owner/generation snapshot for a data query.
+
+        The returned ``read_owner_key`` is non-null only for an active owner.
+        Callers must pass that exact key to every Personal History query; they
+        must not read the current settings again after starting the query.
+        """
+        with self._lock:
+            context = self._owner_context_unlocked()
+            return {**context, "read_owner_key": context["owner_key"]}
+
+    def owner_context(self) -> dict[str, Any]:
+        """Return public owner state without exposing the resolved PUUID."""
+        return {
+            key: value
+            for key, value in self.capture_owner_scope().items()
+            if key != "read_owner_key"
+        }
+
+
+    def active_owner_key(self) -> str | None:
+        """Return the opaque owner namespace only while identity is active."""
+        return self.capture_owner_scope()["read_owner_key"]
+
+    def _puuid_for_owner(self, owner_key: str) -> str | None:
+        """Resolve an owner namespace for backend sync code only."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT puuid FROM owner_namespaces WHERE owner_key = ?",
+                (owner_key,),
+            ).fetchone()
+            return str(row["puuid"]) if row else None
+
+    def _current_generation_unlocked(self) -> int:
+        return self._parse_generation(self._raw_setting_unlocked("owner_generation"))
+
+    def begin_owner_transition(
+        self, state: str = "unassigned", error: str | None = None
+    ) -> int:
+        """Clear the active owner and advance the serialized generation."""
+        if state not in {"unassigned", "resolving", "error"}:
+            raise ValueError("invalid owner transition state")
+        with self._lock:
+            self._begin_immediate()
+            try:
+                generation = self._current_generation_unlocked() + 1
+                values = {
+                    "owner_key": None,
+                    "owner_state": state,
+                    "owner_generation": str(generation),
+                    "owner_error": error[:240] if error else None,
+                }
+                for key, value in values.items():
+                    if value is None:
+                        self._conn.execute(
+                            "DELETE FROM settings WHERE key = ?", (key,)
+                        )
+                    else:
+                        self._conn.execute(
+                            "INSERT INTO settings (key, value) VALUES (?, ?) "
+                            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                            (key, value),
+                        )
+                self._conn.commit()
+                return generation
+            except Exception:
+                self._rollback()
+                raise
+
+    def register_owner(self, puuid: str, riot_id: str | None, region_route: str) -> str:
+        owner_key = self.owner_key_for_puuid(puuid)
+        now = _now_iso()
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT INTO owner_namespaces "
+                "(owner_key, puuid, last_riot_id, last_region_route, created_at, resolved_at) "
+                "VALUES (?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(owner_key) DO UPDATE SET last_riot_id = excluded.last_riot_id, "
+                "last_region_route = excluded.last_region_route, resolved_at = excluded.resolved_at",
+                (owner_key, puuid, riot_id, region_route, now, now),
+            )
+        return owner_key
+
+    def activate_owner(
+        self,
+        puuid: str,
+        riot_id: str | None,
+        region_route: str,
+        generation: int,
+    ) -> str:
+        """Activate a resolved namespace iff its transition is still current."""
+        owner_key = self.owner_key_for_puuid(puuid)
+        now = _now_iso()
+        with self._lock:
+            self._begin_immediate()
+            try:
+                if self._current_generation_unlocked() != int(generation):
+                    raise StaleOwnerGeneration(
+                        f"owner generation {generation} is no longer current"
+                    )
+                self._conn.execute(
+                    "INSERT INTO owner_namespaces "
+                    "(owner_key, puuid, last_riot_id, last_region_route, created_at, resolved_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(owner_key) DO UPDATE SET last_riot_id = excluded.last_riot_id, "
+                    "last_region_route = excluded.last_region_route, resolved_at = excluded.resolved_at",
+                    (owner_key, puuid, riot_id, region_route, now, now),
+                )
+                for key, value in {
+                    "owner_key": owner_key,
+                    "owner_state": "active",
+                    "owner_generation": str(max(0, int(generation))),
+                    "owner_ever_activated": "1",
+                    "owner_error": None,
+                }.items():
+                    if value is None:
+                        self._conn.execute("DELETE FROM settings WHERE key = ?", (key,))
+                    else:
+                        self._conn.execute(
+                            "INSERT INTO settings (key, value) VALUES (?, ?) "
+                            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                            (key, value),
+                        )
+                self._conn.commit()
+            except Exception:
+                self._rollback()
+                raise
+        return owner_key
+
+    def set_owner_error(self, generation: int, error: str) -> bool:
+        """Publish a bounded resolution error only for the current generation."""
+        with self._lock, self._conn:
+            if self._current_generation_unlocked() != int(generation):
+                return False
+            bounded = str(error).replace("\n", " ").strip()[:240] or "identity unavailable"
+            self._conn.execute(
+                "INSERT INTO settings (key, value) VALUES ('owner_state', 'error') "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+            )
+            self._conn.execute(
+                "INSERT INTO settings (key, value) VALUES ('owner_generation', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (str(max(0, int(generation))),),
+            )
+            self._conn.execute(
+                "INSERT INTO settings (key, value) VALUES ('owner_error', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (bounded,),
+            )
+            self._conn.execute("DELETE FROM settings WHERE key = 'owner_key'")
+            return True
+
+
+    def _resolve_owner_key(self, owner_key: str | None) -> str:
+        if not isinstance(owner_key, str) or not owner_key.strip():
+            raise ValueError("owner key is required for Personal History storage")
+        return owner_key.strip()
+
     def upsert_match(
         self,
         match_id: str,
@@ -137,13 +467,19 @@ class Store:
         win: bool,
         duration_s: int,
         features_json: str,
+        owner_key: str | None = None,
     ) -> None:
+        key = self._resolve_owner_key(owner_key)
         with self._lock, self._conn:
             self._conn.execute(
-                "INSERT INTO matches (match_id, played_at, patch, role, champion, win,"
-                " duration_s, features_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-                " ON CONFLICT(match_id) DO UPDATE SET features_json = excluded.features_json",
+                "INSERT INTO matches (owner_key, match_id, played_at, patch, role, champion, win,"
+                " duration_s, features_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                " ON CONFLICT(owner_key, match_id) DO UPDATE SET played_at = excluded.played_at,"
+                " patch = excluded.patch, role = excluded.role, champion = excluded.champion,"
+                " win = excluded.win, duration_s = excluded.duration_s,"
+                " features_json = excluded.features_json",
                 (
+                    key,
                     match_id,
                     played_at,
                     patch,
@@ -165,13 +501,16 @@ class Store:
         win: bool,
         duration_s: int,
         features_json: str,
+        owner_key: str | None = None,
     ) -> bool:
-        """Persist a complete match and mark its claimed queue item done atomically."""
+        """Persist a complete match and finish its scoped queue row atomically."""
+        key = self._resolve_owner_key(owner_key)
         with self._lock:
             self._begin_immediate()
             try:
                 queue = self._conn.execute(
-                    "SELECT state FROM sync_queue WHERE match_id = ?", (match_id,)
+                    "SELECT state FROM sync_queue WHERE owner_key = ? AND match_id = ?",
+                    (key, match_id),
                 ).fetchone()
                 if queue is None:
                     raise KeyError(f"unknown queue item {match_id}")
@@ -183,13 +522,14 @@ class Store:
                         f"cannot complete queue item {match_id} in state {queue['state']!r}"
                     )
                 self._conn.execute(
-                    "INSERT INTO matches (match_id, played_at, patch, role, champion, win,"
-                    " duration_s, features_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-                    " ON CONFLICT(match_id) DO UPDATE SET played_at = excluded.played_at,"
+                    "INSERT INTO matches (owner_key, match_id, played_at, patch, role, champion, win,"
+                    " duration_s, features_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                    " ON CONFLICT(owner_key, match_id) DO UPDATE SET played_at = excluded.played_at,"
                     " patch = excluded.patch, role = excluded.role, champion = excluded.champion,"
                     " win = excluded.win, duration_s = excluded.duration_s,"
                     " features_json = excluded.features_json",
                     (
+                        key,
                         match_id,
                         played_at,
                         patch,
@@ -202,8 +542,8 @@ class Store:
                 )
                 updated = self._conn.execute(
                     "UPDATE sync_queue SET state = 'done' "
-                    "WHERE match_id = ? AND state = 'running'",
-                    (match_id,),
+                    "WHERE owner_key = ? AND match_id = ? AND state = 'running'",
+                    (key, match_id),
                 ).rowcount
                 if updated != 1:
                     raise RuntimeError(f"queue item {match_id} was not running")
@@ -213,50 +553,76 @@ class Store:
                 self._rollback()
                 raise
 
-    def all_matches(self) -> list[dict]:
+    def all_matches(self, owner_key: str | None = None) -> list[dict]:
+        key = self._resolve_owner_key(owner_key)
         with self._lock:
             rows = self._conn.execute(
-                "SELECT * FROM matches ORDER BY played_at"
+                "SELECT owner_key, match_id, played_at, patch, role, champion, win, "
+                "duration_s, features_json FROM matches WHERE owner_key = ? "
+                "ORDER BY played_at, match_id",
+                (key,),
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def match_count(self) -> int:
+    def match_count(self, owner_key: str | None = None) -> int:
+        key = self._resolve_owner_key(owner_key)
         with self._lock:
-            return self._conn.execute("SELECT COUNT(*) c FROM matches").fetchone()["c"]
+            return int(
+                self._conn.execute(
+                    "SELECT COUNT(*) c FROM matches WHERE owner_key = ?", (key,)
+                ).fetchone()["c"]
+            )
 
     # -- sync queue -----------------------------------------------------
-    def enqueue(self, match_ids: list[str], priority: int = 100) -> int:
+    def enqueue(
+        self,
+        match_ids: list[str],
+        priority: int = 100,
+        *,
+        owner_key: str | None = None,
+        region_route: str = "sea",
+    ) -> int:
+        key = self._resolve_owner_key(owner_key)
         added = 0
         now = _now_iso()
         with self._lock, self._conn:
             for mid in match_ids:
                 known = self._conn.execute(
-                    "SELECT 1 FROM matches WHERE match_id = ?", (mid,)
+                    "SELECT 1 FROM matches WHERE owner_key = ? AND match_id = ?",
+                    (key, mid),
                 ).fetchone()
                 if known:
                     continue
                 cur = self._conn.execute(
-                    "INSERT OR IGNORE INTO sync_queue (match_id, priority, state, added_at)"
-                    " VALUES (?, ?, 'pending', ?)",
-                    (mid, priority, now),
+                    "INSERT OR IGNORE INTO sync_queue "
+                    "(owner_key, match_id, region_route, priority, state, added_at) "
+                    "VALUES (?, ?, ?, ?, 'pending', ?)",
+                    (key, mid, region_route, priority, now),
                 )
                 added += cur.rowcount
         return added
 
     def claim_next_pending(
-        self, exclude_match_ids: Collection[str] = ()
+        self,
+        exclude_match_ids: Collection[str] = (),
+        *,
+        owner_key: str | None = None,
     ) -> dict | None:
-        """Atomically claim the highest-priority pending item not excluded."""
+        """Atomically claim the highest-priority pending scoped item."""
+        key = self._resolve_owner_key(owner_key)
         excluded = tuple(exclude_match_ids)
         with self._lock:
             self._begin_immediate()
             try:
-                query = "SELECT match_id FROM sync_queue WHERE state = 'pending'"
-                params: tuple[str, ...] = ()
+                query = (
+                    "SELECT match_id FROM sync_queue "
+                    "WHERE owner_key = ? AND state = 'pending'"
+                )
+                params: tuple[Any, ...] = (key,)
                 if excluded:
                     placeholders = ", ".join("?" for _ in excluded)
                     query += f" AND match_id NOT IN ({placeholders})"
-                    params = excluded
+                    params += excluded
                 query += " ORDER BY priority, match_id LIMIT 1"
                 row = self._conn.execute(query, params).fetchone()
                 if row is None:
@@ -264,14 +630,15 @@ class Store:
                     return None
                 updated = self._conn.execute(
                     "UPDATE sync_queue SET state = 'running' "
-                    "WHERE match_id = ? AND state = 'pending'",
-                    (row["match_id"],),
+                    "WHERE owner_key = ? AND match_id = ? AND state = 'pending'",
+                    (key, row["match_id"]),
                 ).rowcount
                 if updated != 1:
                     self._conn.commit()
                     return None
                 claimed = self._conn.execute(
-                    "SELECT * FROM sync_queue WHERE match_id = ?", (row["match_id"],)
+                    "SELECT * FROM sync_queue WHERE owner_key = ? AND match_id = ?",
+                    (key, row["match_id"]),
                 ).fetchone()
                 self._conn.commit()
                 return dict(claimed)
@@ -279,51 +646,62 @@ class Store:
                 self._rollback()
                 raise
 
-    def fail_queue_item(self, match_id: str, bump_attempts: bool = True) -> bool:
-        """Transition a claimed item to terminal failure exactly once."""
+    def fail_queue_item(
+        self, match_id: str, bump_attempts: bool = True, *, owner_key: str | None = None
+    ) -> bool:
+        """Transition a claimed scoped item to terminal failure exactly once."""
+        key = self._resolve_owner_key(owner_key)
         with self._lock, self._conn:
             if bump_attempts:
                 updated = self._conn.execute(
                     "UPDATE sync_queue SET state = 'failed', attempts = attempts + 1 "
-                    "WHERE match_id = ? AND state = 'running'",
-                    (match_id,),
+                    "WHERE owner_key = ? AND match_id = ? AND state = 'running'",
+                    (key, match_id),
                 ).rowcount
             else:
                 updated = self._conn.execute(
                     "UPDATE sync_queue SET state = 'failed' "
-                    "WHERE match_id = ? AND state = 'running'",
-                    (match_id,),
+                    "WHERE owner_key = ? AND match_id = ? AND state = 'running'",
+                    (key, match_id),
                 ).rowcount
         return updated == 1
 
-    def recover_queue_item(self, match_id: str, bump_attempts: bool = True) -> bool:
-        """Return a claimed item to pending after a recoverable failure."""
+    def recover_queue_item(
+        self, match_id: str, bump_attempts: bool = True, *, owner_key: str | None = None
+    ) -> bool:
+        """Return a claimed scoped item to pending after a recoverable failure."""
+        key = self._resolve_owner_key(owner_key)
         with self._lock, self._conn:
             if bump_attempts:
                 updated = self._conn.execute(
                     "UPDATE sync_queue SET state = 'pending', attempts = attempts + 1 "
-                    "WHERE match_id = ? AND state = 'running'",
-                    (match_id,),
+                    "WHERE owner_key = ? AND match_id = ? AND state = 'running'",
+                    (key, match_id),
                 ).rowcount
             else:
                 updated = self._conn.execute(
                     "UPDATE sync_queue SET state = 'pending' "
-                    "WHERE match_id = ? AND state = 'running'",
-                    (match_id,),
+                    "WHERE owner_key = ? AND match_id = ? AND state = 'running'",
+                    (key, match_id),
                 ).rowcount
         return updated == 1
 
-    def reset_running_items(self) -> int:
-        """Return claimed rows to pending after a restart or run finalization."""
+    def reset_running_items(self, owner_key: str | None = None) -> int:
+        """Return only one owner's claimed rows to pending."""
+        key = self._resolve_owner_key(owner_key)
         with self._lock, self._conn:
             return self._conn.execute(
-                "UPDATE sync_queue SET state = 'pending' WHERE state = 'running'"
+                "UPDATE sync_queue SET state = 'pending' "
+                "WHERE owner_key = ? AND state = 'running'",
+                (key,),
             ).rowcount
 
-    def queue_stats(self) -> dict:
+    def queue_stats(self, owner_key: str | None = None) -> dict:
+        key = self._resolve_owner_key(owner_key)
         with self._lock:
             rows = self._conn.execute(
-                "SELECT state, COUNT(*) c FROM sync_queue GROUP BY state"
+                "SELECT state, COUNT(*) c FROM sync_queue WHERE owner_key = ? GROUP BY state",
+                (key,),
             ).fetchall()
         stats = {r["state"]: r["c"] for r in rows}
         return {

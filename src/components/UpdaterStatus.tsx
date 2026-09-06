@@ -193,7 +193,7 @@ export function UpdaterStatus({ runtime = tauriRuntime }: { runtime?: UpdaterRun
             border: 0,
             borderRadius: 999,
             padding: "3px 8px",
-            color: "#0e1020",
+            color: "var(--color-bg)",
             background: "var(--color-accent)",
             font: "600 10px var(--font-mono)",
           }}
@@ -209,7 +209,7 @@ export function UpdaterStatus({ runtime = tauriRuntime }: { runtime?: UpdaterRun
             border: 0,
             borderRadius: 999,
             padding: "3px 8px",
-            color: "#0e1020",
+            color: "var(--color-bg)",
             background: "var(--color-teal)",
             font: "600 10px var(--font-mono)",
           }}
@@ -225,7 +225,7 @@ export function UpdaterStatus({ runtime = tauriRuntime }: { runtime?: UpdaterRun
             border: 0,
             borderRadius: 999,
             padding: "3px 8px",
-            color: "#0e1020",
+            color: "var(--color-bg)",
             background: "var(--color-amber)",
             font: "600 10px var(--font-mono)",
           }}

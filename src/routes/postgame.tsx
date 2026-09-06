@@ -60,7 +60,7 @@ export function PostGamePage() {
 
         <div className="postgame-route-grid">
           <div className="postgame-main-column">
-            <HabitsCard digest={digest} />
+            <HabitsCard digest={digest} pack={packQuery.data} />
             <section className="card3" aria-labelledby="postgame-backfill-heading" style={{ padding: 13, display: "flex", alignItems: "center", gap: 10 }}>
               <h2
                 id="postgame-backfill-heading"
@@ -68,9 +68,9 @@ export function PostGamePage() {
               >
                 Backfill context
               </h2>
-              <p style={{ margin: 0, fontSize: 10.5, lineHeight: 1.5, color: "#cfd3e5" }}>
-                Older games arrive through Backfill — start it from the History tab. This digest covers
-                the latest game only.
+              <p style={{ margin: 0, fontSize: 10.5, lineHeight: 1.5, color: "var(--color-soft-text)" }}>
+                Older games fill in through Backfill — start it from Improvement Journal. This digest
+                covers the latest game only.
               </p>
             </section>
           </div>
@@ -78,7 +78,7 @@ export function PostGamePage() {
           <div className="postgame-support-column">
             <ObjectiveReadCard pack={packQuery.data} />
             <ComebackOddsCard digest={digest} pack={packQuery.data} />
-            <SurrenderReadCard />
+            <SurrenderReadCard pack={packQuery.data} />
           </div>
         </div>
       </section>

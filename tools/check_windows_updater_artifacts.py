@@ -42,9 +42,20 @@ def _find_updater_archive(bundle_dir: Path) -> Path:
     )
     if not candidates:
         raise ArtifactCheckError("Windows updater archive is missing")
-    if len(candidates) != 1:
+
+    # Tauri emits the installer (.exe) beside the NSIS updater archive.  Only
+    # the updater archive has a detached signature in a normal release; do not
+    # treat the unsigned installer as a second updater candidate.
+    signed = [
+        path
+        for path in candidates
+        if path.with_name(path.name + ".sig").is_file()
+    ]
+    if not signed:
+        raise ArtifactCheckError("Windows updater archive detached signature is missing")
+    if len(signed) > 1:
         raise ArtifactCheckError("Windows updater archive inventory is ambiguous")
-    return candidates[0]
+    return signed[0]
 
 
 def _load_metadata(metadata_path: Path) -> dict[str, object]:
@@ -89,6 +100,8 @@ def check_artifacts(bundle_dir: Path, metadata_path: Path) -> ArtifactInventory:
         signature_text = signature.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         raise ArtifactCheckError("Windows updater detached signature is unreadable") from exc
+    if not signature_text.strip():
+        raise ArtifactCheckError("Windows updater detached signature is empty")
 
     platform = _platform_metadata(_load_metadata(Path(metadata_path)))
     if _metadata_artifact_name(platform.get("url")) != archive.name:
@@ -116,6 +129,8 @@ def _write_latest_json(
         signature_text = signature.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         raise ArtifactCheckError("Windows updater detached signature is unreadable") from exc
+    if not signature_text.strip():
+        raise ArtifactCheckError("Windows updater detached signature is empty")
 
     payload = {
         "version": version,

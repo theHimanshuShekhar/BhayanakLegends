@@ -46,3 +46,22 @@ export function formatInitials(value: string | null | undefined, unavailableReas
   const letters = value.replace(/[^\p{L}\p{N}]/gu, "");
   return letters ? letters.slice(0, 2).toUpperCase() : formatUnavailable(unavailableReason);
 }
+
+/** Exact Findings Pack unit: multiplier effect for one standard-deviation feature change. */
+export function formatEffectPerSd(value: number | null | undefined, unavailableReason = "effect per SD unavailable"): string {
+  return value == null ? formatUnavailable(unavailableReason) : `×${value.toFixed(2)} effect per SD`;
+}
+export function formatPatchScope(range: { min: string; max: string } | null): string {
+  return range ? `${range.min}–${range.max} · pooled` : "Pooled patch scope unavailable";
+}
+
+export function formatCorrelation(value: number | null | undefined): string {
+  if (value == null) return "Unavailable";
+  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}`;
+}
+
+export function formatInterval(interval: { lower: number; upper: number }): string {
+  const left = `${(interval.lower * 100).toFixed(1)}%`;
+  const right = `${(interval.upper * 100).toFixed(1)}%`;
+  return `${left}–${right}`;
+}

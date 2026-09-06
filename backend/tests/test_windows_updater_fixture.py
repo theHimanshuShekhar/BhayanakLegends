@@ -1,22 +1,14 @@
-"""Subprocess-level tests for the loopback Windows updater fixture.
-
-The fixture must serve the real higher-version updater archive with its
-emitted signature on the first metadata check, flip to a same-version quiet
-response once that archive has been downloaded, and flip to a rejected
-higher-version offer whose signature does not match the served bytes once the
-harness creates the flip file. No fake artifact may ever be mistaken for a
-valid update, and every request is recorded as a path-only diagnostic row.
-"""
+"""Subprocess-level regression tests for the real Windows updater fixture."""
 
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
-from pathlib import Path
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
 import pytest
 
@@ -24,242 +16,150 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = REPO_ROOT / "tools" / "windows_updater_fixture.py"
 
 
-def http_get(url: str) -> tuple[int, bytes]:
-    try:
-        with urllib.request.urlopen(url, timeout=5) as response:
-            return response.status, response.read()
-    except urllib.error.HTTPError as exc:
-        return exc.code, exc.read()
+def _wait_for_state(path: Path, process: subprocess.Popen[str]) -> dict[str, object]:
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if path.exists():
+            return json.loads(path.read_text(encoding="utf-8"))
+        if process.poll() is not None:
+            raise AssertionError(
+                f"fixture exited before writing state: {process.stderr.read()}"
+            )
+        time.sleep(0.05)
+    raise AssertionError("fixture did not write its state file")
 
 
 @pytest.fixture
-def pack_root(tmp_path: Path) -> Path:
-    root = tmp_path / "pack"
-    root.mkdir()
-    (root / "findings-pack.v1.json").write_text(
-        json.dumps({"schema_version": 1, "pack_version": "v1", "findings": []}), encoding="utf-8"
+def fixture_server(tmp_path: Path):
+    state_path = tmp_path / "fixture.json"
+    valid_artifact = tmp_path / "valid.nsis.zip"
+    valid_signature = tmp_path / "valid.nsis.zip.sig"
+    invalid_artifact = tmp_path / "invalid.nsis.zip"
+    invalid_signature = tmp_path / "invalid.nsis.zip.sig"
+    valid_bytes = b"real emitted signed updater bytes"
+    invalid_bytes = b"tampered updater bytes"
+    signature = "valid-detached-signature\n"
+    valid_artifact.write_bytes(valid_bytes)
+    valid_signature.write_text(signature, encoding="utf-8")
+    invalid_artifact.write_bytes(invalid_bytes)
+    # Deliberately reuse the valid signature for different bytes.
+    invalid_signature.write_text(signature, encoding="utf-8")
+
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            str(FIXTURE),
+            "--state-file",
+            str(state_path),
+            "--port",
+            "0",
+            "--current-version",
+            "0.1.0",
+            "--valid-version",
+            "0.1.1",
+            "--valid-artifact",
+            str(valid_artifact),
+            "--valid-signature",
+            str(valid_signature),
+            "--invalid-version",
+            "0.1.2",
+            "--invalid-artifact",
+            str(invalid_artifact),
+            "--invalid-signature",
+            str(invalid_signature),
+        ],
+        cwd=REPO_ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
     )
-    (root / "pack.schema.json").write_text(json.dumps({"type": "object"}), encoding="utf-8")
-    return root
+    try:
+        state = _wait_for_state(state_path, process)
+        yield process, state, valid_bytes, invalid_bytes
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
 
 
-@pytest.fixture
-def artifacts(tmp_path: Path) -> dict[str, Path]:
-    # tauri signer writes keys/signatures as a single line of base64 text
-    # (base64 of the minisign armored comment+key block); the fixture must
-    # copy that text verbatim into latest.json rather than re-encoding it.
-    # The real tauri CLI emits the signed NSIS setup .exe itself as the
-    # updater artifact with <archive>.sig next to it; no .nsis.zip exists.
-    artifact = tmp_path / "BhayanakLegends_0.2.0_x64-setup.exe"
-    artifact.write_bytes(b"real-higher-version-updater-archive-bytes")
-    signature = tmp_path / "BhayanakLegends_0.2.0_x64-setup.exe.sig"
-    signature.write_text("dW50cnVzdGVkIGNvbW1lbnQ6VkFMSURfU0lHTkFUVVJFX0RBVEE=", encoding="utf-8")
-    rejected_signature = tmp_path / "rejected.sig"
-    rejected_signature.write_text("dW50cnVzdGVkIGNvbW1lbnQ6TUlTTUFUQ0hFRF9TSUdOQVRVUkU=", encoding="utf-8")
-    return {"artifact": artifact, "signature": signature, "rejected_signature": rejected_signature}
+def _get(port: int, path: str, *, headers: dict[str, str] | None = None) -> bytes:
+    request = Request(f"http://127.0.0.1:{port}{path}", headers=headers or {})
+    with urlopen(request, timeout=5) as response:
+        return response.read()
 
 
-def start_fixture(
-    tmp_path: Path,
-    pack_root: Path,
-    artifacts: dict[str, Path],
-    *,
-    update_version: str = "0.2.0",
-    rejected_version: str = "0.3.0",
-    extra_args: list[str] | None = None,
-) -> subprocess.Popen[str]:
-    state_file = tmp_path / "state.json"
-    flip_file = tmp_path / "flip"
+def test_fixture_serves_exact_valid_then_mismatched_artifacts(fixture_server) -> None:
+    _process, state, valid_bytes, invalid_bytes = fixture_server
+    port = int(state["port"])
+
+    first = json.loads(_get(port, "/latest.json"))
+    first_platform = first["platforms"]["windows-x86_64"]
+    assert first["version"] == "0.1.1"
+    assert _get(port, str(first_platform["url"]).split(f"127.0.0.1:{port}", 1)[1]) == valid_bytes
+
+    second = json.loads(_get(port, "/latest.json"))
+    second_platform = second["platforms"]["windows-x86_64"]
+    assert second["version"] == "0.1.2"
+    assert _get(port, str(second_platform["url"]).split(f"127.0.0.1:{port}", 1)[1]) == invalid_bytes
+    assert first_platform["signature"] == second_platform["signature"]
+
+    requests = Path(str(state["requests_file"])).read_text(encoding="utf-8")
+    assert '"path": "/latest.json"' in requests
+    assert "/artifacts/valid/valid.nsis.zip" in requests
+    assert "/artifacts/invalid/invalid.nsis.zip" in requests
+    assert "127.0.0.1" not in requests
+    assert "?" not in requests
+
+
+def test_fixture_rejects_non_loopback_and_query_requests(fixture_server) -> None:
+    process, state, _valid_bytes, _invalid_bytes = fixture_server
+    port = int(state["port"])
+
+    with pytest.raises(HTTPError) as query_error:
+        _get(port, "/latest.json?token=should-not-be-recorded")
+    assert query_error.value.code == 400
+
+    request = Request(
+        f"http://127.0.0.1:{port}/latest.json",
+        headers={"Host": "localhost"},
+    )
+    with pytest.raises(HTTPError) as host_error:
+        with urlopen(request, timeout=5):
+            pass
+    assert host_error.value.code == 400
+    assert process.poll() is None
+    requests_path = Path(str(state["requests_file"]))
+    assert not requests_path.exists() or "token=should-not-be-recorded" not in requests_path.read_text()
+
+
+def test_fixture_fails_closed_for_missing_or_empty_artifact_inputs(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    missing = tmp_path / "missing.nsis.zip"
+    signature = tmp_path / "signature.sig"
+    signature.write_text("sig\n", encoding="utf-8")
     command = [
         sys.executable,
         str(FIXTURE),
         "--state-file",
-        str(state_file),
-        "--port",
-        "0",
-        "--update-version",
-        update_version,
-        "--rejected-version",
-        rejected_version,
-        "--artifact",
-        str(artifacts["artifact"]),
-        "--signature",
-        str(artifacts["signature"]),
-        "--rejected-signature",
-        str(artifacts["rejected_signature"]),
-        "--flip-file",
-        str(flip_file),
-        "--pack-root",
-        str(pack_root),
+        str(state_path),
+        "--current-version",
+        "0.1.0",
+        "--valid-version",
+        "0.1.1",
+        "--valid-artifact",
+        str(missing),
+        "--valid-signature",
+        str(signature),
+        "--invalid-version",
+        "0.1.2",
+        "--invalid-artifact",
+        str(missing),
+        "--invalid-signature",
+        str(signature),
     ]
-    command.extend(extra_args or [])
-    return subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
-
-def wait_for_state(proc: subprocess.Popen[str], state_file: Path) -> dict[str, object]:
-    deadline = time.time() + 10
-    while time.time() < deadline:
-        if state_file.exists():
-            return json.loads(state_file.read_text(encoding="utf-8"))
-        if proc.poll() is not None:
-            raise AssertionError(f"fixture exited before starting: {proc.stderr.read()}")
-        time.sleep(0.02)
-    raise AssertionError("fixture did not write its state file in time")
-
-
-def stop_fixture(proc: subprocess.Popen[str]) -> None:
-    proc.terminate()
-    try:
-        proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait(timeout=5)
-
-
-@pytest.fixture
-def running_fixture(tmp_path, pack_root, artifacts):
-    state_file = tmp_path / "state.json"
-    flip_file = tmp_path / "flip"
-    proc = start_fixture(tmp_path, pack_root, artifacts)
-    try:
-        state = wait_for_state(proc, state_file)
-        base = f"http://{state['host']}:{state['port']}"
-        yield {"base": base, "state": state, "flip_file": flip_file, "requests_file": Path(state["requests_file"])}
-    finally:
-        stop_fixture(proc)
-
-
-def test_first_check_offers_the_real_higher_version_with_matching_signature(running_fixture, artifacts):
-    base = running_fixture["base"]
-    status, body = http_get(f"{base}/latest.json")
-    assert status == 200
-    payload = json.loads(body)
-    assert payload["version"] == "0.2.0"
-    platform = payload["platforms"]["windows-x86_64"]
-    assert platform["url"] == f"{base}/updater/update.bin"
-    expected_signature = artifacts["signature"].read_text(encoding="utf-8").strip()
-    assert platform["signature"] == expected_signature
-
-
-def test_valid_artifact_download_returns_exact_archive_bytes(running_fixture, artifacts):
-    status, body = http_get(f"{running_fixture['base']}/updater/update.bin")
-    assert status == 200
-    assert body == artifacts["artifact"].read_bytes()
-
-
-def test_check_after_valid_download_is_same_version_quiet(running_fixture):
-    base = running_fixture["base"]
-    http_get(f"{base}/latest.json")
-    http_get(f"{base}/updater/update.bin")  # consume the valid artifact once
-    status, body = http_get(f"{base}/latest.json")
-    assert status == 200
-    payload = json.loads(body)
-    assert payload["version"] == "0.2.0", "installed (updated) version must read as current, not available"
-
-
-def test_repeated_checks_before_download_keep_offering_the_valid_update(running_fixture):
-    base = running_fixture["base"]
-    first = json.loads(http_get(f"{base}/latest.json")[1])
-    second = json.loads(http_get(f"{base}/latest.json")[1])
-    assert first["version"] == second["version"] == "0.2.0"
-    assert first["platforms"]["windows-x86_64"]["url"] == f"{base}/updater/update.bin"
-
-
-def test_flip_file_switches_to_rejected_offer_with_mismatched_signature(running_fixture, artifacts):
-    base = running_fixture["base"]
-    http_get(f"{base}/latest.json")
-    http_get(f"{base}/updater/update.bin")
-    running_fixture["flip_file"].write_text("invalid-phase", encoding="utf-8")
-
-    status, body = http_get(f"{base}/latest.json")
-    assert status == 200
-    payload = json.loads(body)
-    assert payload["version"] == "0.3.0"
-    platform = payload["platforms"]["windows-x86_64"]
-    assert platform["url"] == f"{base}/updater/rejected.bin"
-    rejected_signature = artifacts["rejected_signature"].read_text(encoding="utf-8").strip()
-    assert platform["signature"] == rejected_signature
-    valid_signature = artifacts["signature"].read_text(encoding="utf-8").strip()
-    assert platform["signature"] != valid_signature
-
-
-def test_rejected_artifact_serves_the_same_bytes_as_the_valid_one(running_fixture, artifacts):
-    base = running_fixture["base"]
-    running_fixture["flip_file"].write_text("invalid-phase", encoding="utf-8")
-    status, body = http_get(f"{base}/updater/rejected.bin")
-    assert status == 200
-    assert body == artifacts["artifact"].read_bytes(), "rejection must be attributable to the signature alone"
-
-
-def test_pack_manifest_and_asset_are_still_served(running_fixture):
-    base = running_fixture["base"]
-    status, body = http_get(f"{base}/findings-pack-manifest.json")
-    assert status == 200
-    manifest = json.loads(body)
-    assert manifest["pack_version"] == "v2-smoke"
-    assert manifest["download_url"] == f"{base}/findings-pack.zip"
-
-    status, zip_body = http_get(manifest["download_url"])
-    assert status == 200
-    assert len(zip_body) == manifest["size"]
-
-
-def test_unknown_path_returns_404(running_fixture):
-    status, _body = http_get(f"{running_fixture['base']}/nope")
-    assert status == 404
-
-
-def test_requests_are_recorded_path_only_with_no_query_or_host(running_fixture):
-    base = running_fixture["base"]
-    http_get(f"{base}/latest.json?token=leak")
-    http_get(f"{base}/findings-pack-manifest.json")
-
-    rows = [json.loads(line) for line in running_fixture["requests_file"].read_text(encoding="utf-8").splitlines()]
-    assert rows, "expected at least one recorded request"
-    for row in rows:
-        assert set(row) == {"method", "path"}
-        assert row["method"] == "GET"
-        assert "?" not in row["path"]
-        assert "token" not in row["path"]
-        assert "://" not in row["path"]
-    assert {"/latest.json", "/findings-pack-manifest.json"} <= {row["path"] for row in rows}
-
-
-def test_missing_artifact_file_exits_nonzero_before_binding(tmp_path, pack_root, artifacts):
-    missing = tmp_path / "does-not-exist.zip"
-    proc = start_fixture(
-        tmp_path,
-        pack_root,
-        {**artifacts, "artifact": missing},
-    )
-    try:
-        stdout, stderr = proc.communicate(timeout=10)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        raise
-    assert proc.returncode != 0
-    assert not (tmp_path / "state.json").exists()
-    assert "updater artifact" in stderr
-
-
-def test_empty_signature_file_exits_nonzero(tmp_path, pack_root, artifacts):
-    artifacts["signature"].write_text("", encoding="utf-8")
-    proc = start_fixture(tmp_path, pack_root, artifacts)
-    stdout, stderr = proc.communicate(timeout=10)
-    assert proc.returncode != 0
-    assert "empty" in stderr
-
-
-def test_rejected_signature_equal_to_valid_signature_is_rejected_at_startup(tmp_path, pack_root, artifacts):
-    artifacts["rejected_signature"].write_text(artifacts["signature"].read_text(encoding="utf-8"), encoding="utf-8")
-    proc = start_fixture(tmp_path, pack_root, artifacts)
-    stdout, stderr = proc.communicate(timeout=10)
-    assert proc.returncode != 0
-    assert "differ" in stderr
-
-
-def test_equal_update_and_rejected_versions_are_rejected_at_startup(tmp_path, pack_root, artifacts):
-    proc = start_fixture(tmp_path, pack_root, artifacts, update_version="0.2.0", rejected_version="0.2.0")
-    stdout, stderr = proc.communicate(timeout=10)
-    assert proc.returncode != 0
-    assert "differ" in stderr
+    result = subprocess.run(command, cwd=REPO_ROOT, capture_output=True, text=True, check=False)
+    assert result.returncode != 0
+    assert "artifact cannot be read" in result.stderr

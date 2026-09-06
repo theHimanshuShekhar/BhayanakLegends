@@ -58,6 +58,10 @@ const validSyncProgress = {
   type: "sync.progress",
   ts: "2026-08-24T00:00:00Z",
   data: {
+    owner_key: "fixture-owner",
+    generation: 1,
+    owner_state: "active",
+    owner_error: null,
     state: "running",
     mode: "era_first",
     total_queued: 2,
@@ -153,20 +157,20 @@ describe("shared SSE owner", () => {
     const valid = parseSseMessage({
       type: "pack.updated",
       ts: "2026-08-24T00:00:00Z",
-      data: { schema_version: 1, pack_version: "v2" },
+      data: { schema_version: 2, pack_version: "v2" },
     });
     expect(valid).toEqual({
       type: "pack.updated",
       ts: "2026-08-24T00:00:00Z",
-      data: { schema_version: 1, pack_version: "v2" },
+      data: { schema_version: 2, pack_version: "v2" },
     });
 
     for (const data of [
       { schema_version: 1 },
+      { schema_version: 3, pack_version: "v2" },
       { schema_version: 1, pack_version: "" },
       { schema_version: 1, pack_version: "   " },
       { schema_version: 1, pack_version: 42 },
-      { schema_version: 1.5, pack_version: "v2" },
       { schema_version: Number.NaN, pack_version: "v2" },
       { schema_version: Number.POSITIVE_INFINITY, pack_version: "v2" },
     ]) {
@@ -244,6 +248,46 @@ describe("shared SSE owner", () => {
     });
     expect(firstEdges).toEqual([false, true, false, true]);
     expect(secondEdges).toEqual([false, true, false, true]);
+  });
+
+  it("retains one shared live owner and fan-out across reconnect with mixed subscribers", async () => {
+    vi.useFakeTimers();
+    const received: SseMessage[] = [];
+    const edges: boolean[] = [];
+    render(
+      <>
+        <StatusAndConsumer onMessage={(message) => received.push(message)} />
+        <StatusOnly />
+        <ConnectionObserver onChange={(connected) => edges.push(connected)} />
+      </>,
+    );
+
+    await act(async () => {});
+    expect(FakeEventSource.instances).toHaveLength(1);
+    expect(edges).toEqual([false]);
+    await act(async () => {
+      FakeEventSource.instances[0].open();
+    });
+    expect(edges).toEqual([false, true]);
+
+    await act(async () => {
+      FakeEventSource.instances[0].error();
+      vi.advanceTimersByTime(2_000);
+      await Promise.resolve();
+    });
+    expect(FakeEventSource.instances).toHaveLength(2);
+    expect(FakeEventSource.instances[0].close).toHaveBeenCalled();
+
+    await act(async () => {
+      FakeEventSource.instances[1].open();
+      FakeEventSource.instances[1].message(validSyncProgress);
+    });
+
+    // Exactly one non-closed owner remains and frames still fan out to the
+    // message subscriber through the reconnected shared source.
+    expect(FakeEventSource.instances.filter((instance) => instance.readyState !== 2)).toHaveLength(1);
+    expect(received.map((message) => message.type)).toEqual(["sync.progress"]);
+    expect(edges).toEqual([false, true, false, true]);
   });
 
   it("closes the source and cancels reconnect when the final subscriber unmounts", async () => {

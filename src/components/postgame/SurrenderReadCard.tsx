@@ -1,10 +1,22 @@
+import type { FindingsPackV2 } from "../../api/pack-v2";
+import { isFindingsPackV2 } from "../../api/pack-v2";
 import { SectionHead, Unavailable } from "../ui";
 
 /**
- * Structure-only until the pack ships the surrender advisor (ADR-0003): the
- * caption keeps the survivorship-bias caveat so the empty number stays honest.
+ * The Findings Pack v2 records the Surrender Advisor's failed release gate as
+ * evidence, not as an executable model. Keep the unavailable state explicit:
+ * no probability, policy threshold, or recommendation crosses this surface.
  */
-export function SurrenderReadCard() {
+export function SurrenderReadCard({
+  pack,
+}: {
+  pack: FindingsPackV2 | undefined;
+}) {
+  const finding = isFindingsPackV2(pack)
+    ? pack.findings.find((row) => row.key === "surrender_advisor") ?? null
+    : null;
+  const withheld = finding?.release_status === "withheld";
+  const releaseReason = finding?.release_reason ?? "The v2 release check failed.";
   return (
     <section
       className="card3"
@@ -13,14 +25,9 @@ export function SurrenderReadCard() {
       style={{ padding: 13, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 8 }}
     >
       <SectionHead color="var(--color-info)" label={<span id="postgame-surrender-heading">Surrender read</span>} />
-      <SectionHead level={3} dot={false} label="Vote context" />
-      <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-        <span className="mono-n" style={{ font: "700 22px var(--font-mono)", color: "var(--color-dimmer)" }}>
-          <Unavailable reason="surrender advisor unavailable" />
-        </span>
-        <span style={{ fontSize: 10, color: "var(--color-dimmer)" }}>flip chance at your vote</span>
-      </div>
+      <SectionHead level={3} dot={false} label="Release status" />
       <div
+        data-testid="surrender-withheld"
         style={{
           display: "flex",
           alignItems: "center",
@@ -30,14 +37,29 @@ export function SurrenderReadCard() {
           background: "var(--color-surface-2)",
         }}
       >
-        <span style={{ fontSize: 9.5, color: "var(--color-dim)" }}>At 20 min, before the vote</span>
-        <span className="mono-n" style={{ marginLeft: "auto", fontSize: 11, color: "var(--color-dimmer)" }}>
-          <Unavailable reason="surrender advisor unavailable" />
+        <span
+          className="pill"
+          style={{ background: "var(--color-amber-low)", color: "var(--color-amber)", fontSize: 8, padding: "2px 7px" }}
+        >
+          {withheld ? "Withheld" : "Unavailable"}
+        </span>
+        <span style={{ marginLeft: "auto", fontSize: 9.5, color: "var(--color-dim)" }}>
+          {withheld ? "release check failed" : "v2 evidence unavailable"}
         </span>
       </div>
-      <p style={{ margin: "auto 0 0", fontSize: 9.5, lineHeight: 1.5, color: "var(--color-dim)" }}>
-        The surrender advisor ships with the next Findings Pack. Calibrated on state, not outcome —
-        surrendered games look more winnable in hindsight than they were (survivorship bias).
+      <p
+        data-testid="surrender-gate-reason"
+        style={{ margin: "auto 0 0", fontSize: 9.5, lineHeight: 1.5, color: "var(--color-dim)" }}
+      >
+        {withheld ? releaseReason : <Unavailable reason="compatible Surrender Advisor evidence unavailable" />}
+        {withheld && (
+          <>
+            {" "}
+            The failed gate recorded a 22.7 percentage-point sanity gap against a 5-point
+            tolerance. This Findings Pack ships no surrender probability, policy, or decision
+            output.
+          </>
+        )}
       </p>
     </section>
   );

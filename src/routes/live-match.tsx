@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { actionableErrorMessage, api } from "../api/client";
+import { useQueryClient } from "@tanstack/react-query";
+import { actionableErrorMessage } from "../api/client";
 import { useGameClock, useGameClockSource } from "../api/clock";
-import type { FindingsPack, InGameSnapshot, PlayerLive } from "../api/types";
+import type { InGameSnapshot, PlayerLive } from "../api/types";
+import { isInGameSnapshot } from "../api/liveValidation";
+import type { FindingsPackV2 } from "../api/pack-v2";
 import { useEvents } from "../api/sse";
-import { useLiveIngame } from "../api/hooks";
+import { useLiveIngame, usePack } from "../api/hooks";
 import {
-  ActivePlayerCard,
   CheatSheetCard,
+  ActivePlayerCard,
   EventFeedCard,
   ItemsByPlayerCard,
   ObjectivesCard,
@@ -46,13 +48,24 @@ function LiveWinProbabilityCard({
   pack,
   active,
   packVersion,
+  snapshot,
 }: {
-  pack: FindingsPack | undefined;
+  pack: FindingsPackV2 | undefined;
   active: boolean;
   packVersion: string | null;
+  snapshot?: InGameSnapshot;
 }) {
   const clockS = useGameClock();
-  return <WinProbabilityCard pack={pack} clockS={clockS} active={active} packVersion={packVersion} />;
+  return (
+    <WinProbabilityCard
+      pack={pack}
+      clockS={clockS}
+      active={active}
+      packVersion={packVersion}
+      inference={snapshot?.inference}
+      eventDeltas={snapshot?.event_deltas}
+    />
+  );
 }
 
 function findLocalPlayer(snapshot: InGameSnapshot | undefined): PlayerLive | null {
@@ -60,71 +73,17 @@ function findLocalPlayer(snapshot: InGameSnapshot | undefined): PlayerLive | nul
   const all = [...snapshot.teams.order, ...snapshot.teams.chaos];
   return all.find((p) => p.summoner === snapshot.local_summoner) ?? null;
 }
-function isRenderableSnapshot(value: unknown): value is InGameSnapshot {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-  const snapshot = value as Record<string, unknown>;
-  const teams = snapshot.teams;
-  if (typeof teams !== "object" || teams === null || Array.isArray(teams)) return false;
-  const teamRecord = teams as Record<string, unknown>;
-  const isNullableString = (candidate: unknown) => candidate === null || typeof candidate === "string";
-  const isPlayer = (candidate: unknown) => {
-    if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) return false;
-    const player = candidate as Record<string, unknown>;
-    return (
-      typeof player.summoner === "string" &&
-      isNullableString(player.champion) &&
-      ["level", "kills", "deaths", "assists", "cs", "ward_score"].every(
-        (key) => typeof player[key] === "number" && Number.isFinite(player[key]),
-      ) &&
-      Array.isArray(player.items) &&
-      player.items.every(
-        (item) =>
-          typeof item === "object" &&
-          item !== null &&
-          !Array.isArray(item) &&
-          Number.isInteger((item as Record<string, unknown>).id) &&
-          Number.isInteger((item as Record<string, unknown>).count),
-      )
-    );
-  };
-  const isEvent = (candidate: unknown) => {
-    if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) return false;
-    const event = candidate as Record<string, unknown>;
-    return (
-      typeof event.name === "string" &&
-      typeof event.t_s === "number" &&
-      Number.isFinite(event.t_s) &&
-      isNullableString(event.actor) &&
-      isNullableString(event.victim) &&
-      isNullableString(event.detail)
-    );
-  };
-  return (
-    typeof snapshot.active === "boolean" &&
-    typeof snapshot.clock_s === "number" &&
-    Number.isFinite(snapshot.clock_s) &&
-    (snapshot.mode === null || typeof snapshot.mode === "string") &&
-    isNullableString(snapshot.local_summoner) &&
-    isNullableString(snapshot.local_champion) &&
-    Array.isArray(teamRecord.order) &&
-    teamRecord.order.every(isPlayer) &&
-    Array.isArray(teamRecord.chaos) &&
-    teamRecord.chaos.every(isPlayer) &&
-    Array.isArray(snapshot.events) &&
-    snapshot.events.every(isEvent)
-  );
-}
 
 export function LiveMatchPage() {
   const queryClient = useQueryClient();
   const ingameQuery = useLiveIngame();
-  const packQuery = useQuery({ queryKey: ["pack"], queryFn: api.pack });
+  const packQuery = usePack();
   const [activePackVersion, setActivePackVersion] = useState<string | null>(null);
   const [liveFrame, setLiveFrame] = useState<{ snapshot?: InGameSnapshot; hidden: boolean } | null>(null);
   const hadLiveConnection = useRef(false);
   const liveEventsConnected = useEvents((msg) => {
     if (msg.type === "live.state") {
-      if (isRenderableSnapshot(msg.data)) {
+      if (isInGameSnapshot(msg.data)) {
         setLiveFrame({ snapshot: msg.data, hidden: false });
         queryClient.setQueryData(["live-ingame"], msg.data);
       } else {
@@ -137,7 +96,7 @@ export function LiveMatchPage() {
       setActivePackVersion(version);
     }
     if (msg.type === "pack.updated") {
-      if (!Number.isInteger(msg.data.schema_version)) return;
+      if (msg.data.schema_version !== 2) return;
       if (typeof msg.data.pack_version !== "string" || msg.data.pack_version.trim().length === 0) return;
       setActivePackVersion(msg.data.pack_version);
       void queryClient.invalidateQueries({ queryKey: ["pack"] });
@@ -240,7 +199,7 @@ export function LiveMatchPage() {
         )}
         <div
           className="pill"
-          style={{ background: "var(--color-info-low)", color: "#cfe3f9", boxShadow: "var(--shadow-z1)" }}
+          style={{ background: "var(--color-info-low)", color: "var(--color-soft-blue)", boxShadow: "var(--shadow-z1)" }}
         >
           <span style={{ width: 6, height: 6, borderRadius: 999, background: "var(--color-info)" }} />
           Findings Pack{activePackVersion ? ` ${activePackVersion}` : ""}
@@ -273,7 +232,7 @@ export function LiveMatchPage() {
         </div>
 
         <div className="live-match-column" style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
-          <LiveWinProbabilityCard pack={renderPack} active={active} packVersion={activePackVersion} />
+          <LiveWinProbabilityCard pack={renderPack} active={active} packVersion={activePackVersion} snapshot={ingame} />
           <div className="live-match-middle-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <TeamVsTeamCard snapshot={ingame} />
             <EventFeedCard snapshot={ingame} />

@@ -1,151 +1,219 @@
-import type { FindingsPack, PostGameDigest } from "../../api/types";
-import { formatGold, formatRate } from "../format";
+import type { PostGameDigest } from "../../api/types";
+import type { FindingsPackV2, PackV2ComebackBand } from "../../api/pack-v2";
+import { isFindingsPackV2 } from "../../api/pack-v2";
+import { formatRate } from "../format";
 import { SectionHead, Unavailable } from "../ui";
 
-/**
- * Domain-aware Findings Pack population lookup over the contracted comeback
- * anchors (-2,000g / -5,000g / -7,000g). A rate appears only when the Personal
- * History gold@15 is finite, negative, inside the supported domain, and the
- * pack declares the canonical gold_diff_15 input under loltrends-parity-v1.
- * Internal boundaries are arithmetic midpoints between adjacent anchors; an
- * exact midpoint belongs to the more severe (lower-rate) bucket so the UI
- * never overstates the population win rate. Outer anchors are inclusive.
- */
+type Eligibility = "eligible" | "ineligible" | "unknown";
 
 export type SuppressionReason =
   | "missing-personal-history"
+  | "invalid-input"
+  | "ineligible-observation"
   | "not-a-deficit"
   | "outside-domain"
   | "missing-pack"
   | "incompatible-declaration"
-  | "malformed-table";
+  | "malformed-table"
+  | "withheld";
 
 export type BucketMatch = {
   winRate: number;
   rangeLabel: string;
 };
 
-const CANONICAL_FEATURE = "gold_diff_15";
-const CANONICAL_VERSION = "loltrends-parity-v1";
+const CANONICAL_FEATURE = "team_gold_diff_15m";
+const CANONICAL_VERSION = "loltrends-parity-v2";
+const CHECKPOINT_SECONDS = 900;
+const EXPECTED_BOUNDS = [
+  { lower: 2000, upper: 3000 },
+  { lower: 3000, upper: 5000 },
+  { lower: 5000, upper: null },
+] as const;
 
 const SUPPRESSION_COPY: Record<SuppressionReason, string> = {
   "missing-personal-history":
-    "No Personal History gold@15 checkpoint for this game, so no Findings Pack comparison is possible.",
+    "No v2 Personal History team state is available at 15 minutes, so no Findings Pack comparison is possible.",
+  "invalid-input": "The v2 team-gold checkpoint is invalid, so no Findings Pack comparison is shown.",
+  "ineligible-observation":
+    "This match is not a played-out eligible observation, so no comeback floor applies.",
   "not-a-deficit":
-    "This game was not in a deficit cohort at 15 minutes, so no Findings Pack comeback rate applies.",
+    "Your team was not in a gold deficit at 15 minutes; the personal checkpoint cannot substitute for a team-state cohort.",
   "outside-domain":
-    "The observed deficit is outside the Findings Pack's supported population domain, so no rate is shown.",
+    "The team deficit is below the Findings Pack's minimum 2,000g cohort, so no rate is shown.",
   "missing-pack": "Findings Pack population data is unavailable.",
   "incompatible-declaration":
-    "The Findings Pack does not declare the canonical gold_diff_15 input for this comparison.",
-  "malformed-table": "The Findings Pack comeback table failed validation.",
+    "The active pack does not declare the v2 team-state contract for this comparison.",
+  "malformed-table": "The Findings Pack comeback bands failed validation.",
+  withheld: "The matching Findings Pack comeback band is withheld because exact team-state exposures are unavailable.",
 };
 
-function declarationMatches(pack: FindingsPack | undefined): boolean {
-  const declaration = pack?.comeback_feature_contract;
+function finite(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value != null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function v2DigestFields(digest: PostGameDigest | null): {
+  eligibility: Eligibility | null;
+  teamGoldDiff: number | null;
+  teamGoldPresent: boolean;
+  observedThrough: number | null;
+  nonSurrendered: boolean | null;
+  contractVersion: string | null;
+  teamStateContractValid: boolean;
+} {
+  const value = digest;
+  const features = asRecord(value?.features);
+  const teamState = asRecord(value?.team_state);
+  const eligibility =
+    value?.personal_history_eligibility === "eligible" ||
+    value?.personal_history_eligibility === "ineligible" ||
+    value?.personal_history_eligibility === "unknown"
+      ? value.personal_history_eligibility
+      : null;
+  const featureValue = features?.[CANONICAL_FEATURE];
+  const teamStateValue = teamState?.[CANONICAL_FEATURE];
+  const rawTeamGold = featureValue !== undefined ? featureValue : teamStateValue;
+  const teamStateContractValid =
+    teamState?.feature === CANONICAL_FEATURE &&
+    teamState?.feature_contract_version === CANONICAL_VERSION;
+  return {
+    eligibility,
+    teamGoldDiff: finite(rawTeamGold) ? rawTeamGold : null,
+    teamGoldPresent: rawTeamGold !== undefined && rawTeamGold !== null,
+    observedThrough: finite(teamState?.observed_through_s) ? teamState.observed_through_s : null,
+    nonSurrendered: typeof teamState?.non_surrendered === "boolean" ? teamState.non_surrendered : null,
+    contractVersion:
+      value?.feature_contract_version === CANONICAL_VERSION
+        ? value.feature_contract_version
+        : null,
+    teamStateContractValid,
+  };
+}
+
+function rangeLabel(lowerBound: number, upperBound: number | null): string {
+  return upperBound == null
+    ? `[${lowerBound.toLocaleString("en-US")}g, ∞)`
+    : `[${lowerBound.toLocaleString("en-US")}g, ${upperBound.toLocaleString("en-US")}g)`;
+}
+
+function validBand(row: PackV2ComebackBand, index: number): boolean {
+  const expected = EXPECTED_BOUNDS[index];
+  if (!expected) return false;
+  const available = row.release_status === "available" || row.release_status === "approximate";
+  const withheld = row.release_status === "withheld" || row.release_status === "superseded";
+  const valueValid = available
+    ? finite(row.rate) && row.rate >= 0 && row.rate <= 1 && row.sample > 0
+    : withheld && row.rate === null && row.sample === 0;
   return (
-    !!declaration &&
-    declaration.feature === CANONICAL_FEATURE &&
-    declaration.feature_contract_version === CANONICAL_VERSION
+    row.feature === CANONICAL_FEATURE &&
+    row.feature_contract_version === CANONICAL_VERSION &&
+    row.checkpoint_seconds === CHECKPOINT_SECONDS &&
+    row.unit === "gold" &&
+    row.lower_bound === expected.lower &&
+    row.upper_bound === expected.upper &&
+    row.include_lower === true &&
+    row.include_upper === false &&
+    row.tier === "diagnostic" &&
+    typeof row.population_scope === "string" &&
+    row.population_scope.trim().length > 0 &&
+    Array.isArray(row.caveats) &&
+    row.caveats.length > 0 &&
+    row.caveats.every((caveat) => typeof caveat === "string" && caveat.trim().length > 0) &&
+    typeof row.source_document === "string" &&
+    row.source_document.trim().length > 0 &&
+    typeof row.source_section === "string" &&
+    row.source_section.trim().length > 0 &&
+    typeof row.source_ref === "string" &&
+    row.source_ref.trim().length > 0 &&
+    typeof row.provenance_key === "string" &&
+    row.provenance_key.trim().length > 0 &&
+    valueValid
   );
 }
 
-function tableIsMalformed(
-  anchors: { gold_deficit_at_15: number; win_rate: number }[],
-): boolean {
-  if (anchors.length === 0) return true;
-  const magnitudes = anchors.map((row) => row.gold_deficit_at_15);
-  if (magnitudes.some((value) => !Number.isFinite(value) || value >= 0)) return true;
-  if (anchors.some((row) => !Number.isFinite(row.win_rate))) return true;
-  return new Set(magnitudes).size !== magnitudes.length;
+function parseBands(pack: FindingsPackV2 | undefined): PackV2ComebackBand[] | null {
+  if (!isFindingsPackV2(pack) || !Array.isArray(pack.comeback_odds)) return null;
+  if (pack.comeback_odds.length !== EXPECTED_BOUNDS.length) return null;
+  return pack.comeback_odds.every(validBand) ? pack.comeback_odds : null;
 }
 
-/**
- * Returns a bucket only for finite negative deficits inside the shipped
- * domain; otherwise names why the rate is suppressed.
- */
+/** Match only the declared v2 team-deficit interval; no personal-gold fallback or extrapolation. */
 export function matchComebackBucket(
-  pack: FindingsPack | undefined,
+  pack: FindingsPackV2 | undefined,
   digest: PostGameDigest | null,
 ): { match: BucketMatch; reason: null } | { match: null; reason: SuppressionReason } {
-  if (!digest || digest.checkpoints.gold_diff_15 == null) {
+  if (!digest) return { match: null, reason: "missing-personal-history" };
+  const fields = v2DigestFields(digest);
+  if (!fields.contractVersion || !fields.teamStateContractValid || !fields.teamGoldPresent) {
     return { match: null, reason: "missing-personal-history" };
   }
-  const gold15 = digest.checkpoints.gold_diff_15;
-  if (!pack) {
-    return { match: null, reason: "missing-pack" };
+  if (!finite(fields.teamGoldDiff)) return { match: null, reason: "invalid-input" };
+  if (
+    fields.eligibility !== "eligible" ||
+    fields.nonSurrendered !== true ||
+    fields.observedThrough == null ||
+    fields.observedThrough < CHECKPOINT_SECONDS
+  ) {
+    return { match: null, reason: "ineligible-observation" };
   }
-  if (!declarationMatches(pack)) {
-    return { match: null, reason: "incompatible-declaration" };
-  }
-  // Mildest first: -2000 before -5000 before -7000.
-  const anchors = [...(pack.comeback_odds ?? [])].sort(
-    (a, b) => b.gold_deficit_at_15 - a.gold_deficit_at_15,
+  if (!pack) return { match: null, reason: "missing-pack" };
+  const bands = parseBands(pack);
+  if (!bands) return { match: null, reason: "malformed-table" };
+  const deficit = -fields.teamGoldDiff;
+  if (deficit <= 0) return { match: null, reason: "not-a-deficit" };
+  if (deficit < EXPECTED_BOUNDS[0].lower) return { match: null, reason: "outside-domain" };
+  const band = bands.find(
+    (candidate) =>
+      deficit >= candidate.lower_bound &&
+      (candidate.upper_bound == null || deficit < candidate.upper_bound),
   );
-  if (tableIsMalformed(anchors)) {
-    return { match: null, reason: "malformed-table" };
+  if (!band) return { match: null, reason: "outside-domain" };
+  if (band.release_status !== "available" && band.release_status !== "approximate") {
+    return { match: null, reason: "withheld" };
   }
-  if (!Number.isFinite(gold15) || gold15 >= 0) {
-    return { match: null, reason: "not-a-deficit" };
-  }
-  const deficit = -gold15;
-  const magnitudes = anchors.map((row) => -row.gold_deficit_at_15);
-  // Bucket i spans from the lower boundary to the upper boundary where the
-  // lower boundary of bucket 0 is the mildest anchor, internal boundaries are
-  // midpoints between adjacent anchors, and the last bucket closes at the
-  // most severe anchor. Midpoints therefore belong to the more severe side.
-  for (let index = 0; index < magnitudes.length; index += 1) {
-    const low =
-      index === 0 ? magnitudes[0] : (magnitudes[index - 1] + magnitudes[index]) / 2;
-    const isLast = index === magnitudes.length - 1;
-    const high = isLast ? magnitudes[index] : (magnitudes[index] + magnitudes[index + 1]) / 2;
-    const inBucket = deficit >= low && (isLast ? deficit <= high : deficit < high);
-    if (inBucket) {
-      return {
-        match: {
-          winRate: anchors[index].win_rate,
-          rangeLabel: `[${formatGold(-low).slice(1)}, ${formatGold(-high).slice(1)}${isLast ? "]" : ")"}`,
-        },
-        reason: null,
-      };
-    }
-  }
-  return { match: null, reason: "outside-domain" };
+  if (!finite(band.rate)) return { match: null, reason: "withheld" };
+  return {
+    match: {
+      winRate: band.rate,
+      rangeLabel: rangeLabel(band.lower_bound, band.upper_bound),
+    },
+    reason: null,
+  };
 }
 
-
-/**
- * Population-bucket comeback read: describes what Findings Pack teams at a
- * deficit range do, never what the observed game did (ADR-0003 diagnostic).
- */
+/** The rate describes eligible played-out population states, not a personal prediction. */
 export function ComebackOddsCard({
   digest,
   pack,
 }: {
   digest: PostGameDigest | null;
-  pack: FindingsPack | undefined;
+  pack: FindingsPackV2 | undefined;
 }) {
   const result = matchComebackBucket(pack, digest);
-  const gold15 = digest?.checkpoints.gold_diff_15 ?? null;
+  const fields = v2DigestFields(digest);
+  const unavailableReason = result.reason === "withheld" ? "population band withheld" : "no supported population band";
   return (
     <section
       className="card3b"
-      data-testid="comeback-odds"
+      data-testid="comeback-card"
       aria-labelledby="postgame-comeback-heading"
       style={{ padding: 13, display: "flex", flexDirection: "column", gap: 8 }}
     >
-      <SectionHead color="var(--color-soft-blue)" label={<span id="postgame-comeback-heading">Comeback odds</span>} />
-      <SectionHead level={3} dot={false} label="Findings Pack population bucket" />
+      <SectionHead color="var(--color-soft-blue)" label={<span id="postgame-comeback-heading">Comeback floor</span>} />
+      <SectionHead level={3} dot={false} label="Findings Pack population band" />
       <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
         <span
           className="mono-n"
           data-testid="comeback-value"
-          style={{
-            font: "700 22px var(--font-mono)",
-            color: result.match ? "var(--color-soft-blue)" : "var(--color-dimmer)",
-          }}
+          style={{ font: "700 22px var(--font-mono)", color: result.match ? "var(--color-soft-blue)" : "var(--color-dimmer)" }}
         >
-          {result.match ? formatRate(result.match.winRate) : <Unavailable reason="no supported population bucket" />}
+          {result.match ? formatRate(result.match.winRate) : <Unavailable reason={unavailableReason} />}
         </span>
         <span style={{ fontSize: 10, color: "var(--color-dimmer)" }} data-testid="comeback-range">
           {result.match ? result.match.rangeLabel : ""}
@@ -153,18 +221,20 @@ export function ComebackOddsCard({
       </div>
       <p
         data-testid="comeback-note"
-        style={{ margin: 0, fontSize: 10, lineHeight: 1.5, color: "#cfd3e5" }}
+        role="status"
+        style={{ margin: 0, fontSize: 10, lineHeight: 1.5, color: "var(--color-soft-text)" }}
       >
         {result.match
-          ? `Teams in ${result.match.rangeLabel} down 3,500g+ at 15 won about ${formatRate(result.match.winRate)} of the time — Findings Pack population bucket.`
+          ? `Eligible, played-out team states in ${result.match.rangeLabel} down at 15 minutes won about ${formatRate(result.match.winRate)} of the time. This is population context, not a personal prediction.`
           : SUPPRESSION_COPY[result.reason]}
       </p>
-      {result.match && gold15 != null && (
+      {result.match && fields.teamGoldDiff != null && (
         <p
           data-testid="personal-checkpoint-note"
           style={{ margin: 0, fontSize: 10, lineHeight: 1.5, color: "var(--color-dimmer)" }}
         >
-          Your game was down {formatGold(Math.abs(gold15)).slice(1)} at 15 — Personal History, shown separately above.
+          Your team state was {Math.abs(Math.round(fields.teamGoldDiff)).toLocaleString("en-US")}g down at
+          15 minutes · Personal History team feature.
         </p>
       )}
     </section>

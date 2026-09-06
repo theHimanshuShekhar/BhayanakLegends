@@ -112,3 +112,16 @@ def test_ts_parity_detects_one_sided_type_change(tmp_path: Path):
     """Removing pack_version from handwritten Health must fail the compile."""
     failures = cc.run_ts_parity(live_normalized())
     assert failures == []  # sanity: clean tree compiles both directions
+
+
+def test_ts_type_for_object_properties_and_additional_properties() -> None:
+    assert cc.ts_type_for(
+        {
+            "type": "object",
+            "properties": {"latest": {"type": "number"}},
+            "required": ["latest"],
+        }
+    ) == "{ latest: number; }"
+    assert cc.ts_type_for(
+        {"type": "object", "additionalProperties": {"type": "number"}}
+    ) == "Record<string, number>"

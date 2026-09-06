@@ -2,38 +2,11 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { actionableErrorMessage } from "../../api/client";
 import { useCancelSync, useSaveSettings, useSettings, useStartSync, useSyncStatus } from "../../api/hooks";
-import { useEvents } from "../../api/sse";
-import type { SseMessage } from "../../api/sse";
 import type { RegionRoute, SettingsPatch, SyncStatus } from "../../api/types";
 import { isValidRiotId } from "./identity";
 
-function isSyncStatus(value: unknown): value is SyncStatus {
-  if (typeof value !== "object" || value === null) return false;
-  if (
-    !("state" in value) ||
-    !("mode" in value) ||
-    !("total_queued" in value) ||
-    !("downloaded" in value) ||
-    !("skipped" in value) ||
-    !("failed" in value) ||
-    !("current_match_id" in value) ||
-    !("started_at" in value)
-  ) {
-    return false;
-  }
-  return (
-    (value.state === "idle" ||
-      value.state === "running" ||
-      value.state === "cancelled" ||
-      value.state === "error") &&
-    (value.mode === "era_first" || value.mode === "import") &&
-    typeof value.total_queued === "number" &&
-    typeof value.downloaded === "number" &&
-    typeof value.skipped === "number" &&
-    typeof value.failed === "number" &&
-    (typeof value.current_match_id === "string" || value.current_match_id === null) &&
-    (typeof value.started_at === "string" || value.started_at === null)
-  );
+function isTerminal(state: SyncStatus["state"]): boolean {
+  return state !== "running";
 }
 const REGIONS: readonly RegionRoute[] = ["sea", "europe", "americas", "asia"];
 const DEFAULT_RIOT_ID = "";
@@ -42,9 +15,6 @@ function formatCount(value: number): string {
   return value.toLocaleString("en-US");
 }
 
-function isTerminal(state: SyncStatus["state"]): boolean {
-  return state !== "running";
-}
 
 function FieldLabel({ children }: { children: string }) {
   return (
@@ -72,23 +42,19 @@ export function SyncPanel() {
   const cancel = useCancelSync();
   const polled = useSyncStatus();
 
-  const [live, setLive] = useState<SyncStatus | null>(null);
-  useEvents((msg: SseMessage) => {
-    if (
-      (msg.type === "sync.progress" || msg.type === "sync.done") &&
-      isSyncStatus(msg.data)
-    ) {
-      setLive(msg.data);
-    }
-  });
-
-  // polled status is the fallback baseline; SSE overlays fresher state
-  useEffect(() => {
-    if (!live && polled.data) setLive(polled.data);
-  }, [polled.data, live]);
-  const status = live ?? polled.data ?? null;
+  // Owner state is authoritative. Never display a prior account's queue while
+  // Riot identity resolution is pending or has failed.
+  const ownerState = settings.data?.owner_state ?? (settings.data?.riot_id ? "active" : "unassigned");
+  const ownerStatusCopy =
+    ownerState === "resolving"
+      ? "Resolving Riot account…"
+      : ownerState === "error"
+        ? `Unavailable: Riot account resolution failed${settings.data?.owner_error ? ` — ${settings.data.owner_error}` : ""}`
+        : ownerState === "unassigned"
+          ? "No Riot account is assigned."
+          : "Riot account active.";
+  const status = ownerState === "active" ? (polled.data ?? null) : null;
   const running = status?.state === "running";
-
   const [riotId, setRiotId] = useState(DEFAULT_RIOT_ID);
   const [region, setRegion] = useState<RegionRoute>("sea");
   const [key, setKey] = useState("");
@@ -100,7 +66,8 @@ export function SyncPanel() {
   const [riotIdTouched, setRiotIdTouched] = useState(false);
   const [attempted, setAttempted] = useState(false);
   const riotIdValid = isValidRiotId(riotId);
-  const showRiotIdError = !riotIdValid && (riotIdTouched || attempted);
+  const clearingIdentity = riotId.trim() === "" && Boolean(settings.data?.riot_id);
+  const showRiotIdError = !riotIdValid && !clearingIdentity && (riotIdTouched || attempted);
 
   useEffect(() => {
     if (settings.data) {
@@ -113,8 +80,7 @@ export function SyncPanel() {
   function onSave(e: FormEvent) {
     e.preventDefault();
     setAttempted(true);
-    setRiotIdTouched(true);
-    if (!riotIdValid) return;
+    if (!riotIdValid && !clearingIdentity) return;
 
     const patch: SettingsPatch = {
       riot_id: riotId.trim() || null,
@@ -133,21 +99,31 @@ export function SyncPanel() {
   }
 
   const requestPending = save.isPending || start.isPending || cancel.isPending;
+  const ownerCanInitiate =
+    ownerState === "active" ||
+    ((ownerState === "unassigned" || ownerState === "error") &&
+      Boolean(settings.data?.riot_id));
   const startDisabledReason = running
     ? "Backfill is running."
     : requestPending
       ? "Loading…"
-      : !riotIdValid
-        ? "Enter a valid Riot ID before starting Backfill."
-        : dirty
-          ? "Save settings before starting Backfill."
-          : !settings.data
-            ? settings.isError
-              ? "Unavailable: saved settings could not be loaded."
-              : "Waiting for saved settings"
-            : !settings.data.riot_id
-              ? "Save a Riot ID before starting Backfill."
-              : null;
+      : ownerState === "resolving"
+        ? "Resolving Riot account before starting Backfill."
+        : ownerState === "error" && !ownerCanInitiate
+          ? ownerStatusCopy
+          : !ownerCanInitiate
+            ? "Assign a Riot account before starting Backfill."
+            : !riotIdValid
+              ? "Enter a valid Riot ID before starting Backfill."
+              : dirty
+                ? "Save settings before starting Backfill."
+                : !settings.data
+                  ? settings.isError
+                    ? "Unavailable: saved settings could not be loaded."
+                    : "Waiting for saved settings"
+                  : !settings.data.riot_id
+                    ? "Save a Riot ID before starting Backfill."
+                    : null;
   const startDisabled = startDisabledReason !== null;
   const sourceCopy = requestPending
     ? "Loading…"
@@ -163,7 +139,7 @@ export function SyncPanel() {
     setAttempted(true);
     setRiotIdTouched(true);
     if (startDisabled) return;
-    start.mutate(undefined, { onSuccess: (next) => setLive(next) });
+    start.mutate();
   }
   const total = status?.total_queued ?? 0;
   const doneCount = status?.downloaded ?? 0;
@@ -173,8 +149,23 @@ export function SyncPanel() {
     <section
       className="card3b"
       data-testid="sync-panel"
+      aria-label="Backfill"
       style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}
     >
+      <div
+        data-testid="sync-owner-status"
+        role="status"
+        aria-live="polite"
+        style={{
+          padding: "7px 9px",
+          borderRadius: 10,
+          background: ownerState === "error" ? "var(--color-danger-low)" : "var(--color-surface-2)",
+          color: ownerState === "active" ? "var(--color-dim)" : ownerState === "error" ? "var(--color-danger)" : "var(--color-amber)",
+          fontSize: 10,
+        }}
+      >
+        {ownerStatusCopy}
+      </div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
         <span
           className="mono-n"
@@ -332,7 +323,7 @@ export function SyncPanel() {
               className="pill"
               style={{
                 background: "var(--color-accent)",
-                color: "#0e1020",
+                color: "var(--color-bg)",
                 border: "none",
                 cursor: startDisabled ? "default" : "pointer",
                 opacity: startDisabled ? 0.4 : undefined,
@@ -343,7 +334,7 @@ export function SyncPanel() {
             </button>
             <button
               type="button"
-              onClick={() => cancel.mutate(undefined, { onSuccess: (next) => setLive(next) })}
+              onClick={() => cancel.mutate()}
               disabled={!running || cancel.isPending}
               data-testid="cancel-sync"
               className="pill"

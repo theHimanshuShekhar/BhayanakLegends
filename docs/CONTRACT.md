@@ -1,4 +1,4 @@
-# Bhayanak Legends v1 — Interface Contract
+# Bhayanak Legends v2 — Interface Contract
 
 Single source of truth for frontend↔backend↔pack interfaces. Change here, not ad hoc.
 
@@ -23,15 +23,14 @@ dev (`pnpm dev` without Tauri), defaults: port from `VITE_BL_PORT` (default
 23110), token from `VITE_BL_TOKEN` (default
 `local-sidecar-development-token-32chars`).
 
-## REST API (v1)
+## REST API (v2)
 
 Base URL: `http://127.0.0.1:{port}`
 
 | Method | Path | Response | Notes |
 |---|---|---|---|
 | GET | /health | `Health` | liveness + versions |
-| GET | /pack | `FindingsPack` | full pack JSON (validated) |
-| GET | /settings | `Settings` | |
+| GET | /pack | `FindingsPackV2` | full pack JSON (validated v2 contract) |
 | PUT | /settings | `Settings` | body: partial `SettingsPatch` |
 | POST | /sync/start | `SyncStatus` | kicks era-first backfill (no-op if running) |
 | POST | /sync/cancel | `SyncStatus` | |
@@ -40,6 +39,8 @@ Base URL: `http://127.0.0.1:{port}`
 | GET | /progress/trajectories | `TrajectoryPoint[]` | per-match rolling line; query: `patch?`, `role?`, `champion?` |
 | GET | /postgame/latest | `PostGameDigest \| null` | null = none yet |
 | GET | /benchmarks | `BenchmarkResponse` | stateful population/personal comparisons |
+| GET | /history/insights | `HistoryInsights` | contract-aware Personal History insights |
+| POST | /history/what-if | `WhatIfResponse` | local, model-card-gated personal what-if |
 | GET | /history/summary | `HistorySummary` | true Personal History summary; empty history → `{matches:0, patches:[], by_role:[], win_rate:0}` |
 | GET | /live/status | `LiveStatus` | coarse LCU + in-game health |
 | GET | /live/session | `ChampSelectSnapshot` | rich champ-select state; idle → `{active:false,...}` |
@@ -94,6 +95,46 @@ interface PostGameDigest {
   checkpoints: { gold_diff_10: number|null; gold_diff_15: number|null; gold_diff_20: number|null };
   habits: HabitOutcome[];         // only outcomes with an exact extractor + threshold; empty when unavailable
   headline: string;               // one-line takeaway, tier-respecting phrasing
+  feature_contract_version: string|null;
+  personal_history_eligibility: PersonalHistoryEligibility;
+  features: Record<string, number|null>;
+  team_state: TeamState|null;
+}
+
+type PersonalHistoryEligibility = "eligible"|"ineligible"|"unknown";
+interface TeamState {
+  feature: "team_gold_diff_15m";
+  feature_contract_version: "loltrends-parity-v2";
+  team_gold_diff_15m: number|null;
+  observed_through_s: number|null;
+  non_surrendered: boolean|null;
+}
+
+interface InsightWindow {
+  name: "latest"|"preceding";
+  games: number;
+  wins: number;
+  win_rate: number;
+  sample_status: "insufficient"|"review";
+  completeness: "full"|"partial"|"unavailable";
+}
+interface HistoryInsights {
+  state: "empty"|"available";
+  sample_size: number;
+  filters: { role: Role|null; champion: string|null };
+  roles: RoleInsight[];
+  champions: ChampionInsight[];
+  windows: { latest: InsightWindow; preceding: InsightWindow };
+  feature_contract_version: string|null;
+  feature_contract_status: "available"|"mixed"|"unavailable";
+}
+interface RoleInsight {
+  role: Role; games: number; wins: number; win_rate: number;
+  sample_status: "insufficient"|"review";
+}
+interface ChampionInsight {
+  champion: string; games: number; wins: number; win_rate: number;
+  roles: Role[]; sample_status: "insufficient"|"review";
 }
 
 Checkpoint missing-data rule: `cs10`, `level10`, and `gold_diff_10` are `null`
@@ -218,6 +259,42 @@ interface InGameSnapshot {
   teams: { order: PlayerLive[]; chaos: PlayerLive[] };
   events: LiveEvent[];           // last 40, oldest first
 }
+
+type LiveInferenceStatus = "available"|"suppressed"|"stale"|"incompatible"|"unsupported-patch"|"out-of-domain"|"error";
+interface LiveInference {
+  status: LiveInferenceStatus;
+  probability: number|null;
+  observed_game_time_s: number|null;
+  model_version: string|null;
+  pack_version: string|null;
+  reason: string|null;
+}
+interface LiveEventDelta {
+  event_id: string;
+  source_order: number;
+  name: LiveEvent["name"];
+  t_s: number;
+  baseline_probability: number|null;
+  event_probability: number|null;
+  delta_probability: number|null;
+  pre_observed_game_time_s: number|null;
+  post_observed_game_time_s: number|null;
+  model_version: string|null;
+  pack_version: string|null;
+  suppression_status: LiveInferenceStatus;
+  reason: string|null;
+}
+interface WhatIfRequest { adjustments: Record<string, number>; }
+interface WhatIfResponse {
+  status: "available"|"suppressed"|"rejected"|"unsupported-patch"|"out-of-domain"|"error";
+  probability: number|null;
+  baseline_probability: number|null;
+  adjusted_features: Record<string, number>|null;
+  model_version: string|null;
+  pack_version: string|null;
+  rejected_fields: string[];
+  reason: string|null;
+}
 ```
 
 ### SSE events (envelope `{type, ts, data}`)
@@ -231,88 +308,136 @@ interface InGameSnapshot {
 | `live.status` | `LiveStatus` (coarse health) |
 | `pack.updated` | `{schema_version, pack_version}` |
 | `hello` | `{app_version, pack_version}` (sent on connect) |
+## Findings Pack schema v2 (bundled seed and active pack)
+The packaged `/pack/pack.schema.json` and `/pack/findings-pack.v2.json` files
+are copied by `backend/tools/build_pack.py`, which is a consumer-side
+validation bridge rather than a population producer. LoLTrends is the sole
+producer of population evidence. A release build must pass an explicitly
+supplied `--artifact` path containing the exported
+`findings-pack.v2.json`; `--bootstrap` only copies the checked-in diagnostic
+seed when an upstream artifact is unavailable. Bhayanak never reads LoLTrends
+Feature Store files and never computes, fills, renames, or translates
+population fields.
 
-## Findings Pack schema v1 (bundled seed and active pack)
-The packaged `/pack/pack.schema.json` and `/pack/findings-pack.v1.json` files
-are an immutable first-run seed. On startup, the sidecar validates and
-atomically copies that seed to the durable active directory
-`<data_dir>/findings-pack/active` when no active pack exists. Explicit release
-activation and all runtime reads use only that active directory; an existing
-active pack wins over a changed bundled seed. The pack response includes
-`pack_version` (defaulting to `v1` for the seed), and Health, `/pack`, and the
-`hello`/`pack.updated` events expose the active version.
+The bridge validates the supplied artifact against the canonical schema and
+strict `FindingsPackV2` semantics before copying it. An artifact that uses a
+different root/table shape (including the current LoLTrends research-side
+catalog/export shape) fails closed with the exact contract mismatch; it is not
+translated into the companion schema. The output schema is the unchanged
+consumer schema generated from `bhayanak_legends.pack_v2.FindingsPackV2`.
+The active directory is populated atomically from the bundled seed on first
+startup; an existing active pack wins over a changed bundled seed.
+
+### Cross-repo artifact blocker
+The currently inspected LoLTrends `findings_pack.py` exporter is not an
+acceptable input to this bridge yet. Its research-side payload has a
+`dataset.player_games` field instead of the companion
+`dataset.participant_performances`, adds a root `benchmarks` table, and emits
+additional fields such as `source_subsection` that the closed Bhayanak v2
+models reject. This is an exact contract mismatch, not a missing-value case;
+Bhayanak intentionally fails closed until LoLTrends publishes an artifact
+matching the companion schema. No adapter or field translation belongs in this
+repository.
+
+The v2 root has `schema_version: 2`, a patch range of `14.17` through `16.17`,
+and the following discriminated evidence collections:
+`findings`, `habits`, `objectives`, `comeback_odds`, `ban_context`,
+`tier_list`, `matchup_examples`, `checkpoints`, `route_archetypes`, and
+`build_evidence`. Every row has patch scope, population scope, era-stability,
+caveats, source document/section/reference, provenance key, tier, and an
+explicit release status. `available` rows contain finite values and positive
+samples; `withheld` and `superseded` rows contain no value and explain their
+release reason. Diagnostic rows never use recommendation language.
+
+### Findings Pack v2 feature contracts
+`feature_contracts.population`, `feature_contracts.personal_history`, and
+`feature_contracts.models` declare the exact definitions used by each table.
+Provenance rows must reference one of those declared versions; a consumer must
+not join rows solely because a field has a similar name.
+
+The v2 Personal History feature order is:
+`cs10`, `level10`, `gold_diff_10`, `team_gold_diff_15m`,
+`recalls_before_15m`, `avg_banked_gold_at_recall_by_15m`,
+`avg_banked_gold_at_recall_by_20m`, `unseen_recall_share_by_15m`,
+`unseen_recall_share_by_20m`, `first_dragon_by_20m_s`,
+`first_riftherald_by_20m_s`, `first_baron_by_20m_s`,
+`smite_contests_before_15m`, `smite_contests_before_20m`,
+`early_fight_participation_rate`, and `plates_taken_by_14m`.
+`team_gold_diff_15m` is the latest exact frame at or before 900 seconds after
+a later frame proves the match reached 900 seconds. It is the player's team
+gold minus the opposing team's gold, requires all ten participants and a
+non-surrendered match, and is never midpointed, clipped, extrapolated, or
+replaced by a personal gold field.
+
+`comeback_odds` is exactly three `team_gold_diff_15m` bands:
+`[2000,3000)`, `[3000,5000)`, and `[5000,∞)`. Exact 3000 belongs to the
+second band and exact 5000 to the third. Every available band has a finite
+rate and positive sample. When exact Feature Store evidence is unavailable,
+the rows remain explicitly withheld with null rates and zero samples.
+
+The bundled diagnostic seed copies the LoLTrends handoff: 125,031 eligible
+matches, 1,250,310 participant performances, 175 criteria-admitted tracked
+players, and 49 patch buckets across 14.17–16.17. Bhayanak does not derive
+those values. Its Surrender Advisor is withheld because the observed
+22.7 percentage-point gap exceeds the five-point tolerance. Baron comeback lift
+is omitted. Route archetypes are approximate diagnostics, not advice; build
+evidence is withheld and contains no raw sequence rows. A number is emitted
+only when the producer artifact or checked-in diagnostic seed supplies the
+corresponding evidence.
+
+### Model and artifact contract
+`models` is keyed by stable model name. A declaration is either available
+with an ONNX artifact and matching model card, or suppressed with a release
+reason and no executable fields. Model cards contain an explicit
+`feature_contract_version` (predictive personal cards must declare
+`loltrends-cutoff-v2`), exact ordered `float32` inputs, units, sources,
+adjustable flags, bounds, preprocessing, patch scope, validation gates,
+caveats, and a smoke-test vector. Runtime inference accepts only finite values
+matching the card exactly, rejects unknown or missing fields and out-of-domain
+values, and never loads pickle artifacts. Available artifact paths, hashes,
+sizes, and card files are verified before activation; model directories cannot
+contain undeclared artifacts. The personal what-if model key is
+`personal_what_if`, and the live win-probability model key is `live_wp`.
+
+`InGameSnapshot.inference.status` is one of `available`, `suppressed`,
+`stale`, `incompatible`, `unsupported-patch`, `out-of-domain`, or `error`.
+Probability, model version, pack version, and observed time are nullable and
+omitted unless the status supports them. `event_deltas` contain one correlated
+entry for each supported live event kind (`DragonKill`, `HeraldKill`,
+`BaronKill`, and `TurretKilled`) once observed. Each entry carries stable
+`event_id`/`source_order`, causal pre/post observation times, model/pack
+provenance, and a nullable `delta_probability`; `suppression_status` and
+`reason` distinguish an unavailable delta from an exact zero movement.
+Unsupported event kinds stay in `events` but do not create delta entries.
+No live probability is inferred from clock time alone.
+
+`POST /history/what-if` accepts only local JSON
+`{"adjustments": Record<string, number>}`. The backend accepts exactly the
+card-declared adjustable fields, requires a complete finite baseline, and
+rejects unknown, missing, non-finite, and out-of-domain values without
+clipping or extrapolation. Its response reports `available` with a
+probability only after successful local ONNX inference, or a truthful
+`suppressed`/`rejected`/`error` status with nullable probability and a reason.
 
 ### Table-level provenance
-
-Every numeric-bearing table in the pack has an entry in the root `provenance`
-map. The block is table-level (not repeated on numeric leaves) and is required
-by `pack/pack.schema.json`:
+Every numeric-bearing table has an entry in the root `provenance` map:
 
 ```ts
 interface TableProvenance {
   source_document: string;
   source_section: string;
+  source_ref: string;
   feature_store_manifest_sha256: string; // lowercase SHA-256 hex
   generator_revision: string;             // sha256:<64 lowercase hex>
-  feature_contract_version: "loltrends-parity-v1";
-}
-interface PackProvenance {
-  dataset: TableProvenance;
-  findings: TableProvenance;
-  habits: TableProvenance;
-  objectives: TableProvenance;
-  comeback_odds: TableProvenance;
-  ban_advisor: TableProvenance;
-  trap_picks: TableProvenance;
-  tier_list: TableProvenance;
-  matchup_examples: TableProvenance;
-  benchmarks: TableProvenance;
-  checkpoints: TableProvenance;
+  feature_contract_version: string;       // must be declared in feature_contracts
 }
 ```
-
-The root pack also declares the exact Personal History input used by the
-comeback table. It is a contract declaration, not an inferred match on a
-similarly named field:
-
-```ts
-interface ComebackFeatureContract {
-  feature: "gold_diff_15";
-  feature_contract_version: "loltrends-parity-v1";
-}
-```
-
-`checkpoints` is exactly two Findings Pack population cohorts: one
-`bottom_quartile_@20m` row and one `top_quartile_@20m` row, with rates `0.282`
-and `0.718` respectively. The `@20m` suffix names the source feature
-checkpoint; these categorical quartiles are not timeline points, numeric
-boundaries, or a time series. A live lookup additionally requires an exact
-live observation, source quartile cut points, and a compatible pack
-feature/model contract; `clock_s` alone is insufficient, so incomplete inputs
-must suppress the number.
-
-`comeback_odds` is an ordered set of distinct, finite, strictly negative
-integer anchors at the canonical `gold_diff_15` checkpoint. Rows are ordered
-from the mildest to the most severe deficit. The shipped anchors are `-2000`,
-`-5000`, and `-7000`, with rates `0.276`, `0.076`, and `0.03`. Its supported
-domain begins at the mildest anchor and ends at the most severe anchor.
-Internal bucket boundaries are arithmetic midpoints; an exact midpoint
-belongs to the more severe anchor. Values outside the domain, non-deficits,
-missing Personal History values, or a missing/mismatched
-`comeback_feature_contract` are suppression conditions for the post-game
-consumer (see #76), rather than triggers for fallback, interpolation, or
-extrapolation.
-
-`pack/findings-pack.v1.json` is generated only by
-`backend/tools/build_pack.py`; builds require an explicit `--feature-store`
-path. The generator hashes the declared Feature Store inputs and its own
-source, so a pack records the exact data snapshot and generator revision.
-Findings retain their per-finding `source_ref` in addition to the table-level
-provenance.
 
 Rules: every number traces to research docs (`source_ref`) or a table
-provenance block; Diagnostic content never phrased as advice (ADR-0003);
-missing tables → omit key, never invent (dashboard convention).
+provenance block; diagnostic content never becomes advice; missing or
+incompatible evidence is represented by omission or an explicit suppressed
+state. Personal History rows are owner-scoped by resolved PUUID and match
+identity; no ownerless fallback is permitted.
 
 ## Dev data
 

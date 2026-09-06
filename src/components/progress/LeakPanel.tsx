@@ -1,3 +1,5 @@
+import { SectionHead } from "../ui";
+
 export function LeakPanel() {
   return (
     <div
@@ -13,23 +15,17 @@ export function LeakPanel() {
         minHeight: 0,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-        <span className="pill" style={{ background: "var(--color-surface-3)", color: "var(--color-dim)" }}>
-          Idle
-        </span>
-        <span
-          style={{
-            font: "700 9.5px var(--font-mono)",
-            letterSpacing: ".14em",
-            color: "var(--color-dim)",
-          }}
-        >
-          DEATHS BY GAME MINUTE
-        </span>
-        <span className="mono-n" style={{ marginLeft: "auto", fontSize: 10, color: "var(--color-dimmer)" }}>
-          no data yet
-        </span>
-      </div>
+      <SectionHead
+        level={3}
+        label="DEATHS BY GAME MINUTE"
+        color="var(--color-dimmer)"
+        dot={false}
+        right={
+          <span className="pill" style={{ background: "var(--color-surface-3)", color: "var(--color-dim)" }}>
+            Idle
+          </span>
+        }
+      />
       <p
         style={{
           margin: "auto 0 0",
@@ -39,8 +35,8 @@ export function LeakPanel() {
         }}
         data-testid="deaths-idle-caption"
       >
-        Deaths-by-minute lands when the timeline features ship — sync games from the
-        History tab and the leak chart fills this panel.
+        Unavailable: timeline features are not in the Findings Pack — sync games from the History
+        tab to populate this panel.
       </p>
     </div>
   );

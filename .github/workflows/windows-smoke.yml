@@ -9,21 +9,13 @@ permissions:
 
 env:
   CI: true
-  # Both loopback ports must be known before compilation: the updater fixture
-  # is baked into plugin config and WebView2 remote debugging is baked into the
-  # smoke window's additionalBrowserArgs. Each Actions job has its own VM, so
-  # fixed ports are deterministic without cross-run collision.
-  SMOKE_FIXTURE_PORT: 41287
   SMOKE_DEBUG_PORT: 24987
 
 jobs:
   packaged-smoke:
     name: Install and smoke packaged Windows app
     runs-on: windows-latest
-    # Two full signed Tauri builds (higher + lower version) run in this job,
-    # against the single release recipe, so it takes noticeably longer than a
-    # single-build smoke.
-    timeout-minutes: 55
+    timeout-minutes: 45
     steps:
       - name: Check out exact triggering tree
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -56,339 +48,170 @@ jobs:
         shell: bash
         run: uv run --project backend --locked python tools/build_windows_sidecar.py
 
-      - name: Probe the frozen sidecar directly for environment delivery
-        shell: pwsh
-        run: |
-          # Isolate whether the frozen PyInstaller --onefile sidecar exe
-          # actually receives a custom parent environment variable at all,
-          # independent of the Tauri app entirely. Onefile bootloaders on
-          # some platforms respawn a child process to run the real
-          # interpreter, which could drop custom parent env even though the
-          # bootloader exe (our direct child here) receives it fine.
-          $sidecarExe = "src-tauri/binaries/bhayanak-legends-sidecar-x86_64-pc-windows-msvc.exe"
-          if (-not (Test-Path $sidecarExe)) { throw "frozen sidecar binary not found at $sidecarExe" }
-          $stdoutLog = Join-Path $env:RUNNER_TEMP "sidecar-probe-stdout.log"
-          $stderrLog = Join-Path $env:RUNNER_TEMP "sidecar-probe-stderr.log"
-          Remove-Item $stdoutLog, $stderrLog -ErrorAction SilentlyContinue
-
-          # Throwaway 32+ char literal generated inline; never a secret.
-          $probeToken = "sidecar-probe-token-" + ([guid]::NewGuid().ToString("N"))
-          $env:BHAYANAK_TOKEN = $probeToken
-          $probe = Start-Process -FilePath $sidecarExe -PassThru `
-            -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
-          Start-Sleep -Seconds 5
-          $probe.Refresh()
-
-          Write-Output "=== sidecar probe: process alive after 5s = $(-not $probe.HasExited) ==="
-          foreach ($log in @($stdoutLog, $stderrLog)) {
-            Write-Output "--- $log ---"
-            if (Test-Path $log) {
-              if ((Get-Item $log).Length -gt 0) {
-                Get-Content $log | ForEach-Object { Write-Output $_ }
-              } else {
-                Write-Output "(empty)"
-              }
-            } else {
-              Write-Output "(absent)"
-            }
-          }
-          if ($probe.HasExited) {
-            Write-Output "sidecar probe process exited with code $($probe.ExitCode)"
-          }
-
-          $ready = Select-String -Path $stdoutLog -Pattern '"type":\s*"ready"' -Quiet -ErrorAction SilentlyContinue
-          $tokenMissing = Select-String -Path $stderrLog -Pattern "BHAYANAK_TOKEN was not provided" -Quiet -ErrorAction SilentlyContinue
-          if ($ready) {
-            Write-Output "sidecar probe verdict: READY - the frozen exe received BHAYANAK_TOKEN directly; PyInstaller onefile is NOT dropping custom parent env"
-          } elseif ($tokenMissing) {
-            Write-Output "sidecar probe verdict: TOKEN NOT DELIVERED - the frozen exe reports the exact same missing-token error even when launched directly with the token set, isolated from the Tauri app"
-          } else {
-            Write-Output "sidecar probe verdict: INCONCLUSIVE - neither the ready line nor the known missing-token message was observed; inspect the logs above"
-          }
-
-          # Clean up: the bootloader may have spawned a child interpreter
-          # process, which Stop-Process on the parent would not reach.
-          Get-CimInstance Win32_Process -Filter "ParentProcessId = $($probe.Id)" -ErrorAction SilentlyContinue |
-            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-          if (-not $probe.HasExited) {
-            Stop-Process -Id $probe.Id -Force -ErrorAction SilentlyContinue
-          }
-          $env:BHAYANAK_TOKEN = $null
-
-      - name: Probe plain Rust Command::env delivery to the frozen sidecar
-        shell: pwsh
-        run: |
-          # Isolates one further layer: does std::process::Command::env() +
-          # Stdio::piped() deliver a custom env var to this exact frozen exe
-          # at all, with zero Tauri and zero PowerShell $env: involvement?
-          # Mirrors src-tauri/src/sidecar.rs's packaged spawn branch
-          # (Command::new(<exe>).env("BHAYANAK_TOKEN", token).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()).
-          $probeSource = Join-Path $env:RUNNER_TEMP "env_probe.rs"
-          $probeExe = Join-Path $env:RUNNER_TEMP "env_probe.exe"
-          $probeLines = @(
-            '#![windows_subsystem = "windows"]',
-            'use std::io::{BufRead, BufReader, Write};',
-            'use std::process::{Command, Stdio};',
-            'use std::sync::mpsc;',
-            'use std::thread;',
-            'use std::time::Duration;',
-            '',
-            'fn main() {',
-            '    let mut child = Command::new("src-tauri/binaries/bhayanak-legends-sidecar-x86_64-pc-windows-msvc.exe")',
-            '        .env("BHAYANAK_TOKEN", "env-probe-rustc-token-0123456789abcdef")',
-            '        .stdout(Stdio::piped())',
-            '        .stderr(Stdio::piped())',
-            '        .spawn()',
-            '        .expect("spawn failed");',
-            '    let stdout = child.stdout.take().expect("no stdout");',
-            '    let stderr = child.stderr.take().expect("no stderr");',
-            '    let (out_tx, out_rx) = mpsc::channel();',
-            '    thread::spawn(move || {',
-            '        let mut line = String::new();',
-            '        let _ = BufReader::new(stdout).read_line(&mut line);',
-            '        let _ = out_tx.send(line);',
-            '    });',
-            '    let (err_tx, err_rx) = mpsc::channel();',
-            '    thread::spawn(move || {',
-            '        let mut line = String::new();',
-            '        let _ = BufReader::new(stderr).read_line(&mut line);',
-            '        let _ = err_tx.send(line);',
-            '    });',
-            '    let out_line = out_rx.recv_timeout(Duration::from_secs(10)).unwrap_or_else(|_| "(no stdout within 10s)".to_string());',
-            '    let err_line = err_rx.recv_timeout(Duration::from_secs(10)).unwrap_or_else(|_| "(no stderr within 10s)".to_string());',
-            '    println!("PROBE_STDOUT_LINE: {:?}", out_line);',
-            '    println!("PROBE_STDERR_LINE: {:?}", err_line);',
-            '    let _ = std::io::stdout().flush();',
-            '    std::process::exit(0);',
-            '}'
-          )
-          Set-Content -Path $probeSource -Value $probeLines -Encoding utf8
-
-          rustc $probeSource -o $probeExe
-          if ($LASTEXITCODE -ne 0) { throw "rustc failed to compile the env-delivery probe" }
-
-          $probeStdout = Join-Path $env:RUNNER_TEMP "rust-env-probe-stdout.log"
-          $probeStderr = Join-Path $env:RUNNER_TEMP "rust-env-probe-stderr.log"
-          Remove-Item $probeStdout, $probeStderr -ErrorAction SilentlyContinue
-          $probeProcess = Start-Process -FilePath $probeExe -PassThru `
-            -RedirectStandardOutput $probeStdout -RedirectStandardError $probeStderr
-          if (-not $probeProcess.WaitForExit(30000)) {
-            Stop-Process -Id $probeProcess.Id -Force -ErrorAction SilentlyContinue
-            throw "env_probe.exe did not finish within 30 seconds"
-          }
-          $output = @()
-          if (Test-Path $probeStdout) { $output += @(Get-Content $probeStdout) }
-          if (Test-Path $probeStderr) { $output += @(Get-Content $probeStderr) }
-          $output | ForEach-Object { Write-Output $_ }
-          Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -like "bhayanak-legends-sidecar*" } |
-            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-
-          $outLine = ($output | Select-String 'PROBE_STDOUT_LINE:' | Select-Object -First 1).ToString()
-          $errLine = ($output | Select-String 'PROBE_STDERR_LINE:' | Select-Object -First 1).ToString()
-          if ($errLine -match "BHAYANAK_TOKEN was not provided") {
-            Write-Output "rustc probe verdict: TOKEN NOT DELIVERED via plain Command::env()+Stdio::piped() - reproduces with zero Tauri/PowerShell involvement"
-          } elseif ($outLine -match '"type":\s*"ready"') {
-            Write-Output "rustc probe verdict: READY - plain Command::env()+Stdio::piped() delivers the token fine in isolation; the bug is specific to the app's actual call site or its surrounding process context, not this pattern alone"
-          } else {
-            Write-Output "rustc probe verdict: INCONCLUSIVE - inspect PROBE_STDOUT_LINE/PROBE_STDERR_LINE above"
-          }
-
-      - name: Compute smoke update versions
-        shell: bash
-        run: |
-          python3 - <<'PY' >> "$GITHUB_ENV"
-          import json
-          from pathlib import Path
-          config = json.loads(Path("src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
-          major, minor, patch = (int(part) for part in config["version"].split("."))
-          print(f"SMOKE_BASE_VERSION={major}.{minor}.{patch}")
-          print(f"SMOKE_HIGHER_VERSION={major}.{minor}.{patch + 1}")
-          print(f"SMOKE_REJECTED_VERSION={major}.{minor}.{patch + 2}")
-          PY
-
-      - name: Generate ephemeral updater signing keypair
-        shell: pwsh
-        run: |
-          $keyPath = Join-Path $env:RUNNER_TEMP "bl-smoke-updater.key"
-          $password = [System.Guid]::NewGuid().ToString("N")
-          Write-Output "::add-mask::$password"
-          pnpm tauri signer generate -w $keyPath -p $password --ci
-          if ($LASTEXITCODE -ne 0) { throw "failed to generate the ephemeral updater signing keypair" }
-
-          $privateKey = Get-Content -Raw $keyPath
-          $pubkey = Get-Content -Raw "$keyPath.pub"
-          Write-Output "::add-mask::$privateKey"
-
-          "TAURI_SIGNING_PRIVATE_KEY=$privateKey" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$password" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "SMOKE_UPDATER_PUBKEY=$pubkey" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "SMOKE_KEY_PATH=$keyPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Point updater at the job-local fixture
-        shell: pwsh
-        run: |
-          python tools/patch_updater_endpoint.py src-tauri/tauri.conf.json `
-            --endpoint "http://127.0.0.1:$env:SMOKE_FIXTURE_PORT/latest.json" `
-            --pubkey "$env:SMOKE_UPDATER_PUBKEY" `
-            --browser-args="--remote-debugging-port=$env:SMOKE_DEBUG_PORT" `
-            --backup "$env:RUNNER_TEMP\tauri.conf.json.smoke-backup"
-
-      - name: Build the signed higher-version updater artifacts
-        shell: pwsh
-        run: |
-          python tools/patch_updater_endpoint.py src-tauri/tauri.conf.json --set-version "$env:SMOKE_HIGHER_VERSION"
-          pnpm tauri build --bundles nsis
-
-      - name: Stash the signed higher-version updater artifact
-        shell: pwsh
-        run: |
-          $stash = Join-Path $env:RUNNER_TEMP "bl-smoke-update"
-          New-Item -ItemType Directory -Force -Path $stash | Out-Null
-          $bundleDir = "src-tauri/target/release/bundle/nsis"
-
-          # This tauri CLI emits the signed NSIS setup .exe itself as the
-          # updater artifact, with the detached signature written next to it
-          # as <archive>.sig. There is no intermediate .nsis.zip to extract.
-          $archive = Get-ChildItem "$bundleDir/*_$($env:SMOKE_HIGHER_VERSION)_*-setup.exe" | Select-Object -First 1
-          if (-not $archive) { throw "signed higher-version updater archive was not produced" }
-          $signature = Get-Item "$($archive.FullName).sig"
-
-          Copy-Item $archive.FullName (Join-Path $stash "update.exe")
-          Copy-Item $signature.FullName (Join-Path $stash "update.exe.sig")
-
-          "SMOKE_UPDATE_ARCHIVE=$(Join-Path $stash 'update.exe')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "SMOKE_UPDATE_SIGNATURE=$(Join-Path $stash 'update.exe.sig')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Build the lower-version installer
-        shell: pwsh
-        run: |
-          python tools/patch_updater_endpoint.py src-tauri/tauri.conf.json --set-version "$env:SMOKE_BASE_VERSION"
-          pnpm tauri build --bundles nsis
-
-      - name: Produce a real signature over different bytes
-        shell: pwsh
-        run: |
-          # The rejected-phase offer serves the real higher-version updater
-          # bytes with this signature, so any failure is attributable to
-          # verification alone. Signing the base-version setup .exe (different
-          # bytes) with the same ephemeral key yields a well-formed signature
-          # that can never verify against those bytes.
-          $baseInstaller = Get-ChildItem "src-tauri/target/release/bundle/nsis/*_$($env:SMOKE_BASE_VERSION)_*-setup.exe" | Select-Object -First 1
-          if (-not $baseInstaller) { throw "lower-version NSIS installer was not produced" }
-          # The exported TAURI_SIGNING_PRIVATE_KEY binds to the CLI's
-          # --private-key option and conflicts with the explicit -f
-          # (--private-key-path); drop it so only -f supplies the key.
-          $env:TAURI_SIGNING_PRIVATE_KEY = $null
-          pnpm tauri signer sign -f "$env:SMOKE_KEY_PATH" -p "$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD" $baseInstaller.FullName
-          if ($LASTEXITCODE -ne 0) { throw "failed to produce the deliberately mismatched signature" }
-          $rejected = Join-Path $env:RUNNER_TEMP "bl-smoke-update\rejected.sig"
-          Copy-Item "$($baseInstaller.FullName).sig" $rejected
-          Remove-Item "$($baseInstaller.FullName).sig"
-          "SMOKE_REJECTED_SIGNATURE=$rejected" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Start the loopback updater fixture
+      - name: Generate ephemeral updater signing key
         shell: pwsh
         run: |
           $diagnostics = Join-Path $env:RUNNER_TEMP "bl-smoke"
-          New-Item -ItemType Directory -Force -Path $diagnostics | Out-Null
-          $stateFile = Join-Path $diagnostics "updater-fixture.json"
-          $stdoutLog = Join-Path $diagnostics "updater-fixture.log"
-          $stderrLog = Join-Path $diagnostics "updater-fixture.err.log"
-          $flipFile = Join-Path $env:RUNNER_TEMP "bl-smoke-invalid-phase"
+          $artifacts = Join-Path $env:RUNNER_TEMP "bl-smoke-artifacts"
+          New-Item -ItemType Directory -Force -Path $diagnostics, $artifacts | Out-Null
+          $keyPath = Join-Path $artifacts "smoke-updater.key"
+          $passwordBytes = New-Object byte[] 32
+          [System.Security.Cryptography.RandomNumberGenerator]::Fill($passwordBytes)
+          $password = [Convert]::ToBase64String($passwordBytes)
+          "::add-mask::$password"
+          $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Parse("127.0.0.1"), 0)
+          $listener.Start()
+          $fixturePort = $listener.LocalEndpoint.Port
+          $listener.Stop()
+          pnpm tauri signer generate --ci --password $password -w $keyPath
+          $publicKeyPath = "$keyPath.pub"
+          if (-not (Test-Path $keyPath)) { throw "ephemeral updater private key was not generated" }
+          if (-not (Test-Path $publicKeyPath)) { throw "ephemeral updater public key was not generated" }
+          "SMOKE_DIAGNOSTICS=$diagnostics" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "SMOKE_ARTIFACTS=$artifacts" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "SMOKE_KEY_PATH=$keyPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "SMOKE_PUBLIC_KEY_PATH=$publicKeyPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "SMOKE_KEY_PASSWORD=$password" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "SMOKE_FIXTURE_PORT=$fixturePort" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "SMOKE_LOWER_VERSION=0.1.0" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "SMOKE_VALID_VERSION=0.1.1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "SMOKE_INVALID_VERSION=0.1.2" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-          # Cold runner filesystems can make Defender scan the freshly
-          # written helper scripts long enough to blow a short readiness
-          # wait, so allow up to 60s, watch the process itself (an early
-          # crash must fail immediately with its logs in the step output),
-          # and retry once if the first launch exits before readiness.
-          function Show-FixtureLogs {
-            foreach ($log in @($stdoutLog, $stderrLog)) {
-              if (Test-Path $log) {
-                Write-Output "--- $log ---"
-                Get-Content $log | ForEach-Object { Write-Output $_ }
-              } else {
-                Write-Output "--- $log (absent) ---"
+      - name: Copy canonical diagnostic Findings Pack smoke asset
+        shell: pwsh
+        run: |
+          $packDir = Join-Path $env:SMOKE_ARTIFACTS "pack-v2"
+          New-Item -ItemType Directory -Force -Path $packDir | Out-Null
+          uv run --project backend --locked python backend/tools/build_pack.py `
+            --bootstrap --out $packDir
+          "SMOKE_PACK_DIR=$packDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build genuinely signed higher-version updater artifact
+        shell: pwsh
+        run: |
+          $endpoint = "http://127.0.0.1:$env:SMOKE_FIXTURE_PORT/latest.json"
+          python tools/patch_updater_endpoint.py src-tauri/tauri.conf.json `
+            --endpoint $endpoint `
+            --browser-args "--remote-debugging-port=$env:SMOKE_DEBUG_PORT" `
+            --public-key-file "$env:SMOKE_PUBLIC_KEY_PATH" `
+            --version "$env:SMOKE_VALID_VERSION" `
+            --allow-insecure-transport `
+            --backup "$env:RUNNER_TEMP\tauri.conf.json.smoke-backup"
+          Remove-Item "src-tauri/target/release/bundle/nsis" -Recurse -Force -ErrorAction SilentlyContinue
+          $env:TAURI_SIGNING_PRIVATE_KEY = Get-Content $env:SMOKE_KEY_PATH -Raw
+          $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $env:SMOKE_KEY_PASSWORD
+          pnpm tauri build --bundles nsis
+          Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY -ErrorAction SilentlyContinue
+          Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD -ErrorAction SilentlyContinue
+          $bundle = "src-tauri/target/release/bundle/nsis"
+          $signed = @(
+            Get-ChildItem -Path $bundle -File |
+              Where-Object {
+                ($_.Name -like "*.nsis.zip" -or $_.Name -like "*.exe") -and
+                (Test-Path "$($_.FullName).sig")
               }
-            }
+          )
+          if ($signed.Count -ne 1) {
+            throw "expected exactly one signed updater archive, found $($signed.Count)"
           }
+          $validArtifact = Join-Path $env:SMOKE_ARTIFACTS "valid$($signed[0].Extension)"
+          if ($signed[0].Name -like "*.nsis.zip") {
+            $validArtifact = Join-Path $env:SMOKE_ARTIFACTS "valid.nsis.zip"
+          } else {
+            $validArtifact = Join-Path $env:SMOKE_ARTIFACTS "valid.exe"
+          }
+          $validSignature = "$validArtifact.sig"
+          Copy-Item $signed[0].FullName $validArtifact
+          Copy-Item "$($signed[0].FullName).sig" $validSignature
+          "SMOKE_VALID_ARTIFACT=$validArtifact" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "SMOKE_VALID_SIGNATURE=$validSignature" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-          $fixtureArguments = @(
+      - name: Start loopback updater fixture with valid and mismatched artifacts
+        shell: pwsh
+        run: |
+          $invalidArtifact = Join-Path $env:SMOKE_ARTIFACTS "invalid.nsis.zip"
+          $invalidSignature = "$invalidArtifact.sig"
+          $bytes = [IO.File]::ReadAllBytes($env:SMOKE_VALID_ARTIFACT)
+          if ($bytes.Length -lt 1) { throw "signed updater artifact is empty" }
+          $bytes[0] = $bytes[0] -bxor 0xFF
+          [IO.File]::WriteAllBytes($invalidArtifact, $bytes)
+          Copy-Item $env:SMOKE_VALID_SIGNATURE $invalidSignature
+          $stateFile = Join-Path $env:SMOKE_DIAGNOSTICS "updater-fixture.json"
+          $stdout = Join-Path $env:SMOKE_DIAGNOSTICS "updater-fixture.log"
+          $flipFile = Join-Path $env:RUNNER_TEMP "bl-smoke-invalid-phase"
+          $stderr = Join-Path $env:SMOKE_DIAGNOSTICS "updater-fixture.err.log"
+          $fixture = Start-Process -FilePath python -ArgumentList @(
             "tools/windows_updater_fixture.py",
             "--state-file", $stateFile,
-            "--port", "$env:SMOKE_FIXTURE_PORT",
-            "--update-version", "$env:SMOKE_HIGHER_VERSION",
-            "--rejected-version", "$env:SMOKE_REJECTED_VERSION",
-            "--artifact", "$env:SMOKE_UPDATE_ARCHIVE",
-            "--signature", "$env:SMOKE_UPDATE_SIGNATURE",
-            "--rejected-signature", "$env:SMOKE_REJECTED_SIGNATURE",
-            "--flip-file", $flipFile
-          )
-
-          $fixture = $null
-          $ready = $false
-          foreach ($launch in 1..2) {
-            if ($fixture -and -not $fixture.HasExited) {
-              Stop-Process -Id $fixture.Id -Force -ErrorAction SilentlyContinue
-            }
-            Remove-Item $stateFile, $stdoutLog, $stderrLog -ErrorAction SilentlyContinue
-
-            $fixture = Start-Process -FilePath python -ArgumentList $fixtureArguments `
-              -PassThru -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
-
-            $deadline = (Get-Date).AddSeconds(60)
-            while ((Get-Date) -lt $deadline) {
-              if (Test-Path $stateFile) { break }
-              $fixture.Refresh()
-              if ($fixture.HasExited) { break }
-              Start-Sleep -Milliseconds 250
-            }
-
-            if (Test-Path $stateFile) { $ready = $true; break }
-
-            $fixture.Refresh()
-            if ($fixture.HasExited) {
-              Write-Output "fixture attempt ${launch}: exited before readiness (exit code $($fixture.ExitCode))"
-            } else {
-              Write-Output "fixture attempt ${launch}: still running but state file absent after 60s; stopping it"
-              Stop-Process -Id $fixture.Id -Force -ErrorAction SilentlyContinue
-            }
-            Show-FixtureLogs
-          }
-          if (-not $ready) {
-            throw "updater fixture did not become ready within 60s (logs above)"
-          }
-
+            "--port", $env:SMOKE_FIXTURE_PORT,
+            "--current-version", $env:SMOKE_LOWER_VERSION,
+            "--valid-version", $env:SMOKE_VALID_VERSION,
+            "--valid-artifact", $env:SMOKE_VALID_ARTIFACT,
+            "--valid-signature", $env:SMOKE_VALID_SIGNATURE,
+            "--invalid-version", $env:SMOKE_INVALID_VERSION,
+            "--invalid-artifact", $invalidArtifact,
+            "--invalid-signature", $invalidSignature,
+            "--flip-file", $flipFile,
+            "--pack-dir", $env:SMOKE_PACK_DIR
+          ) -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
           "FIXTURE_PID=$($fixture.Id)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "SMOKE_DIAGNOSTICS=$diagnostics" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "SMOKE_FLIP_FILE=$flipFile" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-          $fixtureInfo = Get-Content $stateFile | ConvertFrom-Json
-          if ($fixtureInfo.port -ne [int]$env:SMOKE_FIXTURE_PORT) {
-            throw "updater fixture did not bind the port the packaged config was patched to"
+          "SMOKE_FIXTURE_STATE=$stateFile" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          for ($attempt = 0; $attempt -lt 60 -and -not (Test-Path $stateFile); $attempt++) {
+            Start-Sleep -Milliseconds 250
           }
-          "BHAYANAK_PACK_RELEASE_MANIFEST_URL=http://127.0.0.1:$($fixtureInfo.port)/findings-pack-manifest.json" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          if (-not (Test-Path $stateFile)) { throw "updater fixture did not start" }
+          $fixtureInfo = Get-Content $stateFile | ConvertFrom-Json
+          "FIXTURE_ENDPOINT=http://127.0.0.1:$($fixtureInfo.port)/latest.json" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "BHAYANAK_PACK_RELEASE_MANIFEST_URL=http://127.0.0.1:$($fixtureInfo.port)/findings-pack-manifest.json" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "BHAYANAK_PACK_RELEASE_MANIFEST_PUBLIC_KEY=$($fixtureInfo.manifest_public_key)" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Install the lower version and prove the signed update lifecycle
+      - name: Point updater at local fixture and build lower-version NSIS app
         shell: pwsh
         run: |
-          $installer = Get-ChildItem "src-tauri/target/release/bundle/nsis/*_$($env:SMOKE_BASE_VERSION)_*-setup.exe" | Select-Object -First 1
-          if (-not $installer) { throw "lower-version NSIS installer was not produced" }
-          New-Item -ItemType Directory -Force -Path $env:SMOKE_DIAGNOSTICS | Out-Null
+          python tools/patch_updater_endpoint.py src-tauri/tauri.conf.json `
+            --endpoint "$env:FIXTURE_ENDPOINT" `
+            --browser-args "--remote-debugging-port=$env:SMOKE_DEBUG_PORT" `
+            --public-key-file "$env:SMOKE_PUBLIC_KEY_PATH" `
+            --version "$env:SMOKE_LOWER_VERSION" `
+            --allow-insecure-transport `
+            --reuse-backup `
+            --backup "$env:RUNNER_TEMP\tauri.conf.json.smoke-backup"
+          Remove-Item "src-tauri/target/release/bundle/nsis" -Recurse -Force -ErrorAction SilentlyContinue
+          $env:TAURI_SIGNING_PRIVATE_KEY = Get-Content $env:SMOKE_KEY_PATH -Raw
+          $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $env:SMOKE_KEY_PASSWORD
+          pnpm tauri build --bundles nsis
+          Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY -ErrorAction SilentlyContinue
+          Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD -ErrorAction SilentlyContinue
+          $installer = Get-ChildItem "src-tauri/target/release/bundle/nsis/*setup.exe" |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $installer) { throw "lower-version Tauri NSIS installer was not produced" }
+          "SMOKE_INSTALLER=$($installer.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Launch and assert signed update, relaunch, and rejection
+        shell: pwsh
+        run: |
           pwsh -File tools/windows_packaged_smoke.ps1 `
-            -InstallerPath $installer.FullName `
+            -InstallerPath "$env:SMOKE_INSTALLER" `
             -InstallRoot "$env:RUNNER_TEMP\bl-packaged-install" `
-            -DebugPort $env:SMOKE_DEBUG_PORT `
+            -DebugPort "$env:SMOKE_DEBUG_PORT" `
             -StatePath "$env:SMOKE_DIAGNOSTICS\smoke-state.json" `
             -FlipFile "$env:SMOKE_FLIP_FILE" `
-            -HigherVersion "$env:SMOKE_HIGHER_VERSION" `
-            -RejectedVersion "$env:SMOKE_REJECTED_VERSION"
+            -HigherVersion "$env:SMOKE_VALID_VERSION" `
+            -RejectedVersion "$env:SMOKE_INVALID_VERSION"
 
-      - name: Verify the fixture proved the full signed-update lifecycle
+      - name: Verify updater stayed on the local fixture
+        if: ${{ always() }}
         shell: pwsh
         run: |
-          python tools/check_windows_smoke_fixture.py `
-            "$env:SMOKE_DIAGNOSTICS\updater-fixture.requests.jsonl"
+          if (Test-Path $env:SMOKE_FIXTURE_STATE) {
+            python tools/check_windows_smoke_fixture.py `
+              "$env:SMOKE_DIAGNOSTICS\updater-fixture.requests.jsonl" `
+              --state-file "$env:SMOKE_FIXTURE_STATE"
+          }
 
       - name: Restore release updater configuration
         if: ${{ always() }}
@@ -405,25 +228,12 @@ jobs:
             Stop-Process -Id ([int]$env:FIXTURE_PID) -Force -ErrorAction SilentlyContinue
           }
 
-      - name: Remove ephemeral signing key material
-        if: ${{ always() }}
-        shell: pwsh
-        run: |
-          if ($env:SMOKE_KEY_PATH) {
-            Remove-Item "$env:SMOKE_KEY_PATH" -ErrorAction SilentlyContinue
-            Remove-Item "$env:SMOKE_KEY_PATH.pub" -ErrorAction SilentlyContinue
-          }
-          if ($env:SMOKE_FLIP_FILE) {
-            Remove-Item "$env:SMOKE_FLIP_FILE" -ErrorAction SilentlyContinue
-          }
-
       - name: Redact smoke diagnostics
         if: ${{ failure() }}
         shell: pwsh
         run: |
-          $env:REDACT_EXTRA_SECRETS = $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD
           python tools/redact_diagnostics.py `
-            "$env:RUNNER_TEMP\bl-smoke" "$env:RUNNER_TEMP\bl-smoke-redacted"
+            "$env:SMOKE_DIAGNOSTICS" "$env:RUNNER_TEMP\bl-smoke-redacted"
 
       - name: Upload redacted smoke diagnostics
         if: ${{ failure() }}
@@ -432,3 +242,11 @@ jobs:
           name: windows-packaged-smoke-diagnostics
           path: ${{ runner.temp }}/bl-smoke-redacted
           if-no-files-found: warn
+
+      - name: Remove smoke key material
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          Remove-Item $env:SMOKE_KEY_PATH, $env:SMOKE_PUBLIC_KEY_PATH -Force -ErrorAction SilentlyContinue
+          Remove-Item Env:SMOKE_KEY_PASSWORD -ErrorAction SilentlyContinue
+          Remove-Item Env:BHAYANAK_PACK_RELEASE_MANIFEST_PUBLIC_KEY -ErrorAction SilentlyContinue

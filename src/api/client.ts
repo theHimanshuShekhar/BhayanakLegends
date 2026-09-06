@@ -1,10 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
-import { isChampSelectSnapshot } from "./liveValidation";
+import { isChampSelectSnapshot, isInGameSnapshot } from "./liveValidation";
 import type {
   BenchmarkResponse,
   ChampSelectSnapshot,
-  FindingsPack,
   Health,
+  HistoryInsights,
   HistorySummary,
   InGameSnapshot,
   LiveStatus,
@@ -14,9 +14,12 @@ import type {
   SettingsPatch,
   SyncStatus,
   TrajectoryPoint,
+  WhatIfResponse,
 } from "./types";
-
+import type { FindingsPackV2 } from "./pack-v2";
 const MAX_ERROR_DETAIL = 240;
+const MIN_BROWSER_TOKEN_LENGTH = 32;
+const DEFAULT_BROWSER_TOKEN = "local-sidecar-development-token-32chars";
 
 export interface SidecarConnection {
   base: string;
@@ -43,12 +46,25 @@ export class ApiError extends Error {
 
 let connectionPromise: Promise<SidecarConnection> | null = null;
 let connectionGeneration = 0;
+
+function browserToken(): string {
+  const configured = import.meta.env.VITE_BL_TOKEN;
+  const token =
+    typeof configured === "string" && configured.trim().length > 0
+      ? configured.trim()
+      : DEFAULT_BROWSER_TOKEN;
+  if (token.length < MIN_BROWSER_TOKEN_LENGTH || token.toLowerCase() === "dev") {
+    throw new Error(
+      "VITE_BL_TOKEN must be explicitly configured with a non-default token of at least 32 characters.",
+    );
+  }
+  return token;
+}
+
 function browserConnection(): SidecarConnection {
   return {
     base: `http://127.0.0.1:${import.meta.env.VITE_BL_PORT ?? 23110}`,
-    token:
-      import.meta.env.VITE_BL_TOKEN ??
-      "local-sidecar-development-token-32chars",
+    token: browserToken(),
     status: "ok",
   };
 }
@@ -137,10 +153,15 @@ async function liveSession(): Promise<ChampSelectSnapshot> {
   if (!isChampSelectSnapshot(value)) throw new Error("Invalid /live/session response");
   return value;
 }
+async function liveIngame(): Promise<InGameSnapshot> {
+  const value = await request<unknown>("/live/ingame");
+  if (!isInGameSnapshot(value)) throw new Error("Invalid /live/ingame response");
+  return value;
+}
 
 export const api = {
   health: () => request<Health>("/health"),
-  pack: () => request<FindingsPack>("/pack"),
+  pack: () => request<FindingsPackV2>("/pack"),
   settings: () => request<Settings>("/settings"),
   updateSettings: (patch: SettingsPatch) =>
     request<Settings>("/settings", {
@@ -151,6 +172,12 @@ export const api = {
   cancelSync: () => request<SyncStatus>("/sync/cancel", { method: "POST" }),
   syncStatus: () => request<SyncStatus>("/sync/status"),
   historySummary: () => request<HistorySummary>("/history/summary"),
+  historyInsights: (params: Record<string, string> = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request<HistoryInsights>(
+      `/history/insights${qs ? `?${qs}` : ""}`,
+    );
+  },
   trajectories: (params: Record<string, string> = {}) => {
     const qs = new URLSearchParams(params).toString();
     return request<TrajectoryPoint[]>(
@@ -165,10 +192,15 @@ export const api = {
   },
   postgameLatest: () =>
     request<PostGameDigest | null>("/postgame/latest"),
+  whatIf: (adjustments: Record<string, number>) =>
+    request<WhatIfResponse>("/history/what-if", {
+      method: "POST",
+      body: JSON.stringify({ adjustments }),
+    }),
   benchmarks: () => request<BenchmarkResponse>("/benchmarks"),
   liveStatus: () => request<LiveStatus>("/live/status"),
   liveSession,
-  liveIngame: () => request<InGameSnapshot>("/live/ingame"),
+  liveIngame,
 };
 
 export async function eventsUrl(): Promise<string> {

@@ -13,82 +13,174 @@ and a JSON-array `BHAYANAK_IMPORT_ROOTS` rooted at `data/dev-import`;
 
 `.github/workflows/windows-smoke.yml` is a reusable, non-publishing gate. It
 checks out `${{ github.sha }}` on `windows-latest`, builds the one-file
-PyInstaller sidecar using the same command as `release.yml`, builds two real
-signed NSIS installers (a higher version and the checked-out base version)
-with the same `pnpm tauri build --bundles nsis` recipe `release.yml` uses,
-installs the lower one under `${{ runner.temp }}`, and launches the installed
-executable. It never runs Tauri dev mode and it never receives Riot or
-production release credentials; the only signing key involved is generated
-fresh for the job.
+PyInstaller sidecar with exactly
+`uv run --project backend --locked python tools/build_windows_sidecar.py`, then
+builds and installs a lower-version NSIS application under `${{ runner.temp }}`.
+It never runs Tauri dev mode and it does not receive Riot, production updater,
+or release credentials.
 
-The job first runs `pnpm tauri signer generate` into `RUNNER_TEMP` to create
-a job-local updater keypair, then `tools/patch_updater_endpoint.py` patches
-the checked-out config's updater endpoint to the loopback fixture, its
-`pubkey` to the paired ephemeral public key, and sets
-`dangerousInsecureTransportProtocol` (required for a packaged build to accept
-an `http://127.0.0.1` endpoint at all). The same tool's `--set-version` bumps
-the config to a higher version for the first signed build and reverts it
-before the lower-version build. `tools/patch_updater_endpoint.py --restore`
-in an `always()` cleanup step restores the original file byte-for-byte,
-removing the endpoint, pubkey, and insecure-transport patches together.
-
-`tools/windows_updater_fixture.py`, bound only to `127.0.0.1`, is started
-once the real higher-version archive and its emitted `.sig` exist. Its first
-`/latest.json` response offers that real archive with its real signature; once
-the archive has been downloaded once, later checks read as up to date at that
-same version. When the harness creates an on-disk flip file, checks instead
-offer an even higher version whose signature was produced by signing
-different bytes with the same ephemeral key — a real artifact, deliberately
-non-matching, so any rejection is attributable to signature verification
-alone. Every request is recorded path-only.
+The smoke creates a job-local updater keypair and keeps the private key and
+password in the runner's temporary workspace/environment only. It builds a
+genuinely signed higher-version NSIS updater archive with
+`createUpdaterArtifacts: true`, retains the emitted detached signature, and
+serves those exact files from `tools/windows_updater_fixture.py`. The fixture
+copies the checked-in diagnostic Findings Pack v2 seed through the
+consumer-side bridge (`--bootstrap`); it does not build population metrics.
+Production pack assets must instead be supplied explicitly with
+`backend/tools/build_pack.py --artifact <LoLTrends-exported-artifact>`.
+The bridge validates the artifact against the canonical companion schema and
+fails closed on a cross-repo shape mismatch; it never translates an upstream
+catalog or Feature Store export. The fixture creates an ephemeral Ed25519
+keypair, signs the exact raw pack manifest, and serves the manifest, detached
+signature, and pack asset. It records path-only requests, advertises the valid
+higher version first, then advertises a second higher version whose artifact
+bytes were changed without changing the detached signature.
+`tools/patch_updater_endpoint.py` temporarily replaces the endpoint, paired
+public key, app version, and smoke-only
+`dangerousInsecureTransportProtocol` setting; the workflow restores the
+production endpoint, public key, version, and transport flag in an
+unconditional cleanup step.
 
 `tools/windows_packaged_smoke.mjs` connects to the packaged WebView2 through
-the runner-local CDP port and asserts the `sidecar_info` command reports an
-ephemeral port, `ok`/`degraded` health, and an authenticated token, and that
-the initial `/` route renders. In the `update-available` phase it clicks the
-existing "Install update" action and rides the download into either the
-existing "Restart app" action or the Windows updater plugin's process exit
-(the plugin does not pass NSIS's `/R` relaunch flag, so it spawns the
-installer and exits the app itself before the JS promise resolves). The
-PowerShell harness then waits for that detached installer to finish and
-relaunches the app; the `updated` phase asserts the higher version, a
-reconnected authenticated sidecar, and a durable Findings Pack. The `invalid`
-phase asserts the mismatched-signature offer is rejected with a
-signature-verification message and that the sidecar stays healthy; the
-harness then asserts the installed executable's version and hash are
-byte-for-byte unchanged. The harness tracks pre-existing sidecar PIDs, closes
-the app through its window on every graceful phase, and fails if a new
-sidecar survives its owner; phase results are written to structured
-`smoke-state.json` rather than silently leaving a process behind.
+the runner-local CDP port and asserts an authenticated ephemeral sidecar,
+using the token returned by the `sidecar_info` handshake rather than a
+hard-coded development token. It then asserts the active Findings Pack v2
+release and the existing user-facing `Install update` action. The valid phase
+proves signed download/verification and waits for `ready-to-restart`. The
+PowerShell harness closes and relaunches the installed executable, proves its
+file version changed to the higher version, then runs the mismatched-signature
+phase. That phase requires explicit signature rejection, unchanged installed
+files/version, and a healthy sidecar after the rejection. Startup failures are
+written to structured `smoke-state.json` without leaving owned sidecars behind.
 
-Immediately after the silent install the harness also performs a clean
-baseline launch with no `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` set,
-records whether the packaged app survives a 12-second probe into
-`smoke-state.json`, then stops it — separating "the packaged app is
-broken" from "the CDP debug-argument launch breaks it". Every fatal path
-additionally prints the app's exit code, the last 40 lines of its
-captured stdout/stderr, and any matching Application event-log entries
-(faulting module, exception code) from the previous 15 minutes.
-
-On failure, diagnostics are copied through `tools/redact_diagnostics.py` and
-uploaded as an artifact. The fixture records paths only; the ephemeral
-private key, its password, and the production-config backup live outside the
-uploaded diagnostics directory, and the redactor is a second layer that
-strips any `tauri signer`-issued key/signature material, PEM blocks,
-password/token assignments, and Riot keys wherever they appear in text.
-`release.yml` has `publish.needs: [verify, packaged-smoke]`, so a tag cannot
-publish unless this packaged gate succeeds.
+`tools/check_windows_smoke_fixture.py` requires valid metadata and artifact
+requests, mismatched metadata and rejected-artifact requests, Findings Pack
+requests, path-only diagnostics, and routes matching the fixture state. On
+failure, `tools/redact_diagnostics.py` removes private-key, password,
+production/public-key, Riot-key, bearer-token, and token-shaped values before
+upload; key-material files become a fixed marker. The key files and production
+configuration backup are outside the diagnostics tree and are removed during
+cleanup. `release.yml` has `publish.needs: [verify, packaged-smoke]`, so a tag
+cannot publish unless this packaged gate succeeds.
 
 The Windows runner is required to prove the remaining acceptance criteria:
 Linux cannot execute the NSIS installer, WebView2 CDP session, Tauri shell
 command, or Windows child-process cleanup. Local verification is limited to
 YAML parsing, immutable action-pin checks, Python/Node helper syntax, the
-reversible endpoint patch, and the fixture request-state checker. A
-successful CI run is the evidence for the packaged install, the signed
-relaunch into a genuinely higher version, mismatched-signature rejection, and
-owned-sidecar cleanup. Dispatch it directly with
-`gh workflow run windows-smoke.yml --ref <branch>` to verify a branch before
-it merges.
+reversible endpoint patch, and the fixture request-state checker. A successful
+authorized Windows run is still required as operational evidence for signed
+install/relaunch, dynamic WebView rendering, mismatched-signature rejection,
+and owned-sidecar cleanup; this repository does not dispatch that run
+automatically.
+
+## Windows release shell map
+
+The `publish` job runs on `windows-latest`. Its Bash-targeted `run` steps
+(`Build Python sidecar binary`, `Sign Findings Pack manifest`, `Verify updater
+signing prerequisites`, `Check Windows updater artifacts`, and `Verify emitted
+updater artifacts`) each declare `shell: bash`, so heredocs, continuations,
+assignments, and `${GITHUB_REF_NAME#v}` are interpreted by Git for Windows
+Bash rather than PowerShell. The other `run` steps in that job (`pnpm install`
+and `pnpm tauri build --bundles nsis`) intentionally use the Windows runner's
+default `pwsh`; `tauri-action` is an action and has no step shell. The
+prerequisite and artifact-check commands use the provisioned
+`uv run --project backend --locked python` environment, write temporary files
+beneath `$RUNNER_TEMP`, and derive one `VERSION` value from the `v*` tag.
+
+To exercise the corrected prerequisite and artifact-check commands without
+publishing, use a native Git Bash session on Windows from a checkout. This
+fixture uses no GitHub token, release action, or real signing key:
+
+```bash
+set -euo pipefail
+fixture_root="$(mktemp -d)"
+trap 'rm -rf "$fixture_root"' EXIT
+bundle_dir="$fixture_root/bundle/nsis"
+archive="$bundle_dir/Bhayanak Legends_0.1.0_x64-setup.exe"
+signature="$archive.sig"
+mkdir -p "$bundle_dir" "$fixture_root/temp"
+printf 'fixture installer\n' > "$archive"
+printf 'fixture signature\n' > "$signature"
+export RUNNER_TEMP="$fixture_root/temp"
+export GITHUB_REF_NAME=v0.1.0
+export GITHUB_REPOSITORY=theHimanshuShekhar/BhayanakLegends
+export TAURI_SIGNING_PRIVATE_KEY=fixture-only-key
+
+verify_prerequisites() {
+  uv run --project backend --locked python - <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+config_path = Path("src-tauri/tauri.conf.json")
+try:
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+    sys.exit(f"tauri config cannot be read: {exc}")
+if not isinstance(config, dict):
+    sys.exit("tauri config must be a JSON object")
+bundle = config.get("bundle")
+if not isinstance(bundle, dict) or bundle.get("createUpdaterArtifacts") is not True:
+    sys.exit("createUpdaterArtifacts must be true before publishing")
+plugins = config.get("plugins")
+updater = plugins.get("updater") if isinstance(plugins, dict) else None
+if not isinstance(updater, dict) or not updater.get("pubkey"):
+    sys.exit("updater pubkey must be configured before publishing")
+if not os.environ.get("TAURI_SIGNING_PRIVATE_KEY"):
+    sys.exit("TAURI_SIGNING_PRIVATE_KEY secret is not provisioned; refusing to publish unsigned updates")
+PY
+}
+
+verify_prerequisites
+if (unset TAURI_SIGNING_PRIVATE_KEY; verify_prerequisites); then
+  echo "missing signing material unexpectedly passed" >&2
+  exit 1
+fi
+
+VERSION="${GITHUB_REF_NAME#v}"
+uv run --project backend --locked python tools/check_windows_updater_artifacts.py \
+  --bundle-dir "$bundle_dir" \
+  --latest-json "$RUNNER_TEMP/latest.json" \
+  --write-latest-json \
+  --base-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}" \
+  --version "$VERSION"
+uv run --project backend --locked python - "$RUNNER_TEMP/latest.json" "$VERSION" "$archive" <<'PY'
+import json
+import sys
+from pathlib import Path
+from urllib.parse import quote
+
+path, version, archive = sys.argv[1:]
+payload = json.loads(Path(path).read_text(encoding="utf-8"))
+assert payload["version"] == version
+assert payload["platforms"]["windows-x86_64"]["url"] == (
+    "https://github.com/theHimanshuShekhar/BhayanakLegends/releases/download/v"
+    + version
+    + "/"
+    + quote(Path(archive).name)
+)
+assert "${GITHUB_REF_NAME#v}" not in Path(path).read_text(encoding="utf-8")
+PY
+
+cp "$RUNNER_TEMP/latest.json" "$fixture_root/matching-latest.json"
+rm "$signature"
+if uv run --project backend --locked python tools/check_windows_updater_artifacts.py \
+  --bundle-dir "$bundle_dir" --latest-json "$fixture_root/matching-latest.json"; then
+  echo "missing detached signature unexpectedly passed" >&2
+  exit 1
+fi
+printf 'wrong signature\n' > "$signature"
+if uv run --project backend --locked python tools/check_windows_updater_artifacts.py \
+  --bundle-dir "$bundle_dir" --latest-json "$fixture_root/matching-latest.json"; then
+  echo "mismatched signature unexpectedly passed" >&2
+  exit 1
+fi
+```
+
+All commands above stop before Tauri build, `gh release`, and
+`tauri-action`; the expected nonzero checks prove the failure gates without
+creating or modifying a release.
 
 ## Release and tag policy
 
@@ -102,6 +194,46 @@ it merges.
   `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
 - All third-party actions are referenced by immutable commit SHA with a version
   comment. Local reusable workflow references are not third-party actions.
+
+## Owner-only history purge procedure
+
+The guarded history purge is a local, owner-authorized procedure. First run
+the dry-run inventory against a reviewed mirror and an external identity map:
+
+```sh
+python backend/tools/history_purge.py --dry-run \
+  --root <mirror> --map-path <external/map> \
+  --expected-inventory-count <reviewed> \
+  [--backup-dir <external/backup>]
+```
+
+The dry run reports paths, fields, and SHA-256 values only, and proves that
+refs, objects, and archive snapshots are unchanged. An apply run requires an
+external authorization locator:
+
+```sh
+python backend/tools/history_purge.py --apply \
+  --root <mirror> --map-path <external/map> \
+  --backup-dir <external/backup> --backup-reviewed \
+  --authorization-comment-id <owner-comment-id>
+```
+
+The referenced GitHub comment must be authored by `theHimanshuShekhar` with
+owner association and its body must exactly equal:
+
+`AUTHORIZED: rewrite all public BhayanakLegends branches and tags to purge Riot identities and force-push replacements.`
+
+The tool rewrites only the local mirror; it performs at most the documented
+bounded authorization-comment read and never contacts origin, force-pushes,
+notifies collaborators, publishes releases, or removes caches. Never run apply
+or force-push in CI.
+
+After human review, the owner updates origin branch/tag refs, regenerates source
+archives/releases, requests GitHub Support cache removal, and notifies
+collaborators and fork owners without claiming independent-fork erasure. Make a
+fresh clone, run `python tools/check_pii.py --history`, verify original commit
+IDs are unreachable and the fixture's non-identity projection is equal, record
+evidence, then securely delete the external map.
 
 ## Dependency advisory policy
 

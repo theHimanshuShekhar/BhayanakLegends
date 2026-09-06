@@ -37,20 +37,20 @@ def test_fresh_install_seeds_durable_active_pack_without_mutating_bundle(
     tmp_path: Path, monkeypatch
 ) -> None:
     seed = _copy_seed(tmp_path)
-    original_pack = (seed / "findings-pack.v1.json").read_bytes()
+    original_pack = (seed / "findings-pack.v2.json").read_bytes()
     monkeypatch.setattr(config_module.sys, "_MEIPASS", str(seed.parent), raising=False)
     config = _config(tmp_path)
 
     app = create_app(config, credential_store=InMemoryCredentialStore())
     active = config.resolved_active_pack_dir()
 
-    assert (active / "findings-pack.v1.json").read_bytes() == original_pack
+    assert (active / "findings-pack.v2.json").read_bytes() == original_pack
     assert (active / "pack.schema.json").read_bytes() == (seed / "pack.schema.json").read_bytes()
-    assert (seed / "findings-pack.v1.json").read_bytes() == original_pack
+    assert (seed / "findings-pack.v2.json").read_bytes() == original_pack
     with TestClient(app) as client:
         response = client.get("/health", headers=AUTH)
     assert response.status_code == 200
-    assert response.json()["pack_version"] == "v1"
+    assert response.json()["pack_version"] == "v2"
 
 
 def test_existing_active_pack_wins_over_changed_bundled_seed(tmp_path: Path, monkeypatch) -> None:
@@ -60,15 +60,15 @@ def test_existing_active_pack_wins_over_changed_bundled_seed(tmp_path: Path, mon
 
     create_app(config, credential_store=InMemoryCredentialStore())
     active = config.resolved_active_pack_dir()
-    original_active = (active / "findings-pack.v1.json").read_bytes()
-    changed = json.loads((seed / "findings-pack.v1.json").read_text())
+    original_active = (active / "findings-pack.v2.json").read_bytes()
+    changed = json.loads((seed / "findings-pack.v2.json").read_text())
     changed["pack_version"] = "v9"
-    (seed / "findings-pack.v1.json").write_text(json.dumps(changed))
+    (seed / "findings-pack.v2.json").write_text(json.dumps(changed))
 
     restarted = create_app(config, credential_store=InMemoryCredentialStore())
 
-    assert (active / "findings-pack.v1.json").read_bytes() == original_active
-    assert restarted.state.pack.version() == "v1"
+    assert (active / "findings-pack.v2.json").read_bytes() == original_active
+    assert restarted.state.pack.version() == "v2"
 
 
 def test_active_pack_survives_restart_without_bundle(tmp_path: Path, monkeypatch) -> None:
@@ -82,13 +82,13 @@ def test_active_pack_survives_restart_without_bundle(tmp_path: Path, monkeypatch
 
     restarted = create_app(config, credential_store=InMemoryCredentialStore())
 
-    assert restarted.state.pack.version() == "v1"
+    assert restarted.state.pack.version() == "v2"
     assert config.resolved_active_pack_dir().is_dir()
 
 
 def test_invalid_seed_does_not_commit_partial_active_directory(tmp_path: Path, monkeypatch) -> None:
     seed = _copy_seed(tmp_path)
-    (seed / "findings-pack.v1.json").write_text("not json")
+    (seed / "findings-pack.v2.json").write_text("not json")
     monkeypatch.setattr(config_module.sys, "_MEIPASS", str(seed.parent), raising=False)
     config = _config(tmp_path)
 
@@ -102,7 +102,7 @@ def test_invalid_seed_does_not_commit_partial_active_directory(tmp_path: Path, m
 
 def test_model_invalid_seed_does_not_commit_active_directory(tmp_path: Path, monkeypatch) -> None:
     seed = _copy_seed(tmp_path)
-    pack_path = seed / "findings-pack.v1.json"
+    pack_path = seed / "findings-pack.v2.json"
     pack = json.loads(pack_path.read_text())
     pack["provenance"]["dataset"]["feature_contract_version"] = "wrong-contract"
     pack_path.write_text(json.dumps(pack))

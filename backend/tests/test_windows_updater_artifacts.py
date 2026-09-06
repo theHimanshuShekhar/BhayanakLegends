@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 from urllib.parse import quote
@@ -59,6 +60,70 @@ def test_matching_windows_artifacts_pass(tmp_path: Path):
 
     assert inventory.archive == archive
     assert inventory.signature == archive.with_name(archive.name + ".sig")
+
+def test_checker_command_emits_versioned_metadata_and_rejects_bad_inventory(
+    tmp_path: Path,
+):
+    bundle, _, archive, _ = make_fixture(tmp_path)
+    generated = tmp_path / "generated-latest.json"
+    command = [
+        sys.executable,
+        str(TOOL_PATH),
+        "--bundle-dir",
+        str(bundle),
+        "--latest-json",
+        str(generated),
+        "--write-latest-json",
+        "--base-url",
+        "https://github.example/releases/download/v1.2.3",
+        "--version",
+        "1.2.3",
+    ]
+
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+
+    assert result.returncode == 0
+    payload = json.loads(generated.read_text(encoding="utf-8"))
+    platform = payload["platforms"]["windows-x86_64"]
+    assert payload["version"] == "1.2.3"
+    assert platform["url"] == (
+        "https://github.example/releases/download/v1.2.3/" + quote(archive.name)
+    )
+    assert platform["signature"] == "detached-signature-content"
+
+    archive.with_name(archive.name + ".sig").write_text("wrong", encoding="utf-8")
+    mismatch = subprocess.run(
+        [
+            sys.executable,
+            str(TOOL_PATH),
+            "--bundle-dir",
+            str(bundle),
+            "--latest-json",
+            str(generated),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert mismatch.returncode != 0
+    assert "signature" in mismatch.stderr
+
+    archive.unlink()
+    missing = subprocess.run(
+        [
+            sys.executable,
+            str(TOOL_PATH),
+            "--bundle-dir",
+            str(bundle),
+            "--latest-json",
+            str(generated),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert missing.returncode != 0
+    assert "archive" in missing.stderr
 
 
 @pytest.mark.parametrize(

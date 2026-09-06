@@ -1,251 +1,279 @@
-"""Serve a deterministic, loopback-only updater fixture for the Windows smoke.
+"""Serve real signed updater and Findings Pack assets to Windows smoke.
 
-Phase sequence, driven entirely by request order plus an on-disk flip file:
-
-1. The first ``/latest.json`` check offers a real higher-version updater whose
-   metadata carries the detached signature emitted next to the real archive;
-   ``/updater/update.bin`` then serves those exact archive bytes.
-2. Once the valid archive has been served once, further checks advertise the
-   installed (updated) version so the relaunched app observes "up to date".
-3. When the harness creates the flip file, checks offer a higher rejected
-   version whose signature deliberately does not match the served bytes;
-   ``/updater/rejected.bin`` returns the same real archive bytes so the only
-   possible failure is signature verification.
-
-The fixture also serves a valid Findings Pack release used to prove durable
-activation. Every request is recorded as a path-only diagnostic line and no
-request can leave 127.0.0.1: the socket binds the loopback interface only.
-Artifact paths, signature paths, and versions are passed explicitly so a fake
-artifact can never be mistaken for a valid update.
-
-``tauri signer`` writes private keys, public keys, and detached signatures as
-a single line of base64 text (the base64 encoding of the classic minisign
-armored comment+key block). That text is already the exact value the updater
-plugin expects in ``latest.json``'s ``signature`` field and in
-``tauri.conf.json``'s ``pubkey`` field, so this fixture copies signature file
-contents verbatim rather than re-encoding them.
+The fixture deliberately has two updater phases. The first ``latest.json``
+response advertises the supplied higher-version archive and its emitted
+detached signature. Every later response advertises a second higher version
+whose supplied artifact/signature pair is known to be mismatched. It also
+serves a canonical Findings Pack asset with an ephemeral detached Ed25519
+manifest signature. The server binds only to the literal loopback address and
+writes path-only request diagnostics.
 """
 
-from __future__ import annotations
-
 import argparse
+import base64
 import hashlib
 import io
 import json
 import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
-UPDATE_ARTIFACT_PATH = "/updater/update.bin"
-REJECTED_ARTIFACT_PATH = "/updater/rejected.bin"
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
 PACK_VERSION = "v2-smoke"
-PUB_DATE = "2026-01-01T00:00:00Z"
+VALID_ARTIFACT_PREFIX = "/artifacts/valid/"
+INVALID_ARTIFACT_PREFIX = "/artifacts/invalid/"
 
 
 def write_json(path: Path, value: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
 
 
-def read_bytes(path: Path, label: str) -> bytes:
+def pack_asset(pack_dir: Path) -> bytes:
+    pack_path = pack_dir / "findings-pack.v2.json"
+    if not pack_path.is_file():
+        raise SystemExit(f"canonical Findings Pack v2 JSON is missing in {pack_dir}")
     try:
-        data = path.read_bytes()
-    except OSError as exc:
-        raise SystemExit(f"{label} is unreadable: {path} ({exc})") from exc
-    if not data:
-        raise SystemExit(f"{label} is empty: {path}")
-    return data
-
-
-def read_text(path: Path, label: str) -> str:
-    try:
-        text = path.read_text(encoding="utf-8").strip()
-    except (OSError, UnicodeDecodeError) as exc:
-        raise SystemExit(f"{label} is unreadable: {path} ({exc})") from exc
-    if not text:
-        raise SystemExit(f"{label} is empty: {path}")
-    return text
-
-
-def pack_asset(pack_root: Path) -> bytes:
-    pack = json.loads((pack_root / "findings-pack.v1.json").read_text(encoding="utf-8"))
+        pack = json.loads(pack_path.read_text(encoding="utf-8"))
+        schema = (pack_dir / "pack.schema.json").read_bytes()
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"canonical Findings Pack v2 cannot be read from {pack_dir}") from exc
     pack["pack_version"] = PACK_VERSION
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w") as archive:
-        archive.writestr("findings-pack.v1.json", json.dumps(pack))
-        archive.writestr("pack.schema.json", (pack_root / "pack.schema.json").read_bytes())
+        archive.writestr("findings-pack.v2.json", json.dumps(pack))
+        archive.writestr("pack.schema.json", schema)
     return output.getvalue()
 
 
-class FixtureConfig:
-    """Validated fixture inputs shared with the request handler."""
-
-    def __init__(self, args: argparse.Namespace) -> None:
-        self.update_version = args.update_version
-        self.rejected_version = args.rejected_version
-        self.artifact = read_bytes(args.artifact, "updater artifact")
-        self.signature = read_text(args.signature, "detached signature")
-        self.rejected_signature = read_text(args.rejected_signature, "rejected signature")
-        if self.rejected_signature == self.signature:
-            raise SystemExit(
-                "rejected signature must differ from the valid signature; "
-                "sign different bytes with the ephemeral key"
-            )
-        if self.update_version == self.rejected_version:
-            raise SystemExit("rejected version must differ from the update version")
-        self.flip_file = args.flip_file
-        self.requests_file = args.state_file.with_suffix(".requests.jsonl")
-        self.pack_root = args.pack_root
+def _read_artifact(path: Path, label: str) -> bytes:
+    try:
+        value = path.read_bytes()
+    except OSError as exc:
+        raise SystemExit(f"{label} artifact cannot be read: {path}") from exc
+    if not value:
+        raise SystemExit(f"{label} artifact is empty: {path}")
+    return value
 
 
-class FixtureState:
-    """Request-order state machine shared across handler threads."""
+def _read_signature(path: Path, label: str) -> str:
+    try:
+        value = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise SystemExit(f"{label} updater signature cannot be read: {path}") from exc
+    if not value.strip():
+        raise SystemExit(f"{label} updater signature is empty: {path}")
+    return value
 
-    def __init__(self) -> None:
-        self.latest_requests = 0
-        self.valid_artifact_served = False
+
+def _artifact_route(prefix: str, name: str) -> str:
+    return f"{prefix}{quote(name, safe='')}"
 
 
-def make_handler(
-    config: FixtureConfig, state: FixtureState
-) -> type[BaseHTTPRequestHandler]:
-    pack_bytes = pack_asset(config.pack_root)
-    pack_sha256 = hashlib.sha256(pack_bytes).hexdigest()
-
-    class FixtureHandler(BaseHTTPRequestHandler):
-        def log_message(self, _format: str, *_args: object) -> None:
-            return
-
-        def _send(self, body: bytes, content_type: str) -> None:
-            self.send_response(200)
-            self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-        def _send_json(self, payload: object) -> None:
-            self._send(json.dumps(payload).encode("utf-8"), "application/json")
-
-        def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
-            parsed = urlparse(self.path)
-            # Path-only diagnostics: query strings are stripped before logging.
-            with config.requests_file.open("a", encoding="utf-8") as log:
-                log.write(json.dumps({"method": "GET", "path": parsed.path}) + "\n")
-
-            if parsed.path == "/findings-pack-manifest.json":
-                self._send_json(
-                    {
-                        "pack_version": PACK_VERSION,
-                        "schema_version": 1,
-                        "feature_contract_version": "loltrends-parity-v1",
-                        "download_url": f"http://127.0.0.1:{self.server.server_port}/findings-pack.zip",
-                        "sha256": pack_sha256,
-                        "size": len(pack_bytes),
-                        "required_model_artifacts": [],
-                    }
-                )
-                return
-
-            if parsed.path == "/findings-pack.zip":
-                self._send(pack_bytes, "application/zip")
-                return
-
-            if parsed.path == UPDATE_ARTIFACT_PATH:
-                state.valid_artifact_served = True
-                self._send(config.artifact, "application/octet-stream")
-                return
-
-            if parsed.path == REJECTED_ARTIFACT_PATH:
-                # Same real archive bytes; only the signature differs, so any
-                # rejection below is attributable to verification alone.
-                self._send(config.artifact, "application/octet-stream")
-                return
-
-            if parsed.path == "/latest.json":
-                self._send_json(self._latest_payload())
-                return
-
-            self.send_error(404)
-
-        def _latest_payload(self) -> object:
-            base = f"http://127.0.0.1:{self.server.server_port}"
-            state.latest_requests += 1
-            if config.flip_file.exists():
-                return {
-                    "version": config.rejected_version,
-                    "notes": "Windows smoke mismatched-signature fixture",
-                    "pub_date": PUB_DATE,
-                    "platforms": {
-                        "windows-x86_64": {
-                            "signature": config.rejected_signature,
-                            "url": f"{base}{REJECTED_ARTIFACT_PATH}",
-                        }
-                    },
-                }
-            if not state.valid_artifact_served:
-                return {
-                    "version": config.update_version,
-                    "notes": "Windows smoke valid signed update",
-                    "pub_date": PUB_DATE,
-                    "platforms": {
-                        "windows-x86_64": {
-                            "signature": config.signature,
-                            "url": f"{base}{UPDATE_ARTIFACT_PATH}",
-                        }
-                    },
-                }
-            return {
-                "version": config.update_version,
-                "notes": "Windows smoke up-to-date fixture",
-                "pub_date": PUB_DATE,
-                "platforms": {
-                    "windows-x86_64": {
-                        "signature": config.signature,
-                        "url": f"{base}{UPDATE_ARTIFACT_PATH}",
-                    }
-                },
+def _metadata(
+    *,
+    version: str,
+    signature: str,
+    route: str,
+    port: int,
+    notes: str,
+) -> dict[str, object]:
+    return {
+        "version": version,
+        "notes": notes,
+        "pub_date": "2026-01-01T00:00:00Z",
+        "platforms": {
+            "windows-x86_64": {
+                "signature": signature,
+                "url": f"http://127.0.0.1:{port}{route}",
             }
+        },
+    }
 
-    return FixtureHandler
 
-
-def build_server(config: FixtureConfig, port: int) -> tuple[ThreadingHTTPServer, FixtureState]:
-    state = FixtureState()
-    server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(config, state))
-    return server, state
+def _send_bytes(handler: BaseHTTPRequestHandler, body: bytes, content_type: str) -> None:
+    handler.send_response(200)
+    handler.send_header("Content-Type", content_type)
+    handler.send_header("Content-Length", str(len(body)))
+    handler.end_headers()
+    handler.wfile.write(body)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state-file", required=True, type=Path)
     parser.add_argument("--port", type=int, default=0)
-    parser.add_argument("--update-version", required=True)
-    parser.add_argument("--rejected-version", required=True)
-    parser.add_argument("--artifact", required=True, type=Path)
-    parser.add_argument("--signature", required=True, type=Path)
-    parser.add_argument("--rejected-signature", required=True, type=Path)
-    parser.add_argument(
-        "--flip-file",
-        required=True,
-        type=Path,
-        help="harness creates this file to switch latest.json to the rejected offer",
-    )
-    parser.add_argument(
-        "--pack-root",
-        type=Path,
-        default=Path(__file__).resolve().parents[1] / "pack",
-    )
+    parser.add_argument("--pack-dir", type=Path)
+    parser.add_argument("--current-version", required=True)
+    parser.add_argument("--valid-version", required=True)
+    parser.add_argument("--valid-artifact", required=True, type=Path)
+    parser.add_argument("--valid-signature", required=True, type=Path)
+    parser.add_argument("--invalid-version", required=True)
+    parser.add_argument("--invalid-artifact", required=True, type=Path)
+    parser.add_argument("--invalid-signature", required=True, type=Path)
+    parser.add_argument("--flip-file", type=Path)
     args = parser.parse_args()
 
-    args.state_file.parent.mkdir(parents=True, exist_ok=True)
-    config = FixtureConfig(args)
-    server, _state = build_server(config, args.port)
+    if args.current_version == args.valid_version:
+        raise SystemExit("current and valid updater versions must differ")
+    if args.valid_version == args.invalid_version:
+        raise SystemExit("valid and invalid updater versions must differ")
+
+    valid_artifact = _read_artifact(args.valid_artifact, "valid")
+    valid_signature = _read_signature(args.valid_signature, "valid")
+    invalid_artifact = _read_artifact(args.invalid_artifact, "invalid")
+    invalid_signature = _read_signature(args.invalid_signature, "invalid")
+    if valid_artifact == invalid_artifact and valid_signature == invalid_signature:
+        raise SystemExit("invalid updater inputs must not repeat the valid artifact/signature pair")
+    requests_file = args.state_file.with_suffix(".requests.jsonl")
+    pack_dir = args.pack_dir or Path(__file__).resolve().parents[1] / "pack"
+    pack_bytes = pack_asset(pack_dir)
+    pack_sha256 = hashlib.sha256(pack_bytes).hexdigest()
+    valid_route = _artifact_route(VALID_ARTIFACT_PREFIX, args.valid_artifact.name)
+    invalid_route = _artifact_route(INVALID_ARTIFACT_PREFIX, args.invalid_artifact.name)
+
+    class FixtureHandler(BaseHTTPRequestHandler):
+        latest_requests = 0
+        valid_artifact_served = False
+        def log_message(self, _format: str, *_args: object) -> None:
+            return
+
+        def _reject(self, message: str) -> None:
+            body = f"{message}\n".encode("utf-8")
+            self.send_response(400)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _validate_loopback_request(self) -> str | None:
+            host = self.headers.get("Host")
+            expected_host = f"127.0.0.1:{self.server.server_port}"
+            if host not in {"127.0.0.1", expected_host}:
+                self._reject("fixture accepts only literal 127.0.0.1")
+                return None
+
+            parsed = urlparse(self.path)
+            if parsed.scheme or parsed.netloc:
+                self._reject("fixture accepts origin-form request paths only")
+                return None
+            if parsed.query or parsed.fragment:
+                self._reject("fixture does not accept query-bearing updater requests")
+                return None
+            return parsed.path
+
+        def _record(self, path: str) -> None:
+            with requests_file.open("a", encoding="utf-8") as log:
+                log.write(json.dumps({"method": "GET", "path": path}) + "\n")
+
+        def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+            path = self._validate_loopback_request()
+            if path is None:
+                return
+            self._record(path)
+
+            if path == "/findings-pack-manifest.json":
+                _send_bytes(self, manifest_bytes, "application/json")
+                return
+
+            if path == "/findings-pack-manifest.json.sig":
+                _send_bytes(self, manifest_signature, "text/plain; charset=utf-8")
+                return
+
+            if path == "/findings-pack.zip":
+                _send_bytes(self, pack_bytes, "application/zip")
+                return
+
+            if path == "/latest.json":
+                FixtureHandler.latest_requests += 1
+                if (args.flip_file is None and FixtureHandler.valid_artifact_served) or (
+                    args.flip_file is not None and args.flip_file.exists()
+                ):
+                    payload = _metadata(
+                        version=args.invalid_version,
+                        signature=invalid_signature,
+                        route=invalid_route,
+                        port=self.server.server_port,
+                        notes="Windows smoke mismatched-signature updater fixture",
+                    )
+                else:
+                    payload = _metadata(
+                        version=args.valid_version,
+                        signature=valid_signature,
+                        route=valid_route,
+                        port=self.server.server_port,
+                        notes=(
+                            "Windows smoke valid signed updater fixture"
+                            if not FixtureHandler.valid_artifact_served
+                            else "Windows smoke up-to-date fixture"
+                        ),
+                    )
+                _send_bytes(
+                    self,
+                    json.dumps(payload).encode("utf-8"),
+                    "application/json",
+                )
+                return
+
+            if path == valid_route:
+                FixtureHandler.valid_artifact_served = True
+                _send_bytes(self, valid_artifact, "application/octet-stream")
+                return
+
+            if path == invalid_route:
+                _send_bytes(self, invalid_artifact, "application/octet-stream")
+                return
+
+            self.send_error(404)
+
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), FixtureHandler)
+    manifest_payload = {
+        "pack_version": PACK_VERSION,
+        "schema_version": 2,
+        "feature_contract_versions": {
+            "population": "loltrends-population-v2",
+            "personal_history": "loltrends-parity-v2",
+        },
+        "feature_contract_version": "loltrends-population-v2",
+        "download_url": f"http://127.0.0.1:{server.server_port}/findings-pack.zip",
+        "sha256": pack_sha256,
+        "size": len(pack_bytes),
+        "required_model_artifacts": [],
+    }
+    manifest_bytes = json.dumps(
+        manifest_payload, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    manifest_private_key = Ed25519PrivateKey.generate()
+    manifest_signature = base64.b64encode(
+        manifest_private_key.sign(manifest_bytes)
+    ) + b"\n"
+    manifest_public_key = base64.b64encode(
+        manifest_private_key.public_key().public_bytes_raw()
+    ).decode("ascii")
     write_json(
         args.state_file,
         {
             "host": "127.0.0.1",
             "port": server.server_port,
-            "requests_file": str(config.requests_file),
+            "requests_file": str(requests_file),
+            "manifest_public_key": manifest_public_key,
+            "manifest_signature_sha256": hashlib.sha256(manifest_signature).hexdigest(),
+            "valid": {
+                "version": args.valid_version,
+                "artifact_name": args.valid_artifact.name,
+                "artifact_route": valid_route,
+                "artifact_sha256": hashlib.sha256(valid_artifact).hexdigest(),
+                "signature_sha256": hashlib.sha256(valid_signature.encode("utf-8")).hexdigest(),
+            },
+            "invalid": {
+                "version": args.invalid_version,
+                "artifact_name": args.invalid_artifact.name,
+                "artifact_route": invalid_route,
+                "artifact_sha256": hashlib.sha256(invalid_artifact).hexdigest(),
+                "signature_sha256": hashlib.sha256(invalid_signature.encode("utf-8")).hexdigest(),
+            },
         },
     )
     print(f"fixture listening on 127.0.0.1:{server.server_port}", flush=True)

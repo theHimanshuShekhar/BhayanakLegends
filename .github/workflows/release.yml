@@ -77,19 +77,35 @@ jobs:
         env:
           FINDINGS_PACK_MANIFEST_SIGNING_KEY: ${{ secrets.FINDINGS_PACK_MANIFEST_SIGNING_KEY }}
         run: |
-          uv run --project backend python tools/sign_findings_pack_manifest.py \
+          uv run --project backend --locked python tools/sign_findings_pack_manifest.py \
             pack/findings-pack-manifest.json
 
       - name: Verify updater signing prerequisites
+        shell: bash
         run: |
-          python3 - <<'PY'
-          import json, os, sys
+          uv run --project backend --locked python - <<'PY'
+          import json
+          import os
+          import sys
           from pathlib import Path
-          config = json.loads(Path("src-tauri/tauri.conf.json").read_text())
-          if config.get("bundle", {}).get("createUpdaterArtifacts") is not True:
+
+          config_path = Path("src-tauri/tauri.conf.json")
+          try:
+              config = json.loads(config_path.read_text(encoding="utf-8"))
+          except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+              sys.exit(f"tauri config cannot be read: {exc}")
+          if not isinstance(config, dict):
+              sys.exit("tauri config must be a JSON object")
+
+          bundle = config.get("bundle")
+          if not isinstance(bundle, dict) or bundle.get("createUpdaterArtifacts") is not True:
               sys.exit("createUpdaterArtifacts must be true before publishing")
-          if not config.get("plugins", {}).get("updater", {}).get("pubkey"):
+
+          plugins = config.get("plugins")
+          updater = plugins.get("updater") if isinstance(plugins, dict) else None
+          if not isinstance(updater, dict) or not updater.get("pubkey"):
               sys.exit("updater pubkey must be configured before publishing")
+
           if not os.environ.get("TAURI_SIGNING_PRIVATE_KEY"):
               sys.exit("TAURI_SIGNING_PRIVATE_KEY secret is not provisioned; refusing to publish unsigned updates")
           PY
@@ -103,13 +119,16 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: Check Windows updater artifacts
+        shell: bash
         run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          LATEST_JSON="$RUNNER_TEMP/latest.json"
           uv run --project backend --locked python tools/check_windows_updater_artifacts.py \
             --bundle-dir src-tauri/target/release/bundle/nsis \
-            --latest-json "$RUNNER_TEMP/latest.json" \
+            --latest-json "$LATEST_JSON" \
             --write-latest-json \
-            --base-url "https://github.com/${{ github.repository }}/releases/download/v${GITHUB_REF_NAME#v}" \
-            --version "${GITHUB_REF_NAME#v}"
+            --base-url "https://github.com/${{ github.repository }}/releases/download/v${VERSION}" \
+            --version "$VERSION"
 
       - name: Build and publish signed release
         uses: tauri-apps/tauri-action@564aea5a8075c7a54c167bb0cf5b3255314a7f9d # v0.5.22
@@ -130,9 +149,12 @@ jobs:
         if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
-          TAG="v${GITHUB_REF_NAME#v}"
-          gh release view "$TAG" --json assets --jq '.assets[].name' > /tmp/assets.txt
-          grep -q 'latest.json' /tmp/assets.txt || { echo "latest.json missing from release assets"; exit 1; }
-          grep -q '\.sig$' /tmp/assets.txt || { echo "no .sig updater signature in release assets"; exit 1; }
+          VERSION="${GITHUB_REF_NAME#v}"
+          TAG="v${VERSION}"
+          ASSETS_FILE="$RUNNER_TEMP/assets.txt"
+          gh release view "$TAG" --json assets --jq '.assets[].name' > "$ASSETS_FILE"
+          grep -q 'latest.json' "$ASSETS_FILE" || { echo "latest.json missing from release assets"; exit 1; }
+          grep -q '\.sig$' "$ASSETS_FILE" || { echo "no .sig updater signature in release assets"; exit 1; }
           echo "updater artifacts verified"

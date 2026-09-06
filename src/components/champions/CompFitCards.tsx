@@ -1,11 +1,9 @@
-import type { PackFinding } from "../../api/types";
-import { KickerRow } from "./bits";
+import { EvidenceMeta, type FindingEvidence } from "../populationEvidence";
+import { formatGold, formatRate } from "../format";
+import { SectionHead } from "../ui";
 
-function pctLabel(v: number): string {
-  return v <= 1 ? `${Math.round(v * 100)}%` : `${v}%`;
-}
 
-export function CompCard({ findings }: { findings: PackFinding[] }) {
+export function CompCard({ findings }: { findings: FindingEvidence[] }) {
   const n = findings.length;
   return (
     <div
@@ -13,68 +11,59 @@ export function CompCard({ findings }: { findings: PackFinding[] }) {
       data-testid="comp-card"
       style={{ padding: 13, display: "flex", flexDirection: "column", gap: 9 }}
     >
-      <KickerRow label="WHEN THE ENEMY TEAM HAS…" />
+      <SectionHead label="WHEN THE ENEMY TEAM HAS…" />
       <div style={{ display: "grid", gridTemplateColumns: `repeat(${n},1fr)`, gap: 9 }}>
-        {findings.map((f, i) => {
-          const first = i === 0 && n > 1;
-          const last = i === n - 1 && n > 2;
-          const background = first
-            ? "linear-gradient(150deg,#2b4a44,var(--color-surface-2) 78%)"
-            : last
-              ? "linear-gradient(150deg,#4d2436,var(--color-surface-2) 78%)"
-              : "var(--color-surface-2)";
-          const color = first
-            ? "var(--color-teal)"
-            : last
-              ? "var(--color-danger)"
-              : undefined;
+        {findings.map((f) => {
+          const numeric = typeof f.value === "number" && Number.isFinite(f.value) ? f.value : null;
           return (
             <div
               key={f.key}
               style={{
                 padding: 11,
                 borderRadius: 14,
-                background,
+                background: "var(--color-surface-2)",
                 boxShadow: "var(--shadow-z1)",
                 textAlign: "center",
               }}
             >
               <div
                 className="mono-n"
-                style={{ font: "700 21px var(--font-mono)", color }}
+                style={{ font: "700 21px var(--font-mono)", color: "var(--color-info)" }}
               >
-                {f.value != null ? pctLabel(f.value) : "—"}
+                {formatRate(numeric == null ? null : numeric > 1 ? numeric / 100 : numeric, "finding value unavailable")}
               </div>
               <div style={{ fontSize: 9, color: "var(--color-dimmer)", marginTop: 3 }}>
                 {f.title}
               </div>
+              <EvidenceMeta metadata={f.metadata} testId={`finding-evidence-${f.key}`} />
             </div>
           );
         })}
       </div>
       <p style={{ margin: 0, fontSize: 10, lineHeight: 1.5, color: "var(--color-dim)" }}>
-        Directionally useful, not gospel — comp damage-share splits are approximate.
+        Population evidence is descriptive and does not prescribe a selection.
       </p>
     </div>
   );
 }
 
-export function DamageFitCard({ finding }: { finding: PackFinding }) {
-  const v = finding.value;
+export function DamageFitCard({ finding }: { finding: FindingEvidence }) {
+  const v = typeof finding.value === "number" && Number.isFinite(finding.value) ? finding.value : null;
   const norm = v == null ? 0 : v <= 1 ? v : Math.min(v, 100) / 100;
-  const label = v == null ? "—" : v <= 1 ? v.toFixed(2) : String(v);
+  const label = v == null ? "Unavailable: damage-fit score is missing" : v <= 1 ? v.toFixed(2) : String(v);
   return (
     <div
       className="card3b"
       data-testid="damage-fit-card"
       style={{ padding: 13, display: "flex", flexDirection: "column", gap: 9 }}
     >
-      <KickerRow
+      <SectionHead
         label="DAMAGE-FIT SCORE"
+        color="var(--color-info)"
         right={
           <span
             className="mono-n"
-            style={{ font: "700 16px var(--font-mono)", color: "var(--color-teal)" }}
+            style={{ font: "700 16px var(--font-mono)", color: "var(--color-info)" }}
           >
             {label}
           </span>
@@ -94,28 +83,29 @@ export function DamageFitCard({ finding }: { finding: PackFinding }) {
             width: `${Math.round(norm * 100)}%`,
             height: "100%",
             borderRadius: 999,
-            background: "linear-gradient(90deg,#2f7f6d,var(--color-teal))",
+            background: "linear-gradient(90deg,var(--color-info-low),var(--color-info))",
           }}
         />
       </div>
-      <p style={{ margin: 0, fontSize: 10, lineHeight: 1.5, color: "#cfd3e5" }}>
+      <p style={{ margin: 0, fontSize: 10, lineHeight: 1.5, color: "var(--color-soft-text)" }}>
         {finding.statement}
       </p>
+      <EvidenceMeta metadata={finding.metadata} testId="damage-fit-evidence-meta" />
     </div>
   );
 }
 
-export function GoldWasteCard({ finding }: { finding: PackFinding }) {
-  const v = finding.value ?? 0;
-  const width = Math.min(100, Math.round((v / 550) * 100));
-  const label = `${v}${finding.unit ?? ""}`;
+export function GoldWasteCard({ finding }: { finding: FindingEvidence }) {
+  const value = typeof finding.value === "number" && Number.isFinite(finding.value) ? finding.value : null;
+  const width = value == null ? 0 : Math.min(100, Math.round((value / 550) * 100));
+  const label = value == null ? "Unavailable: gold waste value is missing" : formatGold(value);
   return (
     <div
       className="card3"
       data-testid="gold-waste-card"
       style={{ padding: 13, display: "flex", flexDirection: "column", gap: 8 }}
     >
-      <KickerRow label="GOLD WASTE" dot="#7a8098" />
+      <SectionHead label="GOLD WASTE" color="var(--color-amber)" />
       <div style={{ display: "flex", alignItems: "baseline", gap: 7 }}>
         <span
           className="mono-n"
@@ -146,9 +136,7 @@ export function GoldWasteCard({ finding }: { finding: PackFinding }) {
       <p style={{ margin: 0, fontSize: 9.5, lineHeight: 1.5, color: "var(--color-dim)" }}>
         {finding.statement}
       </p>
-      <p style={{ margin: "auto 0 0", fontSize: 9, lineHeight: 1.5, color: "var(--color-dimmer)" }}>
-        v1 proxy metric — pairs with the spend-before-backing habit nudge.
-      </p>
+      <EvidenceMeta metadata={finding.metadata} testId="gold-waste-evidence-meta" />
     </div>
   );
 }

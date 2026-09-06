@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -60,16 +61,16 @@ DENYLIST = {
 }
 
 IDENTITY_FIELDS = {
-    "puuid": re.compile(r"(?:fixture|parity)-puuid-[0-9]{2}"),
-    "summonerId": re.compile(r"fixture-summoner-[0-9]{2}"),
-    "riotIdGameName": re.compile(r"FixturePlayer[0-9]{2}"),
-    "riotIdTagline": re.compile(r"BL[0-9]{2}"),
-    "summonerName": re.compile(r"FixturePlayer[0-9]{2}"),
-    "KillerName": re.compile(r"FixturePlayer[0-9]{2}|Order|Chaos"),
-    "VictimName": re.compile(r"FixturePlayer[0-9]{2}|Order|Chaos"),
-    "Assisting": re.compile(r"FixturePlayer[0-9]{2}|Order|Chaos"),
-    "riot_id": re.compile(r"FixturePlayer[0-9]{2}#BL[0-9]{2}"),
-    "riotId": re.compile(r"FixturePlayer[0-9]{2}#BL[0-9]{2}"),
+    "puuid": re.compile(r"(?:fixture|parity)-puuid-[0-9]{2,}"),
+    "summonerId": re.compile(r"fixture-summoner-[0-9]{2,}"),
+    "riotIdGameName": re.compile(r"FixturePlayer[0-9]{2,}"),
+    "riotIdTagline": re.compile(r"BL[0-9]{2,}"),
+    "summonerName": re.compile(r"FixturePlayer[0-9]{2,}"),
+    "KillerName": re.compile(r"FixturePlayer[0-9]{2,}|Order|Chaos"),
+    "VictimName": re.compile(r"FixturePlayer[0-9]{2,}|Order|Chaos"),
+    "Assisting": re.compile(r"FixturePlayer[0-9]{2,}|Order|Chaos"),
+    "riot_id": re.compile(r"FixturePlayer[0-9]{2,}#BL[0-9]{2,}"),
+    "riotId": re.compile(r"FixturePlayer[0-9]{2,}#BL[0-9]{2,}"),
 }
 
 
@@ -78,8 +79,11 @@ def fingerprint(value: str) -> str:
 
 
 def _finding(path: str, field: str, value: str) -> tuple[str, str, str]:
-    return path, field, fingerprint(value)
-
+    # A tracked filename or JSON key can itself contain the leaked value.
+    # Redact it before returning the fingerprint-only report.
+    safe_path = path.replace(value, "<redacted>")
+    safe_field = field.replace(value, "<redacted>")
+    return safe_path, safe_field, fingerprint(value)
 
 def _walk_json(value: Any, field: str = "") -> Iterable[tuple[str, str]]:
     if isinstance(value, dict):
@@ -132,9 +136,23 @@ def scan_blob(path: str, data: bytes) -> list[tuple[str, str, str]]:
     return sorted(set(findings))
 
 
+def _git_output(root: Path, *args: str, input_data: bytes | None = None) -> bytes:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), *args],
+            input=input_data,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise RuntimeError("could not inspect Git content") from exc
+    return result.stdout
+
+
 def tracked_blobs(root: Path) -> Iterable[tuple[str, bytes]]:
-    names = subprocess.check_output(["git", "-C", str(root), "ls-files", "-z"])
-    for name in names.decode().split("\0"):
+    names = _git_output(root, "ls-files", "-z")
+    for name in names.decode("utf-8", "surrogateescape").split("\0"):
         if not name:
             continue
         path = root / name
@@ -145,31 +163,48 @@ def tracked_blobs(root: Path) -> Iterable[tuple[str, bytes]]:
 
 
 def history_blobs(root: Path) -> Iterable[tuple[str, bytes]]:
-    listing = subprocess.check_output(["git", "-C", str(root), "rev-list", "--objects", "--all"]).decode()
+    listing = _git_output(root, "rev-list", "--objects", "--all").decode(
+        "utf-8", "surrogateescape"
+    )
     entries = [line.split(maxsplit=1) for line in listing.splitlines() if line]
-    object_ids = "".join(f"{parts[0]}\n" for parts in entries).encode()
-    process = subprocess.Popen(["git", "-C", str(root), "cat-file", "--batch"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-    output, _ = process.communicate(object_ids)
-    offset = 0
+    object_ids = "".join(f"{parts[0]}\n" for parts in entries if parts).encode("ascii")
+    output = _git_output(root, "cat-file", "--batch", input_data=object_ids)
     paths = {parts[0]: (parts[1] if len(parts) > 1 else parts[0]) for parts in entries}
+    offset = 0
     while offset < len(output):
         header_end = output.find(b"\n", offset)
         if header_end < 0:
-            break
-        oid, kind, size_text = output[offset:header_end].decode().split()
+            raise RuntimeError("invalid Git object response")
+        try:
+            header = output[offset:header_end].decode("ascii").split()
+            oid, kind, size_text = header
+            size = int(size_text)
+        except (UnicodeDecodeError, ValueError):
+            raise RuntimeError("invalid Git object response") from None
+        if len(header) != 3 or size < 0:
+            raise RuntimeError("invalid Git object response")
         offset = header_end + 1
-        size = int(size_text)
         blob = output[offset : offset + size]
-        offset += size + 1
+        if len(blob) != size or offset + size >= len(output):
+            raise RuntimeError("truncated Git object response")
+        offset += size
+        if output[offset : offset + 1] != b"\n":
+            raise RuntimeError("invalid Git object response")
+        offset += 1
         if kind == "blob":
             yield f"{paths.get(oid, oid)}@{oid[:12]}", blob
-
 
 def run(root: Path, history: bool) -> int:
     blobs = history_blobs(root) if history else tracked_blobs(root)
     findings: set[tuple[str, str, str]] = set()
-    for path, data in blobs:
-        findings.update(scan_blob(path, data))
+    try:
+        for path, data in blobs:
+            findings.update(scan_blob(path, data))
+    except (OSError, RuntimeError, UnicodeError, ValueError):
+        # Git failures and malformed object streams fail closed without
+        # forwarding stderr (which could contain a sensitive path/value).
+        print("PII guard could not inspect Git content", file=sys.stderr)
+        return 2
     for path, field, digest in sorted(findings):
         print(f"{path}: {field}: sha256:{digest}")
     return int(bool(findings))
@@ -180,9 +215,9 @@ def main() -> int:
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--tracked", action="store_true")
     group.add_argument("--history", action="store_true")
+    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
     args = parser.parse_args()
-    return run(Path(__file__).resolve().parents[2], args.history)
-
+    return run(args.root.resolve(), args.history)
 
 if __name__ == "__main__":
     raise SystemExit(main())

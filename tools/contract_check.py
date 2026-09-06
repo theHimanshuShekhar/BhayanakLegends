@@ -46,6 +46,8 @@ INVENTORY: dict[str, set[str]] = {
     "/live/status": {"GET"},
     "/live/session": {"GET"},
     "/live/ingame": {"GET"},
+    "/history/insights": {"GET"},
+    "/history/what-if": {"POST"},
     "/history/summary": {"GET"},
     "/pack": {"GET"},
 }
@@ -82,6 +84,15 @@ TS_PARITY_PAIRS = {
     "PlayerLive": "PlayerLive",
     "ItemLive": "ItemLive",
     "LiveEvent": "LiveEvent",
+    "HistoryInsights": "HistoryInsights",
+    "RoleInsight": "RoleInsight",
+    "ChampionInsight": "ChampionInsight",
+    "InsightWindow": "InsightWindow",
+    "TeamState": "TeamState",
+    "LiveInference": "LiveInference",
+    "LiveEventDelta": "LiveEventDelta",
+    "WhatIfRequest": "WhatIfRequest",
+    "WhatIfResponse": "WhatIfResponse",
 }
 
 
@@ -190,6 +201,21 @@ def ts_type_for(schema: dict[str, Any]) -> str:
     if kind == "array":
         items = schema.get("items") or {}
         return f"Array<{ts_type_for(items)}>"
+    if kind == "object":
+        properties = schema.get("properties")
+        if isinstance(properties, dict) and properties:
+            required = set(schema.get("required", []))
+            fields = [
+                f"{name}{'' if name in required else '?'}: {ts_type_for(value)};"
+                for name, value in properties.items()
+            ]
+            return "{ " + " ".join(fields) + " }"
+        additional = schema.get("additionalProperties")
+        if isinstance(additional, dict):
+            return f"Record<string, {ts_type_for(additional)}>"
+        if additional is True:
+            return "Record<string, unknown>"
+        return "Record<string, unknown>"
     return "unknown"
 
 

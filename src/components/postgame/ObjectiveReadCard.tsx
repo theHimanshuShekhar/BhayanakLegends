@@ -1,9 +1,18 @@
-import type { FindingsPack } from "../../api/types";
-import { formatPercentagePoints, formatRate } from "../format";
-import { SectionHead } from "../ui";
-/** Objective read cards: digest headline context + pack.objectives takeaways. */
-export function ObjectiveReadCard({ pack }: { pack: FindingsPack | undefined }) {
-  const o = pack?.objectives;
+import type { FindingsPackV2, PackV2Objective } from "../../api/pack-v2";
+import { formatRate } from "../format";
+import { SectionHead, Unavailable } from "../ui";
+import {
+  OBJECTIVE_ORDER,
+  isObjectiveRenderable,
+  objectiveCaveat,
+  objectiveLabel,
+  objectiveMetricLabel,
+  objectiveRows,
+  objectiveWindowLabel,
+} from "../objectiveEvidence";
+
+export function ObjectiveReadCard({ pack }: { pack: FindingsPackV2 | undefined }) {
+  const rows: PackV2Objective[] = objectiveRows(pack);
   return (
     <section
       className="card3"
@@ -12,73 +21,63 @@ export function ObjectiveReadCard({ pack }: { pack: FindingsPack | undefined }) 
       style={{ padding: 13, display: "flex", flexDirection: "column", gap: 8 }}
     >
       <SectionHead color="var(--color-soft-blue)" label={<span id="postgame-objectives-heading">Objectives</span>} />
-      <SectionHead level={3} dot={false} label="Objective reads" />
+      <SectionHead level={3} dot={false} label="Typed population reads" />
       <ul
         aria-label="Objective reads"
         style={{ display: "flex", flexDirection: "column", gap: 8, listStyle: "none", margin: 0, padding: 0 }}
       >
-        <li
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 9,
-            padding: "8px 9px",
-            borderRadius: 12,
-            background: "var(--color-surface-2)",
-            boxShadow: "var(--shadow-z1)",
-          }}
-        >
-          <div style={{ flex: 1 }}>
-            <div style={{ font: "600 11px var(--font-mono)" }}>Dragons</div>
-            <div style={{ fontSize: 9, color: "var(--color-dimmer)" }}>checkpoint, not weapon</div>
-          </div>
-          <span
-            className="pill"
-            data-testid="read-dragons"
-            style={{
-              background: "var(--color-info-low)",
-              color: "var(--color-soft-blue)",
-              fontSize: 8,
-              padding: "2px 7px",
-            }}
-          >
-            denial {formatRate(o?.dragon_denial_win_rate, "Findings Pack objective rate unavailable")}
-          </span>
-        </li>
-        <li
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 9,
-            padding: "8px 9px",
-            borderRadius: 12,
-            background: "var(--color-surface-2)",
-            boxShadow: "var(--shadow-z1)",
-          }}
-        >
-          <div style={{ flex: 1 }}>
-            <div style={{ font: "600 11px var(--font-mono)" }}>Baron</div>
-            <div style={{ fontSize: 9, color: "var(--color-dimmer)" }}>
-              comeback tool · pre-25 {formatRate(o?.baron_pre25_win_rate, "Findings Pack objective rate unavailable")}
-            </div>
-          </div>
-          <span
-            className="pill"
-            data-testid="read-baron"
-            style={{
-              background: "var(--color-amber-low)",
-              color: "var(--color-soft-blue)",
-              fontSize: 8,
-              padding: "2px 7px",
-            }}
-          >
-            {formatPercentagePoints(o?.baron_comeback_lift_pp, "Findings Pack comeback lift unavailable")} lift
-          </span>
-        </li>
+        {OBJECTIVE_ORDER.map((objective) => {
+          const row = rows.find((candidate) => candidate.objective === objective);
+          const available = row != null && isObjectiveRenderable(row);
+          return (
+            <li
+              key={objective}
+              data-testid={`objective-${objective}`}
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 9,
+                padding: "8px 9px",
+                borderRadius: 12,
+                background: "var(--color-surface-2)",
+                boxShadow: "var(--shadow-z1)",
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ font: "600 11px var(--font-mono)" }}>{objectiveLabel(objective)}</div>
+                {row ? (
+                  <>
+                    <div style={{ fontSize: 9, color: "var(--color-dimmer)" }}>
+                      {objectiveMetricLabel(row.metric_kind)} · {objectiveWindowLabel(row.window)} · {row.sample.toLocaleString("en-US")} team states
+                    </div>
+                    <div style={{ marginTop: 4, fontSize: 9, lineHeight: 1.4, color: "var(--color-dim)" }}>
+                      {objectiveCaveat(row)}
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ fontSize: 9, color: "var(--color-dimmer)" }}>No compatible typed row in this pack.</div>
+                )}
+              </div>
+              <span
+                className="pill"
+                data-testid={`read-${objective}`}
+                style={{
+                  background: available ? "var(--color-info-low)" : "var(--color-surface-3)",
+                  color: available ? "var(--color-soft-blue)" : "var(--color-dimmer)",
+                  fontSize: 8,
+                  padding: "2px 7px",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {available ? formatRate(row.rate) : <Unavailable reason={row?.release_status === "withheld" ? "evidence withheld" : "objective metric unavailable"} />}
+              </span>
+            </li>
+          );
+        })}
       </ul>
       <p style={{ margin: 0, fontSize: 9.5, lineHeight: 1.5, color: "var(--color-dim)" }}>
-        First dragon before 20 wins {formatRate(o?.first_dragon_pre20_win_rate, "Findings Pack objective rate unavailable")} of games — the swing is
-        denial, not possession.
+        Possession, timing, contest, and no-objective rows remain separate. These are
+        observational population associations with selection effects, not causal swing claims.
       </p>
     </section>
   );

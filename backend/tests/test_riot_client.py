@@ -164,6 +164,17 @@ async def test_transport_exhaustion_is_recoverable():
 
     assert calls["n"] == 4
     assert sleeper.spans == [1.0, 2.0, 4.0]
+async def test_riot_errors_do_not_include_owner_puuid():
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503)
+
+    client, _ = make_client(handler, max_retries=0)
+    with pytest.raises(RiotRecoverableError) as caught:
+        await client.match_ids("private-puuid-must-not-leak", total=1)
+    await client.aclose()
+
+    assert "private-puuid-must-not-leak" not in str(caught.value)
+
 
 
 async def test_rate_limit_exhaustion_preserves_recoverable_category():

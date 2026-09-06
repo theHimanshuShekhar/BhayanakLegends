@@ -49,7 +49,7 @@ function PlayerRow({ player, side, local }: { player: PlayerLive; side: string; 
       <th scope="row" style={{ padding: "4px 8px", font: "600 9px var(--font-mono)", color: "var(--color-dim)", textAlign: "left" }}>
         {side === "order" ? "Ally" : "Enemy"}
       </th>
-      <td style={{ padding: "4px 8px", font: "600 9.5px var(--font-mono)", color: "#e9e9ed", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <td style={{ padding: "4px 8px", font: "600 9.5px var(--font-mono)", color: "var(--color-text)", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {player.summoner}
       </td>
       <td style={{ padding: "4px 8px", fontSize: 9.5, color: "var(--color-dim)", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>

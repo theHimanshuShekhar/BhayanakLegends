@@ -5,10 +5,15 @@ import { CaveatFooter } from "../components/journal/CaveatFooter";
 import { ChampionHeader } from "../components/champions/ChampionHeader";
 import { RoleChips } from "../components/champions/RoleChips";
 import { MatchupsCard } from "../components/champions/MatchupsCard";
-import { RoleTierList, sortTierRows } from "../components/champions/RoleTierList";
+import { RoleTierList } from "../components/champions/RoleTierList";
 import { BuildOrderCard } from "../components/champions/BuildOrderCard";
 import { TrajectoryCard } from "../components/champions/TrajectoryCard";
 import { CompCard, DamageFitCard, GoldWasteCard } from "../components/champions/CompFitCards";
+import {
+  findingEvidence,
+  matchupEvidence,
+  tierEvidence,
+} from "../components/populationEvidence";
 import { PageHeader } from "../components/Layout";
 
 const COMP_RE = /comp/i;
@@ -21,11 +26,13 @@ export function ChampionsPage() {
   const [activeRoleState, setActiveRole] = useState<string | null>(null);
   const [selectedChampion, setSelectedChampion] = useState<string | null>(null);
 
+  const populationTiers = useMemo(() => tierEvidence(pack.data), [pack.data]);
+  const populationFindings = useMemo(() => findingEvidence(pack.data), [pack.data]);
   const roles = useMemo(() => {
     const set = new Set<string>();
-    for (const t of pack.data?.tier_list ?? []) set.add(t.role);
+    for (const tier of populationTiers) set.add(tier.role);
     return [...set].sort();
-  }, [pack.data]);
+  }, [populationTiers]);
 
   const activeRole =
     activeRoleState ?? (roles.includes("MIDDLE") ? "MIDDLE" : (roles[0] ?? null));
@@ -39,52 +46,36 @@ export function ChampionsPage() {
 
   const headerEntry = useMemo(
     () =>
-      pack.data?.tier_list.find(
-        (t) => t.role === activeRole && t.champion === selectedChampion,
+      populationTiers.find(
+        (tier) => tier.role === activeRole && tier.champion === selectedChampion,
       ) ?? null,
-    [pack.data, activeRole, selectedChampion],
-  );
-
-  const banRates = useMemo(
-    () => new Map((pack.data?.ban_advisor ?? []).map((b) => [b.champion, b.ban_rate])),
-    [pack.data],
+    [populationTiers, activeRole, selectedChampion],
   );
 
   const tierRows = useMemo(
-    () => sortTierRows((pack.data?.tier_list ?? []).filter((t) => t.role === activeRole)),
-    [pack.data, activeRole],
+    () => populationTiers.filter((tier) => tier.role === activeRole),
+    [populationTiers, activeRole],
   );
 
   const matchups = useMemo(
-    () =>
-      (pack.data?.matchup_examples ?? []).filter(
-        (m) =>
-          m.role === activeRole &&
-          m.champion === selectedChampion &&
-          m.opponent !== selectedChampion,
-      ),
+    () => matchupEvidence(pack.data, activeRole, selectedChampion),
     [pack.data, activeRole, selectedChampion],
-  );
-
-  const trapPicks = useMemo(
-    () => new Set((pack.data?.trap_picks ?? []).map((t) => t.champion)),
-    [pack.data],
   );
 
   const compFindings = useMemo(
     () =>
-      (pack.data?.findings ?? []).filter(
-        (f) => COMP_RE.test(f.key) || COMP_RE.test(f.title),
+      populationFindings.filter(
+        (finding) => COMP_RE.test(finding.key) || COMP_RE.test(finding.title),
       ),
-    [pack.data],
+    [populationFindings],
   );
   const damageFit = useMemo(
-    () => (pack.data?.findings ?? []).find((f) => DAMAGE_FIT_RE.test(f.key)) ?? null,
-    [pack.data],
+    () => populationFindings.find((finding) => DAMAGE_FIT_RE.test(finding.key)) ?? null,
+    [populationFindings],
   );
   const goldWaste = useMemo(
-    () => (pack.data?.findings ?? []).find((f) => GOLD_WASTE_RE.test(f.key)) ?? null,
-    [pack.data],
+    () => populationFindings.find((finding) => GOLD_WASTE_RE.test(finding.key)) ?? null,
+    [populationFindings],
   );
 
   function selectRole(role: string) {
@@ -122,18 +113,13 @@ export function ChampionsPage() {
           style={{
             minHeight: 0,
             display: "grid",
-            gridTemplateColumns: "380px 1fr 360px",
+            gridTemplateColumns: "minmax(0, 380px) minmax(0, 1fr) minmax(0, 360px)",
             gap: 14,
             alignItems: "start",
           }}
         >
           <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
-            {headerEntry && (
-              <ChampionHeader
-                entry={headerEntry}
-                banRate={banRates.get(headerEntry.champion) ?? null}
-              />
-            )}
+            {headerEntry && <ChampionHeader entry={headerEntry} />}
             <MatchupsCard champion={selectedChampion} matchups={matchups} />
           </div>
 
@@ -143,7 +129,6 @@ export function ChampionsPage() {
             <RoleTierList
               role={activeRole}
               rows={tierRows}
-              trapPicks={trapPicks}
               selectedChampion={selectedChampion}
               onSelect={setSelectedChampion}
             />

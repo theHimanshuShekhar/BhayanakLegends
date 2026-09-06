@@ -1,3 +1,4 @@
+import { formatInitials } from "../format";
 import { titleCase } from "./ChampionHeader";
 
 export function RoleChips({
@@ -40,6 +41,7 @@ export function RoleChips({
             }}
           >
             <span
+              aria-hidden="true"
               style={{
                 width: 24,
                 height: 24,
@@ -50,10 +52,10 @@ export function RoleChips({
                 background: isActive
                   ? "linear-gradient(150deg,var(--color-accent),var(--color-accent-low))"
                   : "linear-gradient(150deg,#4a5570,#232a3d)",
-                color: isActive ? "#0e1020" : "#cfd3e5",
+                color: isActive ? "var(--color-bg)" : "var(--color-soft-text)",
               }}
             >
-              {r.slice(0, 2).toUpperCase()}
+              {formatInitials(r)}
             </span>
             <span
               className="mono-n"

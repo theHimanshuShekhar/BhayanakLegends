@@ -20,6 +20,24 @@ const validChampSelect = {
   ally: [],
   enemy: [],
 };
+const validInGame = {
+  active: false,
+  clock_s: 0,
+  mode: null,
+  local_summoner: null,
+  local_champion: null,
+  teams: { order: [], chaos: [] },
+  events: [],
+  inference: {
+    status: "suppressed",
+    probability: null,
+    observed_game_time_s: null,
+    model_version: null,
+    pack_version: null,
+    reason: "no active game",
+  },
+  event_deltas: [],
+};
 
 describe("sidecar API boundary", () => {
   beforeEach(() => {
@@ -35,7 +53,7 @@ describe("sidecar API boundary", () => {
   it("resolves a cold Tauri connection before REST and SSE URL construction", async () => {
     invoke.mockResolvedValue({ port: 24567, token: "cold-token" });
     vi.mocked(fetch).mockImplementation(async (input) =>
-      response(String(input).endsWith("/live/session") ? validChampSelect : { active: false }),
+      response(String(input).endsWith("/live/session") ? validChampSelect : validInGame),
     );
     // Dynamic import resets the module-level cold-launch connection cache per test.
     const { api, eventsUrl } = await import("./client");
@@ -46,7 +64,7 @@ describe("sidecar API boundary", () => {
     ]);
 
     expect(session).toEqual(validChampSelect);
-    expect(ingame).toEqual({ active: false });
+    expect(ingame).toEqual(validInGame);
     expect(invoke).toHaveBeenCalledOnce();
     expect(vi.mocked(fetch)).toHaveBeenCalledWith(
       "http://127.0.0.1:24567/live/session",

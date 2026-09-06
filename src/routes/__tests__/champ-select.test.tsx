@@ -1,7 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ChampSelectSnapshot, FindingsPack, LiveStatus } from "../../api/types";
+import type { ChampSelectSnapshot, LiveStatus } from "../../api/types";
+import type { FindingsPackV2 } from "../../api/pack-v2";
 import type { SseMessage } from "../../api/sse";
 import { ChampSelectPage } from "../champ-select";
 import {
@@ -11,24 +12,25 @@ import {
   idleStatus,
   makePack,
 } from "./fixtures";
+const preLockChampSelectSession: ChampSelectSnapshot = {
+  ...champSelectSession,
+  ally: champSelectSession.ally.map((cell) =>
+    cell.is_local ? { ...cell, state: "picked" as const } : cell,
+  ),
+};
 
-// Mutable fixtures read lazily by the hook mocks below.
 const liveState = vi.hoisted(() => ({
   status: null as LiveStatus | null,
   session: null as ChampSelectSnapshot | null,
 }));
 
 vi.mock("../../api/client", () => ({
-  api: {
-    pack: vi.fn(),
-  },
+  api: { pack: vi.fn() },
   actionableErrorMessage: () => "Findings Pack unavailable",
   connection: () => ({ base: "", token: "t" }),
   eventsUrl: () => "http://127.0.0.1:1/events?token=t",
 }));
 
-// Real react-query hooks bound to the fixtures above, so SSE overlays that
-// write into ["live-session"] / ["live-status"] re-render exactly like prod.
 vi.mock("../../api/hooks", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../api/hooks")>();
   const { useQuery } = await import("@tanstack/react-query");
@@ -41,7 +43,6 @@ vi.mock("../../api/hooks", async (importOriginal) => {
   };
 });
 
-// SSE is mocked so tests can push champselect.state frames like the sidecar.
 let pushSse: ((msg: SseMessage) => void) | null = null;
 vi.mock("../../api/sse", () => ({
   useEvents: (onMessage?: (msg: never) => void) => {
@@ -53,9 +54,7 @@ vi.mock("../../api/sse", () => ({
 import { api } from "../../api/client";
 
 function renderPage() {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
       <ChampSelectPage />
@@ -70,283 +69,77 @@ beforeEach(() => {
   vi.mocked(api.pack).mockResolvedValue(makePack());
 });
 
-describe("ChampSelectPage — idle", () => {
-  it("shows the slim policy banner while no champ select is detected", async () => {
+describe("ChampSelectPage", () => {
+  it("shows the policy banner and withholds role rows without an assigned role", async () => {
     renderPage();
-    const banner = await screen.findByTestId("cs-idle-banner");
-    expect(banner).toHaveTextContent(
-      "Ranked draft hides enemy summoner names — the app shows champion-level intel only.",
-    );
-    expect(banner).toHaveTextContent(/waiting for client/i);
+    expect(await screen.findByTestId("cs-idle-banner")).toHaveTextContent(/waiting for client/i);
     expect(await screen.findByTestId("detection-status")).toHaveTextContent(/LCU not detected/);
+
+    const tiers = await screen.findByTestId("card-role-tiers");
+    expect(tiers).toHaveTextContent(/assigned role is unavailable/i);
+    expect(screen.getByTestId("role-tiers-unavailable")).toBeInTheDocument();
+    expect(screen.getByTestId("card-mastery")).toHaveTextContent("+1.94 pp");
+    expect(screen.getByTestId("card-ban-context")).toHaveTextContent("r=+0.06");
   });
 
-  it("keeps the pack-driven body honest while role evidence is missing", async () => {
+  it("keeps loadout and gameplan surfaces read-only when v2 has no champion-specific finding", async () => {
     renderPage();
-    expect(await screen.findByTestId("suggestions-unavailable")).toHaveTextContent(/assigned role unavailable/i);
-    expect(screen.queryByTestId("cs-hero-pick")).toBeNull();
-    expect(screen.getByTestId("card-mastery")).toBeInTheDocument();
-    expect(screen.getByTestId("card-ban-advisor")).toBeInTheDocument();
-    expect(screen.getByTestId("cs-lock-status")).toHaveTextContent(/choose a pick/i);
-  });
-
-  it("shows the read-only loadout state without champion recommendations", async () => {
-    renderPage();
-
-    const loadout = await screen.findByTestId("card-loadout");
-    await screen.findByText(/no exact champion-specific loadout finding exists/i);
-    expect(loadout).toHaveTextContent("LOADOUT · READ-ONLY");
-    expect(loadout).toHaveTextContent("Unavailable");
-    expect(loadout).not.toHaveTextContent("Electrocute");
-    expect(loadout).not.toHaveTextContent("Flash / TP");
+    expect(await screen.findByText(/no exact champion-specific loadout finding exists/i)).toBeInTheDocument();
+    expect(await screen.findByText(/no exact champion-specific gameplan finding exists/i)).toBeInTheDocument();
     expect(screen.queryByTestId("cs-apply-loadout")).toBeNull();
-    expect(loadout).not.toHaveTextContent("KEYSTONE");
-    expect(loadout).not.toHaveTextContent("SUMMS");
   });
 
-  it("keeps the role-unavailable caption explicit", async () => {
+  it("shows the v2 population caveat without personal-history claims", async () => {
     renderPage();
-    const caption = await screen.findByTestId("honesty-caption");
-    expect(caption).toHaveTextContent(/assigned role unavailable/i);
-    expect(caption).not.toHaveTextContent(/your pool|your top 3/i);
+    const mastery = await screen.findByText(/Same-direction era result: stable/);
+    expect(mastery).toBeInTheDocument();
+    expect(mastery).not.toHaveTextContent(/your pool|your top 3/i);
+    const ban = screen.getByTestId("card-ban-context");
+    expect(ban).toHaveTextContent(/selection context|diagnostic/i);
   });
 
-  it("renders the mastery premium numbers parsed from the pack", async () => {
+  it("renders champion-level session facts without enemy summoner names", async () => {
+    liveState.session = champSelectSession;
     renderPage();
-    expect(await screen.findByText("50.6%")).toBeInTheDocument();
-    expect(screen.getByText("46.9%")).toBeInTheDocument();
-  });
-
-  it("renders a real shipped pack champion in the ban advisor with a Recommend ban pill", async () => {
-    renderPage();
-    const row = await screen.findByTestId("ban-advisor-row-Taric");
-    expect(row).toHaveTextContent("Taric");
-    expect(row).toHaveTextContent("55.6% WR at 0.3% ban rate");
-    expect(screen.getByText(/recommend ban/i)).toBeInTheDocument();
-  });
-
-
-  // COMPLIANCE (Riot policy): enemy summoner names must never render. The
-  // forbidden fixture string asserts nothing resembling a name leaks through
-  // any channel.
-  it("never renders enemy summoner names while idle", async () => {
-    renderPage();
-    await screen.findByTestId("card-ban-advisor");
+    await waitFor(() => expect(screen.getByTestId("cs-ally-row")).toHaveTextContent("Xayah"));
+    const ally = screen.getByTestId("cs-ally-row");
+    const enemy = screen.getByTestId("cs-enemy-row");
+    expect(ally).toHaveTextContent("Xayah");
+    expect(screen.getByTestId("cs-your-side")).toHaveTextContent("2/5 PICKED");
+    expect(enemy).toHaveTextContent("Camille");
+    expect(enemy).toHaveTextContent("Champion 999");
     expect(screen.queryByText(forbiddenEnemyName)).toBeNull();
+    expect(screen.getByTestId("cs-timer-pill")).toHaveTextContent("00:23");
   });
 
-  it("flips to the live ban strip on an SSE champselect.state frame without waiting for the next poll", async () => {
+  it("keeps session facts visible when the v2 pack errors", async () => {
+    liveState.session = preLockChampSelectSession;
+    vi.mocked(api.pack).mockRejectedValue(new Error("pack unavailable"));
+    renderPage();
+    await waitFor(() => expect(screen.getByTestId("cs-ally-row")).toHaveTextContent("Xayah"));
+
+    expect(screen.getByTestId("card-comp-read")).toHaveTextContent("2/5 picked");
+    expect(await screen.findByTestId("card-role-tiers")).toHaveTextContent(/could not be loaded/i);
+    expect(screen.getByTestId("card-how-to-play")).toHaveTextContent(/could not be loaded/i);
+  });
+
+  it("keeps session facts visible while the v2 pack is loading", async () => {
+    liveState.session = champSelectSession;
+    const pending = new Promise<FindingsPackV2>(() => undefined);
+    vi.mocked(api.pack).mockReturnValue(pending);
+    renderPage();
+    expect(await screen.findByTestId("card-role-tiers")).toHaveTextContent(/Loading… Findings Pack/i);
+  });
+
+  it("updates the live session immediately from champselect SSE", async () => {
     renderPage();
     await screen.findByTestId("cs-idle-banner");
     await waitFor(() => expect(pushSse).toBeTruthy());
     pushSse!({ type: "champselect.state", ts: "t", data: champSelectSession });
-    await screen.findByTestId("cs-ban-strip");
-  });
-});
-
-describe("ChampSelectPage — active session", () => {
-  beforeEach(() => {
-    liveState.session = champSelectSession;
-  });
-  it("filters suggestions to the locally assigned role", async () => {
-    liveState.session = {
-      ...champSelectSession,
-      local_assigned_role: "TOP",
-      ally: champSelectSession.ally.map((cell) => (cell.is_local ? { ...cell, state: "picked" } : cell)),
-    };
-
-    vi.mocked(api.pack).mockResolvedValue(makePack());
-
-    renderPage();
-
-    const suggestions = await screen.findByText("Sett");
-    const card = screen.getByTestId("card-suggested-picks");
-    expect(card).toHaveTextContent("TOP");
-    expect(suggestions).toBeInTheDocument();
-    expect(card).not.toHaveTextContent("Malzahar");
-    expect(card).toHaveTextContent("Findings Pack");
-    expect(card).toHaveTextContent(/pre-lock/i);
-  });
-  it("withholds recommendations when the Findings Pack is unavailable", async () => {
-    liveState.session = {
-      ...champSelectSession,
-      local_assigned_role: "TOP",
-      ally: champSelectSession.ally.map((cell) =>
-        cell.is_local ? { ...cell, state: "picked" } : cell,
-      ),
-    };
-    vi.mocked(api.pack).mockRejectedValue(new Error("pack unavailable"));
-
-    renderPage();
-
-    await screen.findByTestId("cs-ban-strip");
-    expect(screen.getByTestId("suggestions-unavailable")).toHaveTextContent(/Findings Pack unavailable/i);
-    expect(screen.queryByTestId("cs-hero-pick")).toBeNull();
+    expect(await screen.findByTestId("cs-ban-strip")).toHaveTextContent("Xayah");
   });
 
-
-
-  it("renders REAL ban tiles with ally champion names and the ticking timer pill", async () => {
-    renderPage();
-    await screen.findByTestId("cs-ban-strip");
-
-    const ally = screen.getByTestId("cs-ally-row");
-    expect(ally).toHaveTextContent("Xayah"); // local locked champion
-
-    expect(ally).toHaveTextContent("Lucian");
-    expect(ally).toHaveTextContent("Amumu");
-    expect(ally).toHaveTextContent("YOU"); // local slot highlighted
-
-    // named ally bans get initials tiles; caption carries full names
-    expect(screen.getByTestId("cs-bans-caption")).toHaveTextContent("Miss Fortune, Annie");
-    expect(screen.queryByText(forbiddenEnemyName)).toBeNull();
-
-    const pill = screen.getByTestId("cs-timer-pill");
-    expect(pill).toHaveTextContent("ChampSelect");
-    expect(pill).toHaveTextContent("00:23"); // timer_sec ticks down between frames
-  });
-  it("keeps session facts visible when the Findings Pack errors", async () => {
-    vi.mocked(api.pack).mockRejectedValue(new Error("pack unavailable"));
-    renderPage();
-
-    await screen.findByTestId("cs-ban-strip");
-    expect(screen.getByTestId("card-comp-read")).toHaveTextContent(/Lucian|Xayah/);
-    expect(screen.getByTestId("card-comp-read")).toHaveTextContent("2/5 picked");
-    expect(screen.getByTestId("cs-your-side")).toHaveTextContent("Xayah");
-    expect(screen.getByTestId("cs-session-status")).toHaveTextContent(/Xayah locked · TOP/i);
-    expect(screen.getByTestId("card-how-to-play")).toHaveTextContent(/Findings Pack could not be loaded/i);
-    expect(screen.getByTestId("card-loadout")).toHaveTextContent(/unavailable/i);
-  });
-  it("keeps session facts visible while the Findings Pack is loading", async () => {
-    const promise = new Promise<FindingsPack>(() => undefined);
-    vi.mocked(api.pack).mockReturnValue(promise);
-    renderPage();
-
-    await waitFor(() => expect(screen.getByTestId("card-comp-read")).toHaveTextContent("2/5 picked"));
-    expect(screen.getByTestId("cs-your-side")).toHaveTextContent("Xayah");
-    expect(screen.getByTestId("card-mastery")).toHaveTextContent(/Loading Findings Pack/i);
-    expect(screen.getByTestId("card-how-to-play")).toHaveTextContent(/Loading Findings Pack/i);
-    expect(screen.getByTestId("card-loadout")).toHaveTextContent(/Loading Findings Pack/i);
-  });
-
-  it("keeps session facts visible when the Findings Pack is missing", async () => {
-    vi.mocked(api.pack).mockResolvedValue(null as never);
-    renderPage();
-
-    await screen.findByTestId("cs-ban-strip");
-    expect(screen.getByTestId("card-comp-read")).toHaveTextContent("2/5 picked");
-    expect(screen.getByTestId("cs-your-side")).toHaveTextContent("Xayah");
-    expect(screen.getByTestId("card-how-to-play")).toHaveTextContent(/Findings Pack is missing/i);
-    expect(screen.getByTestId("card-loadout")).toHaveTextContent(/Findings Pack is missing/i);
-    expect(screen.getByTestId("card-mastery")).toHaveTextContent(/cohort result is missing/i);
-  });
-
-  it("renders enemy champion-level intel with the Champion {id} fallback for unmapped ids", async () => {
-    renderPage();
-    const enemy = await screen.findByTestId("cs-enemy-row");
-    expect(enemy).toHaveTextContent("Camille"); // mapped via Data Dragon
-    expect(enemy).toHaveTextContent("Champion 999"); // unmapped id fallback
-    expect(enemy).toHaveTextContent("picked");
-  });
-
-  // COMPLIANCE: enemy cells carry champion-level info only — the sidecar
-  // strips theirTeam summoner names and no slot ever renders one.
-  it("never renders enemy summoner names while active", async () => {
-    renderPage();
-    await screen.findByTestId("cs-enemy-row");
-    expect(screen.queryByText(forbiddenEnemyName)).toBeNull();
-    for (let cellId = 5; cellId <= 9; cellId++) {
-      expect(screen.getByTestId(`cs-enemy-cell-${cellId}`)).not.toHaveTextContent(
-        forbiddenEnemyName,
-      );
-    }
-  });
-
-  it("shows the locked local champion in your-side and lane cards", async () => {
-    renderPage();
-    await screen.findByTestId("cs-ban-strip");
-    const side = screen.getByTestId("cs-your-side");
-    expect(side).toHaveTextContent("Xayah · FixturePlayer03");
-    expect(side).toHaveTextContent("YOU");
-
-    expect(screen.getByTestId("your-lane-champion")).toHaveTextContent("Xayah");
-  });
-  it("derives companion facts from the same live session view", async () => {
-    renderPage();
-
-    const comp = await screen.findByTestId("card-comp-read");
-    await screen.findByText("2/5 picked");
-    expect(comp).toHaveTextContent("Lucian");
-    expect(comp).toHaveTextContent("Xayah");
-    expect(comp).toHaveTextContent("2/5 picked");
-    expect(comp).not.toHaveTextContent(/damage mix|%/i);
-    expect(comp).not.toHaveTextContent(/Findings Pack|Personal History|advice/i);
-  });
-  it("shows zero allied picks without inventing a champion or role", async () => {
-    liveState.session = {
-      ...champSelectSession,
-      local_assigned_role: null,
-      ally: champSelectSession.ally.map((cell) => ({
-        ...cell,
-        champion_id: 0,
-        champion: null,
-        name: null,
-        state: "none",
-      })),
-    };
-
-    renderPage();
-
-    await waitFor(() => expect(screen.getByTestId("card-comp-read")).toHaveTextContent("0/5 picked"));
-    expect(screen.getByTestId("card-comp-read")).toHaveTextContent(/No allied champion picks known/i);
-    expect(screen.getByTestId("cs-your-side")).toHaveTextContent("0/5 PICKED");
-    expect(screen.getByTestId("card-how-to-play")).toHaveTextContent(/Session champion is not selected/i);
-    expect(screen.getByTestId("cs-session-status")).toHaveTextContent(/Assigned role pending/i);
-  });
-
-  it("labels mastery numbers as Findings Pack cohort data without personal claims", async () => {
-    renderPage();
-
-    const mastery = await screen.findByTestId("card-mastery");
-    await screen.findByText("50.6%");
-    expect(mastery).toHaveTextContent("Findings Pack cohort");
-    expect(mastery).toHaveTextContent("50.6%");
-    expect(mastery).toHaveTextContent("46.9%");
-    expect(mastery).not.toHaveTextContent(/your pool|your top 3/i);
-  });
-
-  it("shows locked champion context and unavailable guidance without controls", async () => {
-    renderPage();
-
-    await screen.findByTestId("cs-ban-strip");
-    expect(await screen.findByTestId("card-how-to-play")).toHaveTextContent(/Xayah/i);
-    expect(screen.getByTestId("card-how-to-play")).toHaveTextContent(/unavailable/i);
-    expect(screen.getByTestId("card-loadout")).toHaveTextContent(/Xayah/i);
-    expect(screen.getByTestId("card-loadout")).toHaveTextContent(/unavailable/i);
-    expect(screen.queryByTestId("cs-apply-loadout")).toBeNull();
-  });
-
-  it("keeps picked-not-locked guidance and the lock prompt visible", async () => {
-    liveState.session = {
-      ...champSelectSession,
-      local_assigned_role: "TOP",
-      ally: champSelectSession.ally.map((cell) =>
-        cell.is_local ? { ...cell, champion: "Sett", champion_id: 875, state: "picked" } : cell,
-      ),
-    };
-
-    renderPage();
-
-    await screen.findByTestId("cs-ban-strip");
-    expect(screen.getByTestId("your-lane-champion")).toHaveTextContent("Sett");
-    expect(screen.getByTestId("card-suggested-picks")).toHaveTextContent(/pre-lock/i);
-    expect(screen.getByTestId("cs-your-side")).toHaveTextContent("2/5 PICKED");
-    expect(screen.getByTestId("your-lane-tier")).toHaveTextContent(/not locked/i);
-    expect(screen.getByTestId("cs-lock-status")).toHaveTextContent(/lock Sett in the League client/i);
-    expect(screen.getByTestId("cs-session-status")).toHaveTextContent(/picked — not locked/i);
-  });
-
-  it("suppresses suggestions and lock controls after the local champion is locked", async () => {
+  it("does not show pre-lock role rows after the local champion is locked", async () => {
     liveState.session = {
       ...champSelectSession,
       local_assigned_role: "MIDDLE",
@@ -354,109 +147,20 @@ describe("ChampSelectPage — active session", () => {
         cell.is_local ? { ...cell, champion: "Annie", champion_id: 1, state: "locked" } : cell,
       ),
     };
-
-    renderPage();
-
-    await screen.findByTestId("cs-ban-strip");
-    await waitFor(() => expect(screen.getByTestId("cs-session-status")).toHaveTextContent(/Annie locked · MIDDLE/i));
-    expect(screen.queryByTestId("card-suggested-picks")).toBeNull();
-    expect(screen.queryByTestId("cs-lock-button")).toBeNull();
-    expect(screen.getByTestId("your-lane-champion")).toHaveTextContent("Annie");
-    expect(screen.getByTestId("your-lane-tier")).not.toHaveTextContent(/tier/i);
-    expect(screen.queryByText(/Malzahar/)).toBeNull();
-  });
-
-  it("uses only an exact champion-and-role tier for a locked lane", async () => {
-    liveState.session = {
-      ...champSelectSession,
-      local_assigned_role: "TOP",
-      ally: champSelectSession.ally.map((cell) =>
-        cell.is_local ? { ...cell, champion: "Sett", champion_id: 875, state: "locked" } : cell,
-      ),
-    };
-    renderPage();
-
-    await screen.findByTestId("cs-ban-strip");
-    await waitFor(() =>
-      expect(screen.getByTestId("your-lane-tier")).toHaveTextContent("FINDINGS PACK · TIER S"),
-    );
-    expect(screen.getByTestId("your-lane-champion")).toHaveTextContent("Sett");
-  });
-
-  it("keeps every session card aligned through role and lock transitions", async () => {
-    liveState.session = {
-      ...champSelectSession,
-      local_assigned_role: "TOP",
-      ally: champSelectSession.ally.map((cell) =>
-        cell.is_local ? { ...cell, champion: "Sett", champion_id: 875, state: "picked" } : cell,
-      ),
-    };
-
-    renderPage();
-    await waitFor(() => expect(screen.getByTestId("card-comp-read")).toHaveTextContent("Sett"));
-    expect(screen.getByTestId("card-how-to-play")).toHaveTextContent("Sett");
-    expect(screen.getByTestId("card-loadout")).toHaveTextContent("Sett");
-
-    pushSse!({
-      type: "champselect.state",
-      ts: "transition",
-      data: {
-        ...liveState.session,
-        local_assigned_role: "MIDDLE",
-        ally: liveState.session.ally.map((cell) =>
-          cell.is_local ? { ...cell, champion: "Annie", champion_id: 1, state: "locked" } : cell,
-        ),
-      },
-    });
-
-    await waitFor(() => expect(screen.getByTestId("cs-session-status")).toHaveTextContent(/Annie locked · MIDDLE/i));
-    expect(screen.getByTestId("card-comp-read")).toHaveTextContent("Annie");
-    expect(screen.getByTestId("card-comp-read")).not.toHaveTextContent("Sett");
-    expect(screen.getByTestId("card-how-to-play")).toHaveTextContent("Annie");
-    expect(screen.getByTestId("card-how-to-play")).not.toHaveTextContent("Sett");
-    expect(screen.getByTestId("card-loadout")).toHaveTextContent("Annie");
-    expect(screen.getByTestId("card-loadout")).not.toHaveTextContent("Sett");
-    expect(screen.getByTestId("cs-your-side")).toHaveTextContent("Annie");
-    expect(screen.getByTestId("cs-your-side")).not.toHaveTextContent("Sett");
-  });
-
-  it("updates the visible controls when SSE supplies completed lock evidence", async () => {
-    liveState.session = {
-      ...champSelectSession,
-      local_assigned_role: "TOP",
-      ally: champSelectSession.ally.map((cell) =>
-        cell.is_local ? { ...cell, champion: "Sett", champion_id: 875, state: "picked" } : cell,
-      ),
-    };
-
-    renderPage();
-    await waitFor(() => expect(screen.getByTestId("card-comp-read")).toHaveTextContent("Sett"));
-    pushSse!({
-      type: "champselect.state",
-      ts: "t",
-      data: {
-        ...liveState.session,
-        ally: liveState.session.ally.map((cell) =>
-          cell.is_local ? { ...cell, state: "locked" } : cell,
-        ),
-      },
-    });
-
-    await waitFor(() => {
-      expect(screen.queryByTestId("card-suggested-picks")).toBeNull();
-      expect(screen.queryByTestId("cs-lock-button")).toBeNull();
-    });
-    expect(screen.getByTestId("cs-session-status")).toHaveTextContent(/Sett locked · TOP/i);
-    expect(screen.getByTestId("card-comp-read")).toHaveTextContent("Sett");
-    expect(screen.getByTestId("card-how-to-play")).toHaveTextContent("Sett");
-    expect(screen.getByTestId("card-loadout")).toHaveTextContent("Sett");
-
-  });
-  it("drops back to the idle banner when the session ends via SSE", async () => {
     renderPage();
     await screen.findByTestId("cs-ban-strip");
-    await waitFor(() => expect(pushSse).toBeTruthy());
-    pushSse!({ type: "champselect.state", ts: "t", data: idleSession });
-    await screen.findByTestId("cs-idle-banner");
+    expect(await screen.findByTestId("cs-session-status")).toHaveTextContent(/Annie locked · MIDDLE/i);
+    expect(screen.queryByTestId("card-role-tiers")).toBeNull();
+    expect(screen.getByTestId("your-lane-tier")).toHaveTextContent(/LOCKED · MIDDLE/);
+  });
+
+  it("withholds recommendations when the pack is missing", async () => {
+    liveState.session = preLockChampSelectSession;
+    vi.mocked(api.pack).mockResolvedValue(null as never);
+    renderPage();
+    const tiers = await screen.findByTestId("card-role-tiers");
+    await waitFor(() => expect(tiers).toHaveTextContent(/evidence is missing/i));
+    expect(screen.getByTestId("card-how-to-play")).toHaveTextContent(/pack is missing/i);
+    expect(screen.getByTestId("card-loadout")).toHaveTextContent(/pack is missing/i);
   });
 });

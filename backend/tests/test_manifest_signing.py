@@ -78,11 +78,12 @@ async def _channel(
 def _manifest(*, asset: str = "asset.zip") -> bytes:
     return json.dumps(
         {
-            "pack_version": "v2",
-            "schema_version": 1,
-            "feature_contract_version": "loltrends-parity-v1",
+            "pack_version": "v3",
+            "schema_version": 2,
+            "feature_contract_version": "loltrends-population-v2",
             "download_url": asset,
             "sha256": "0" * 64,
+            "size": 0,
         },
         separators=(",", ":"),
     ).encode()
@@ -162,5 +163,5 @@ async def test_loopback_redirect_cannot_escape_loopback(tmp_path: Path) -> None:
     )
     result = await channel.check_and_activate()
     assert not result.activated
-    assert "host" in (result.reason or "")
+    assert "origin" in (result.reason or "")
     assert len(requests) == 1

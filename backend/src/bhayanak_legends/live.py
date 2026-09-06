@@ -19,12 +19,16 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from dataclasses import dataclass
 import inspect
 import logging
 import math
+import time
 from typing import get_args
 
 from pydantic import BaseModel, Field
+
+from .live_features import LIVE_WP_CONTRACT_VERSION, LiveFeatureVector
 
 from .models import (
     AllyCell,
@@ -37,9 +41,12 @@ from .models import (
     GameMode,
     GameflowPhase,
     InGameStatus,
+    LiveInferenceStatus,
+    LiveEventDelta,
     LiveEventName,
-    LiveState,
+    LiveInference,
     LiveStatus,
+    LiveState,
 )
 
 log = logging.getLogger("bhayanak_legends.live")
@@ -87,6 +94,7 @@ class LiveTeams(BaseModel):
     def __getitem__(self, key: str) -> list[PlayerLive]:
         return getattr(self, key)
 
+
 class InGameSnapshot(BaseModel):
     active: bool = False
     clock_s: float = 0.0
@@ -95,6 +103,8 @@ class InGameSnapshot(BaseModel):
     local_champion: str | None = None
     teams: LiveTeams = Field(default_factory=LiveTeams)
     events: list[LiveEvent] = Field(default_factory=list)
+    inference: LiveInference = Field(default_factory=LiveInference)
+    event_deltas: list[LiveEventDelta] = Field(default_factory=list)
 
 _ASSIGNED_ROLES = frozenset({"TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"})
 
@@ -330,12 +340,26 @@ def _build_live_event_row(raw: object) -> LiveEvent | None:
     if any(value is not None and not isinstance(value, str) for value in (actor, victim, detail)):
         return None
     return LiveEvent(name=name, t_s=event_time, actor=actor, victim=victim, detail=detail)
+def build_ingame_snapshot(
+    data: dict | None,
+    *,
+    inference: LiveInference | None = None,
+    event_deltas: list[LiveEventDelta] | None = None,
+) -> tuple[InGameSnapshot, int | None]:
+    """Pure: /liveclientdata/allgamedata payload → (snapshot, game_id).
 
-
-def build_ingame_snapshot(data: dict | None) -> tuple[InGameSnapshot, int | None]:
-    """Pure: /liveclientdata/allgamedata payload → (snapshot, game_id)."""
+    Inference is supplied by the sidecar runtime only after its exact live
+    feature adapter has accepted the same snapshot.  The default is an
+    explicit suppressed state; no clock-only or approximate fallback exists.
+    """
     if not data:
-        return InGameSnapshot(), None
+        return (
+            InGameSnapshot(
+                inference=inference or LiveInference(),
+                event_deltas=event_deltas or [],
+            ),
+            None,
+        )
     game_data = data.get("gameData") or {}
     active_player = data.get("activePlayer") or {}
     local_summoner = active_player.get("summonerName")
@@ -355,7 +379,7 @@ def build_ingame_snapshot(data: dict | None) -> tuple[InGameSnapshot, int | None
         event = _build_live_event_row(raw_event)
         if event is not None:
             events.append(event)
-    events = sorted(events, key=lambda event: event.t_s)[-MAX_EVENTS:]
+    events = events[-MAX_EVENTS:]
     clock = game_data.get("gameTime", game_data.get("gameClock")) or 0
     raw_mode = game_data.get("gameMode")
     mode = raw_mode if isinstance(raw_mode, str) and raw_mode in _GAME_MODES else None
@@ -369,6 +393,8 @@ def build_ingame_snapshot(data: dict | None) -> tuple[InGameSnapshot, int | None
             local_champion=local_champion or active_player.get("championName"),
             teams=teams,
             events=events,
+            inference=inference or LiveInference(observed_game_time_s=float(clock)),
+            event_deltas=event_deltas or [],
         ),
         int(game_id) if game_id is not None else None,
     )
@@ -389,6 +415,282 @@ def _truncate(text: str, limit: int = 200) -> str:
     return text[:limit]
 
 
+_SUPPORTED_DELTA_EVENTS = frozenset({"DragonKill", "HeraldKill", "BaronKill", "TurretKilled"})
+
+
+@dataclass(frozen=True)
+class _ObservedInference:
+    clock_s: float
+    inference: LiveInference
+    vector: LiveFeatureVector | None
+
+
+@dataclass(frozen=True)
+class _TrackedEvent:
+    key: tuple[str, float, str | None, str | None, str | None]
+    event_id: str
+    source_order: int
+    event: LiveEvent
+
+
+class _LiveEventDeltaTracker:
+    """Pair one causal pre/post observation for each supported live event.
+
+    Live Client Data returns a cumulative event list.  This tracker never sorts
+    or rewrites that list: event order is the source order, while an event is
+    eligible only after a later observation crosses its timestamp.  A pending
+    event that is first observed after its timestamp, a duplicate, or a
+    changed event order is retained only as a suppressed annotation.
+    """
+
+    def __init__(self) -> None:
+        self.reset()
+
+    def reset(self) -> None:
+        self._seen: dict[tuple[str, float, str | None, str | None, str | None], _TrackedEvent] = {}
+        self._pending: set[tuple[str, float, str | None, str | None, str | None]] = set()
+        self._ordering_violations: set[tuple[str, float, str | None, str | None, str | None]] = set()
+        self._reported_order_violations: set[tuple[str, float, str | None, str | None, str | None]] = set()
+        self._history: list[LiveEventDelta] = []
+        self._history_index: dict[str, int] = {}
+        self._last: _ObservedInference | None = None
+        self._max_event_time: float | None = None
+
+    @staticmethod
+    def _key(event: LiveEvent) -> tuple[str, float, str | None, str | None, str | None]:
+        return (event.name, event.t_s, event.actor, event.victim, event.detail)
+
+    @staticmethod
+    def _event_id(event: LiveEvent, source_order: int) -> str:
+        return f"{source_order}:{event.name}:{event.t_s!r}"
+
+    @staticmethod
+    def _probability(observation: _ObservedInference | None) -> float | None:
+        if observation is None or observation.inference.status != "available":
+            return None
+        probability = observation.inference.probability
+        return probability if probability is not None and math.isfinite(probability) else None
+
+    @staticmethod
+    def _observed_time(observation: _ObservedInference | None) -> float | None:
+        if observation is None:
+            return None
+        value = observation.inference.observed_game_time_s
+        return value if value is not None and math.isfinite(value) else None
+
+    @staticmethod
+    def _common_version(
+        previous: _ObservedInference | None,
+        current: _ObservedInference,
+        field: str,
+    ) -> str | None:
+        if previous is None:
+            return None
+        before = getattr(previous.inference, field)
+        after = getattr(current.inference, field)
+        return before if before and before == after else None
+
+    @classmethod
+    def _delta(
+        cls,
+        tracked: _TrackedEvent,
+        previous: _ObservedInference | None,
+        current: _ObservedInference,
+        vector_available: bool,
+        reason: str | None = None,
+    ) -> LiveEventDelta:
+        baseline_probability = cls._probability(previous)
+        event_probability = cls._probability(current)
+        pre_time = cls._observed_time(previous)
+        post_time = cls._observed_time(current)
+        model_version = cls._common_version(previous, current, "model_version")
+        pack_version = cls._common_version(previous, current, "pack_version")
+        if reason is None:
+            if previous is None:
+                reason = "causal pre-event observation unavailable"
+            elif not vector_available or previous.vector is None or current.vector is None:
+                reason = "exact pre/post live vectors unavailable"
+            elif previous.inference.status != "available" or current.inference.status != "available":
+                reason = "pre/post live inference unavailable"
+            elif baseline_probability is None or event_probability is None:
+                reason = "pre/post probabilities unavailable"
+            elif model_version is None or pack_version is None:
+                reason = "pre/post model provenance differs"
+            elif previous.clock_s >= current.clock_s or tracked.event.t_s <= previous.clock_s:
+                reason = "event does not fall between causal observations"
+            elif pre_time is None or post_time is None or pre_time >= post_time:
+                reason = "observation times are not strictly causal"
+        if reason is None:
+            assert baseline_probability is not None and event_probability is not None
+            delta_probability = event_probability - baseline_probability
+            return LiveEventDelta(
+                event_id=tracked.event_id,
+                source_order=tracked.source_order,
+                name=tracked.event.name,
+                t_s=tracked.event.t_s,
+                baseline_probability=baseline_probability,
+                event_probability=event_probability,
+                delta_probability=delta_probability,
+                pre_observed_game_time_s=pre_time,
+                post_observed_game_time_s=post_time,
+                model_version=model_version,
+                pack_version=pack_version,
+                suppression_status="available",
+                reason=None,
+            )
+        inferred_status: LiveInferenceStatus = "suppressed"
+        for observation in (current, previous):
+            if observation is not None and observation.inference.status != "available":
+                inferred_status = observation.inference.status
+                break
+        return LiveEventDelta(
+            event_id=tracked.event_id,
+            source_order=tracked.source_order,
+            name=tracked.event.name,
+            t_s=tracked.event.t_s,
+            baseline_probability=baseline_probability,
+            event_probability=event_probability,
+            delta_probability=None,
+            pre_observed_game_time_s=pre_time,
+            post_observed_game_time_s=post_time,
+            model_version=model_version,
+            pack_version=pack_version,
+            suppression_status=inferred_status,
+            reason=reason,
+        )
+    def _append(self, delta: LiveEventDelta) -> None:
+        existing = self._history_index.get(delta.event_id)
+        if existing is not None:
+            self._history[existing] = delta
+            return
+        self._history_index[delta.event_id] = len(self._history)
+        self._history.append(delta)
+        if len(self._history) > MAX_EVENTS:
+            del self._history[: len(self._history) - MAX_EVENTS]
+            self._history_index = {item.event_id: index for index, item in enumerate(self._history)}
+
+    def process(
+        self,
+        events: list[LiveEvent],
+        *,
+        clock_s: float,
+        inference: LiveInference,
+        vector: LiveFeatureVector | None,
+    ) -> list[LiveEventDelta]:
+        previous = self._last
+        candidates: list[tuple[_TrackedEvent, bool]] = []
+        source_time: float | None = None
+        source_order = 0
+        for event in events:
+            if event.name not in _SUPPORTED_DELTA_EVENTS:
+                continue
+            eligible_order = source_order
+            source_order += 1
+            key = self._key(event)
+            if source_time is not None and event.t_s < source_time:
+                self._ordering_violations.add(key)
+            source_time = event.t_s
+            if self._max_event_time is not None and event.t_s < self._max_event_time:
+                self._ordering_violations.add(key)
+            tracked = self._seen.get(key)
+            if tracked is not None and tracked.source_order != eligible_order:
+                self._ordering_violations.add(key)
+            if self._max_event_time is None or event.t_s > self._max_event_time:
+                self._max_event_time = event.t_s
+            if tracked is None:
+                tracked = _TrackedEvent(
+                    key=key,
+                    event_id=self._event_id(event, eligible_order),
+                    source_order=eligible_order,
+                    event=event,
+                )
+                self._seen[key] = tracked
+                if event.t_s > clock_s:
+                    self._pending.add(key)
+                else:
+                    candidates.append((tracked, key in self._ordering_violations))
+                continue
+            if key in self._pending and event.t_s <= clock_s:
+                self._pending.remove(key)
+                candidates.append((tracked, key in self._ordering_violations))
+        current = _ObservedInference(clock_s, inference, vector)
+        for key in self._ordering_violations - self._reported_order_violations:
+            tracked = self._seen.get(key)
+            if tracked is None or tracked.event_id not in self._history_index:
+                continue
+            self._append(
+                self._delta(
+                    tracked,
+                    previous,
+                    current,
+                    vector_available=False,
+                    reason="event source ordering changed",
+                )
+            )
+            self._reported_order_violations.add(key)
+
+
+        if candidates:
+            if len(candidates) > 1:
+                for tracked, _invalid in candidates:
+                    self._append(
+                        self._delta(
+                            tracked,
+                            previous,
+                            _ObservedInference(clock_s, inference, vector),
+                            vector_available=False,
+                            reason="multiple supported events crossed between observations",
+                        )
+                    )
+            else:
+                tracked, invalid_order = candidates[0]
+                current = _ObservedInference(clock_s, inference, vector)
+                if invalid_order:
+                    self._append(
+                        self._delta(
+                            tracked,
+                            previous,
+                            current,
+                            vector_available=False,
+                            reason="event source ordering changed",
+                        )
+                    )
+                elif previous is None:
+                    self._append(
+                        self._delta(
+                            tracked,
+                            previous,
+                            current,
+                            vector_available=False,
+                            reason="event observed without a causal pre-event snapshot",
+                        )
+                    )
+                elif clock_s < previous.clock_s or previous.clock_s >= tracked.event.t_s:
+                    self._append(
+                        self._delta(
+                            tracked,
+                            previous,
+                            current,
+                            vector_available=False,
+                            reason="delayed or out-of-order event observation",
+                        )
+                    )
+                else:
+                    self._append(
+                        self._delta(
+                            tracked,
+                            previous,
+                            current,
+                            vector_available=vector is not None,
+                        )
+                    )
+
+        current = _ObservedInference(clock_s, inference, vector)
+        if previous is None or clock_s >= previous.clock_s:
+            self._last = current
+        return list(self._history)
+
+
 class LiveService:
     """Poll loop publishing typed snapshots on change.
 
@@ -396,20 +698,33 @@ class LiveService:
     ``LiveService(lcu, ingame, hub, poll_interval)`` where both transports
     satisfy the protocols in :mod:`bhayanak_legends.lcu`. ``champion_names``
     may be a ready ``{id: name}`` dict or a (possibly async) zero-arg callable
-    returning one (production passes ChampionDirectory.get).
+    returning one (production passes ChampionDirectory.get).  The optional
+    feature provider prepares one exact adapter before the runtime is called.
     """
 
-    def __init__(self, lcu, ingame, hub, poll_interval: float = 2.0, champion_names=None) -> None:
+    def __init__(
+        self,
+        lcu,
+        ingame,
+        hub,
+        poll_interval: float = 2.0,
+        champion_names=None,
+        inference=None,
+        feature_provider=None,
+    ) -> None:
         self._lcu = lcu
         self._ingame = ingame
         self._hub = hub
         self._interval_s = poll_interval
         self._names_source = champion_names
+        self._inference = inference
+        self._feature_provider = feature_provider
         self._task: asyncio.Task | None = None
         self._session_dump: dict | None = None
         self._ingame_dump: dict | None = None
         self._status_dump: dict | None = None
         self._game_id: int | None = None
+        self._event_delta_tracker = _LiveEventDeltaTracker()
 
     async def start(self) -> None:
         if self._task is not None and not self._task.done():
@@ -450,6 +765,77 @@ class LiveService:
             ),
             last_error=last_error,
         )
+    async def _live_inference(
+        self,
+        raw_game: dict | None,
+        clock_s: float,
+    ) -> tuple[LiveInference, LiveFeatureVector | None]:
+        def suppressed(reason: str) -> tuple[LiveInference, LiveFeatureVector | None]:
+            return (
+                LiveInference(status="suppressed", observed_game_time_s=clock_s, reason=reason),
+                None,
+            )
+
+        if self._inference is None:
+            return suppressed("live model declaration unavailable")
+        predictor = getattr(self._inference, "predict_live_snapshot", None)
+        if predictor is None:
+            return suppressed("exact live feature adapter unavailable")
+        prepared = self._feature_provider
+        if prepared is None:
+            return suppressed("exact live feature adapter unavailable")
+        prepare = getattr(prepared, "prepare", None)
+        if prepare is not None:
+            capture_s = time.time()
+            try:
+                prepared = prepare(raw_game, observed_at_s=capture_s, now_s=capture_s)
+                if inspect.isawaitable(prepared):
+                    prepared = await prepared
+            except Exception:
+                prepared = None
+            if prepared is None:
+                reason = getattr(self._feature_provider, "last_reason", None) or (
+                    "exact live feature adapter unavailable"
+                )
+                return suppressed(reason)
+        if not callable(prepared):
+            return suppressed("exact live feature adapter unavailable")
+        try:
+            vector = prepared(raw_game)
+        except Exception:
+            vector = None
+        if (
+            not isinstance(vector, LiveFeatureVector)
+            or vector.contract_version != LIVE_WP_CONTRACT_VERSION
+            or vector.observed_at_s < 0
+            or not math.isfinite(vector.observed_at_s)
+        ):
+            return suppressed("live feature vector unavailable")
+
+        # Pin the exact vector captured above for this prediction.  The
+        # runtime cannot accidentally re-adapt the snapshot against a later
+        # catalog or a future event row.
+        def exact_provider(_snapshot) -> LiveFeatureVector:
+            return vector
+
+        try:
+            result = predictor(
+                raw_game,
+                observed_game_time_s=clock_s,
+                feature_provider=exact_provider,
+            )
+            if inspect.isawaitable(result):
+                result = await result
+            if isinstance(result, dict):
+                result = LiveInference.model_validate(result)
+            if isinstance(result, LiveInference):
+                if result.observed_game_time_s is None:
+                    result = result.model_copy(update={"observed_game_time_s": clock_s})
+                return result, vector
+        except Exception as exc:
+            log.debug("live inference suppressed: %s", exc)
+        return suppressed("live inference could not evaluate the exact snapshot")
+
 
     async def _publish_changed(self, event: str, current: dict, attr: str) -> bool:
         previous = getattr(self, attr)
@@ -484,9 +870,29 @@ class LiveService:
                 raw_game = await self._ingame.allgamedata()
             except Exception as exc:
                 raw_game, last_error = None, last_error or _truncate(str(exc))
-            ingame, self._game_id = build_ingame_snapshot(raw_game)
+            clock_value = 0.0
+            if isinstance(raw_game, dict):
+                game_data = raw_game.get("gameData")
+                if isinstance(game_data, dict):
+                    try:
+                        clock_value = float(game_data.get("gameTime", game_data.get("gameClock")) or 0)
+                    except (TypeError, ValueError, OverflowError):
+                        clock_value = 0.0
+            inference, vector = await self._live_inference(raw_game, clock_value)
+            ingame, game_id = build_ingame_snapshot(raw_game, inference=inference)
+            if game_id != self._game_id:
+                self._event_delta_tracker.reset()
+            self._game_id = game_id
+            event_deltas = self._event_delta_tracker.process(
+                ingame.events,
+                clock_s=ingame.clock_s,
+                inference=ingame.inference,
+                vector=vector,
+            )
+            ingame = ingame.model_copy(update={"event_deltas": event_deltas})
         else:
             self._game_id = None
+            self._event_delta_tracker.reset()
 
         await self._publish_changed("champselect.state", champ_select.model_dump(), "_session_dump")
         await self._publish_changed("live.state", ingame.model_dump(), "_ingame_dump")

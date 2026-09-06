@@ -1,4 +1,5 @@
 import type { ChampSelectSessionView, FindingsPackState } from "./shared";
+import { Dot, SectionHead } from "../ui";
 
 export function HowToPlayCard({
   session,
@@ -14,7 +15,7 @@ export function HowToPlayCard({
       : "Waiting for a live session.";
   const guidance =
     packState === "loading"
-      ? "Loading Findings Pack — champion-specific gameplan guidance is not available yet."
+      ? "Loading… Findings Pack — champion-specific gameplan guidance is not available."
       : packState === "error"
         ? "Unavailable: Findings Pack could not be loaded, so champion-specific gameplan guidance is unavailable."
         : packState === "missing"
@@ -27,12 +28,7 @@ export function HowToPlayCard({
       data-testid="card-how-to-play"
       style={{ padding: 12, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 8 }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ width: 6, height: 6, borderRadius: 999, background: session.locked ? "var(--color-teal)" : "#7a8098" }} />
-        <span style={{ font: "700 9.5px var(--font-mono)", letterSpacing: ".11em", color: "var(--color-dim)" }}>
-          HOW TO PLAY IT
-        </span>
-      </div>
+      <SectionHead label="HOW TO PLAY IT" color={session.locked ? "var(--color-teal)" : "var(--color-dimmer)"} />
       <div
         style={{
           display: "flex",
@@ -43,7 +39,7 @@ export function HowToPlayCard({
           boxShadow: "var(--shadow-z1)",
         }}
       >
-        <p style={{ margin: 0, fontSize: 11, lineHeight: 1.5, color: "#cfd3e5" }}>{context}</p>
+        <p style={{ margin: 0, fontSize: 11, lineHeight: 1.5, color: "var(--color-soft-text)" }}>{context}</p>
       </div>
       <div
         role="status"
@@ -58,7 +54,7 @@ export function HowToPlayCard({
           boxShadow: "var(--shadow-z1)",
         }}
       >
-        <span style={{ width: 6, height: 6, borderRadius: 999, background: "var(--color-dimmer)", flex: "none" }} />
+        <Dot color="var(--color-dimmer)" />
         <div style={{ fontSize: 9.5, lineHeight: 1.4, color: "var(--color-dim)" }}>{guidance}</div>
       </div>
     </div>

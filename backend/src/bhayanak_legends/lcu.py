@@ -73,6 +73,8 @@ from typing import Any, Protocol
 
 import httpx
 
+from .live_features import DataDragonCatalog
+
 log = logging.getLogger("bhayanak_legends.lcu")
 
 GAMEFLOW_PHASE_PATH = "/lol-gameflow/v1/gameflow-phase"
@@ -81,8 +83,10 @@ CURRENT_SUMMONER_PATH = "/lol-summoner/v1/current-summoner"
 LIVE_CLIENT_DATA_URL = "https://127.0.0.1:2999/liveclientdata/allgamedata"
 DD_VERSIONS_URL = "https://ddragon.leagueoflegends.com/api/versions.json"
 DD_CHAMPIONS_URL = "https://ddragon.leagueoflegends.com/cdn/{version}/data/en_US/champion.json"
+DD_ITEMS_URL = "https://ddragon.leagueoflegends.com/cdn/{version}/data/en_US/item.json"
 
 DAY_S = 86_400
+
 
 _UNREACHABLE = (httpx.ConnectError, httpx.ConnectTimeout, httpx.TimeoutException)
 
@@ -285,6 +289,22 @@ async def _fetch_champions_default(version: str) -> dict[str, Any]:
         return response.json()
 
 
+async def _fetch_items_default(version: str) -> dict[str, Any]:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as client:
+        response = await client.get(DD_ITEMS_URL.format(version=version))
+        response.raise_for_status()
+        return response.json()
+
+
+def _patch_key(value: object) -> tuple[int, int] | None:
+    if not isinstance(value, str):
+        return None
+    parts = value.strip().split(".")
+    if len(parts) < 2 or not parts[0].isdigit() or not parts[1].isdigit():
+        return None
+    return int(parts[0]), int(parts[1])
+
+
 class ChampionDirectory:
     """Champion id→name map: memory cache, disk cache under data_dir/ddragon.json
     refreshed daily; every failure degrades to an empty map (UI shows
@@ -349,3 +369,48 @@ class ChampionDirectory:
         self._write_disk(champions)
         self._memory = champions
         return self._memory
+
+
+class DataDragonCatalogProvider:
+    """Resolve immutable item costs from the Data Dragon patch in a snapshot.
+
+    The provider is deliberately injected into the live feature adapter.  It
+    caches only successful, patch-keyed catalogs and never substitutes the
+    latest or a stale catalog when the requested patch is unavailable.
+    """
+
+    def __init__(self, *, fetch_versions=None, fetch_items=None) -> None:
+        self._fetch_versions = fetch_versions or _fetch_versions_default
+        self._fetch_items = fetch_items or _fetch_items_default
+        self._memory: dict[tuple[int, int], DataDragonCatalog] = {}
+
+    async def get(self, patch: str | None) -> DataDragonCatalog | None:
+        patch_key = _patch_key(patch)
+        if patch_key is None:
+            return None
+        cached = self._memory.get(patch_key)
+        if cached is not None:
+            return cached
+        try:
+            versions = await self._fetch_versions()
+            if not isinstance(versions, list):
+                return None
+            version = next(
+                (
+                    candidate
+                    for candidate in versions
+                    if isinstance(candidate, str) and _patch_key(candidate) == patch_key
+                ),
+                None,
+            )
+            if version is None:
+                return None
+            payload = await self._fetch_items(version)
+            catalog = DataDragonCatalog.from_payload(version, payload)
+        except Exception as exc:
+            log.warning("version-matched ddragon item fetch failed (%s)", exc)
+            return None
+        if not catalog.item_costs or not catalog.matches_patch(patch):
+            return None
+        self._memory[patch_key] = catalog
+        return catalog
