@@ -1,0 +1,70 @@
+{
+  "schema_version": "loltrends-parity-v2-fixture-v1",
+  "feature_contract_version": "loltrends-parity-v2",
+  "local_puuid": "fixture-puuid-15",
+  "local_participant_id": 1,
+  "participants": [
+    {"participantId": 1, "puuid": "fixture-puuid-15", "teamId": 100, "teamPosition": "TOP"},
+    {"participantId": 2, "puuid": "fixture-puuid-07", "teamId": 100, "teamPosition": "JUNGLE"},
+    {"participantId": 3, "puuid": "fixture-puuid-08", "teamId": 100, "teamPosition": "MIDDLE"},
+    {"participantId": 4, "puuid": "fixture-puuid-09", "teamId": 100, "teamPosition": "BOTTOM"},
+    {"participantId": 5, "puuid": "fixture-puuid-10", "teamId": 100, "teamPosition": "UTILITY"},
+    {"participantId": 6, "puuid": "fixture-puuid-11", "teamId": 200, "teamPosition": "TOP"},
+    {"participantId": 7, "puuid": "fixture-puuid-12", "teamId": 200, "teamPosition": "JUNGLE"},
+    {"participantId": 8, "puuid": "fixture-puuid-13", "teamId": 200, "teamPosition": "MIDDLE"},
+    {"participantId": 9, "puuid": "fixture-puuid-14", "teamId": 200, "teamPosition": "BOTTOM"},
+    {"participantId": 10, "puuid": "fixture-puuid-06", "teamId": 200, "teamPosition": "UTILITY"}
+  ],
+  "defaults": {
+    "position": [5000, 5000],
+    "enemy_position": [13000, 13000],
+    "total_gold": [1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000],
+    "minions_killed": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "jungle_minions_killed": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "levels": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+  },
+  "cases": {
+    "regular": {
+      "frames": [
+        {"timestamp_ms": 0}, {"timestamp_ms": 60000}, {"timestamp_ms": 120000}, {"timestamp_ms": 180000},
+        {"timestamp_ms": 240000}, {"timestamp_ms": 300000}, {"timestamp_ms": 360000}, {"timestamp_ms": 420000},
+        {"timestamp_ms": 480000}, {"timestamp_ms": 540000},
+        {"timestamp_ms": 600000, "local_position": [600, 600], "local_current_gold": 400, "total_gold": [1100, 900, 1000, 1000, 900, 900, 1000, 1000, 900, 1000], "minions_killed": [24, 0, 0, 0, 0, 0, 0, 0, 0, 0], "jungle_minions_killed": [1, 0, 0, 0, 0, 0, 0, 0, 0, 0], "levels": [5, 1, 1, 1, 1, 1, 1, 1, 1, 1]},
+        {"timestamp_ms": 660000, "local_position": [600, 600]}, {"timestamp_ms": 720000}, {"timestamp_ms": 780000},
+        {"timestamp_ms": 840000}, {"timestamp_ms": 900000, "total_gold": [1500, 1300, 1400, 1350, 1250, 1400, 1350, 1300, 1250, 1200]}, {"timestamp_ms": 960000}, {"timestamp_ms": 1020000},
+        {"timestamp_ms": 1080000, "local_position": [600, 600], "local_current_gold": 700}, {"timestamp_ms": 1140000, "local_position": [600, 600]},
+        {"timestamp_ms": 1200000, "total_gold": [1500, 1300, 1400, 1350, 1250, 1400, 1350, 1300, 1250, 1200]}
+      ],
+      "expected": {"cs10": 25, "level10": 5, "gold_diff_10": 100, "team_gold_diff_15m": 300, "observed_through_s": 1200, "recalls": 2, "median_recall_minute": 14, "avg_banked_gold_at_recall": 550, "recalls_before_15m": 1, "recalls_before_20m": 2, "avg_banked_gold_at_recall_by_15m": 400, "avg_banked_gold_at_recall_by_20m": 550, "unseen_recall_share_by_15m": 1, "unseen_recall_share_by_20m": 1}
+    },
+    "irregular": {
+      "frames": [
+        {"timestamp_ms": 0}, {"timestamp_ms": 120000}, {"timestamp_ms": 60000}, {"timestamp_ms": 540000},
+        {"timestamp_ms": 600000, "local_position": [600, 600], "local_current_gold": 400, "total_gold": [1100, 900, 1000, 1000, 900, 900, 1000, 1000, 900, 1000], "minions_killed": [24, 0, 0, 0, 0, 0, 0, 0, 0, 0], "jungle_minions_killed": [1, 0, 0, 0, 0, 0, 0, 0, 0, 0], "levels": [5, 1, 1, 1, 1, 1, 1, 1, 1, 1]},
+        {"timestamp_ms": 660000, "local_position": [600, 600]}, {"timestamp_ms": 780000}, {"timestamp_ms": 900000, "total_gold": [1500, 1300, 1400, 1350, 1250, 1400, 1350, 1300, 1250, 1200]},
+        {"timestamp_ms": 960000}, {"timestamp_ms": 1020000}, {"timestamp_ms": 1080000, "local_position": [600, 600], "local_current_gold": 700},
+        {"timestamp_ms": 1140000, "local_position": [600, 600]}, {"timestamp_ms": 1200000, "total_gold": [1500, 1300, 1400, 1350, 1250, 1400, 1350, 1300, 1250, 1200]}
+      ],
+      "expected": {"cs10": 25, "level10": 5, "gold_diff_10": 100, "team_gold_diff_15m": 300, "observed_through_s": 1200, "recalls": 2, "median_recall_minute": 14, "avg_banked_gold_at_recall": 550, "recalls_before_15m": 1, "recalls_before_20m": 2, "avg_banked_gold_at_recall_by_15m": 400, "avg_banked_gold_at_recall_by_20m": 550, "unseen_recall_share_by_15m": 1, "unseen_recall_share_by_20m": 1}
+    },
+    "missing_events": {
+      "frames": [{"timestamp_ms": 0}, {"timestamp_ms": 600000, "local_position": [600, 600], "local_current_gold": 400}, {"timestamp_ms": 1200000}],
+      "omit_events_at_ms": [600000],
+      "expected": {"cs10": 0, "level10": 1, "gold_diff_10": 0, "team_gold_diff_15m": 0, "observed_through_s": 1200, "recalls": null, "recalls_before_15m": null, "recalls_before_20m": null, "avg_banked_gold_at_recall_by_15m": null, "avg_banked_gold_at_recall_by_20m": null, "unseen_recall_share_by_15m": null, "unseen_recall_share_by_20m": null}
+    },
+    "too_short": {
+      "frames": [{"timestamp_ms": 0}, {"timestamp_ms": 540000}],
+      "expected": {"cs10": null, "level10": null, "gold_diff_10": null, "team_gold_diff_15m": null, "observed_through_s": 540, "recalls": null, "recalls_before_15m": null, "recalls_before_20m": null, "avg_banked_gold_at_recall_by_15m": null, "avg_banked_gold_at_recall_by_20m": null, "unseen_recall_share_by_15m": null, "unseen_recall_share_by_20m": null}
+    },
+    "recall_purchase_ambiguous": {
+      "base_case": "regular",
+      "events_at_ms": {"600000": [{"type": "ITEM_PURCHASED", "participantId": 1}]},
+      "expected": {"recalls": 2, "recalls_before_15m": 1, "recalls_before_20m": 2, "avg_banked_gold_at_recall": null, "avg_banked_gold_at_recall_by_15m": null, "avg_banked_gold_at_recall_by_20m": null, "unseen_recall_share_by_15m": 1, "unseen_recall_share_by_20m": 1}
+    },
+    "recall_visibility_unknown": {
+      "base_case": "regular",
+      "omit_participant_position_at_ms": {"600000": [6]},
+      "expected": {"recalls": 2, "avg_banked_gold_at_recall": 550, "avg_banked_gold_at_recall_by_15m": 400, "avg_banked_gold_at_recall_by_20m": 550, "unseen_recall_share_by_15m": null, "unseen_recall_share_by_20m": null}
+    }
+  }
+}

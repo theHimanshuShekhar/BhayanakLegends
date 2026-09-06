@@ -259,18 +259,19 @@ def _checkpoint_values(
         ten_frame = _frame_at_or_before(timeline, TEN_MINUTE_MS)
         mine = _snapshot(ten_frame, participant_id)
         if mine is not None:
-            minions = _number(mine.get("minionsKilled", 0))
-            jungle_minions = _number(mine.get("jungleMinionsKilled", 0))
-            if (
-                minions is not None
-                and jungle_minions is not None
-                and minions >= 0
-                and jungle_minions >= 0
-            ):
+            minions = _number(mine.get("minionsKilled"))
+            jungle_minions = _number(mine.get("jungleMinionsKilled"))
+            if minions is None:
+                minions = 0.0
+            if jungle_minions is None:
+                jungle_minions = 0.0
+            if minions >= 0 and jungle_minions >= 0:
                 values["cs10"] = int(minions + jungle_minions)
 
-            level = _number(mine.get("level", 0))
-            if level is not None and level >= 0:
+            level = _number(mine.get("level"))
+            if level is None:
+                level = 0.0
+            if level >= 0:
                 values["level10"] = int(level)
 
             gold = _number(mine.get("totalGold"))

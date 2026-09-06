@@ -7,7 +7,7 @@ frontend crashes, so response models reject unknown states and shapes.
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, FiniteFloat
 
 
 
@@ -182,6 +182,28 @@ class InsightWindow(ContractModel):
     completeness: InsightWindowCompleteness
 
 
+HistoryFeatureStatus = Literal["available", "insufficient-sample", "unavailable"]
+
+
+class HistoryFeatureInsight(ContractModel):
+    feature_key: str = Field(min_length=1)
+    current_value: FiniteFloat | None = None
+    role_baseline: FiniteFloat | None = None
+    delta: FiniteFloat | None = None
+    sample_size: int = Field(ge=0)
+    status: HistoryFeatureStatus
+    caveat: str = Field(min_length=1)
+
+
+class HistoryFeatureTrajectoryPoint(ContractModel):
+    feature_key: str = Field(min_length=1)
+    played_at: str = Field(min_length=1)
+    value: FiniteFloat | None = None
+    sample_size: int = Field(ge=0)
+    status: HistoryFeatureStatus
+    caveat: str = Field(min_length=1)
+
+
 class HistoryInsights(ContractModel):
     state: InsightState
     sample_size: int = Field(ge=0)
@@ -191,7 +213,8 @@ class HistoryInsights(ContractModel):
     windows: dict[Literal["latest", "preceding"], InsightWindow]
     feature_contract_version: str | None = None
     feature_contract_status: Literal["available", "mixed", "unavailable"] = "unavailable"
-
+    feature_insights: list[HistoryFeatureInsight] = Field(default_factory=list)
+    feature_trajectories: list[HistoryFeatureTrajectoryPoint] = Field(default_factory=list)
 
 class TeamState(ContractModel):
     feature: Literal["team_gold_diff_15m"] = "team_gold_diff_15m"
