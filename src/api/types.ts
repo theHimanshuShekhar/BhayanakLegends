@@ -113,7 +113,7 @@ export interface HistoryInsights {
   filters: { role: Role | null; champion: string | null };
   roles: RoleInsight[];
   champions: ChampionInsight[];
-  windows: unknown;
+  windows: { latest: InsightWindow; preceding: InsightWindow };
   feature_contract_version: string | null;
   feature_contract_status: "available" | "mixed" | "unavailable";
 }
