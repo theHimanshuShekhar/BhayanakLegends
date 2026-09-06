@@ -106,6 +106,7 @@ def create_app(
     config: SidecarConfig | None = None,
     *,
     credential_store: CredentialBackend | None = None,
+    live_feature_provider=None,
 ) -> FastAPI:
     config = config or SidecarConfig()
     data_dir = config.resolved_data_dir()
@@ -184,17 +185,28 @@ def create_app(
         )
     )
     if LiveService is None:
+        app.state.live_feature_provider = None
         app.state.live_service = None
     else:
-        from .lcu import ChampionDirectory, HttpxIngameTransport, HttpxLcuConnection
+        from .lcu import (
+            ChampionDirectory,
+            DataDragonCatalogProvider,
+            HttpxIngameTransport,
+            HttpxLcuConnection,
+        )
+        from .live_features import LiveWpFeatureProvider
 
         champions = ChampionDirectory(data_dir / "ddragon")
+        item_catalogs = DataDragonCatalogProvider()
+        resolved_feature_provider = live_feature_provider or LiveWpFeatureProvider(item_catalogs)
+        app.state.live_feature_provider = resolved_feature_provider
         app.state.live_service = LiveService(
             HttpxLcuConnection(config.lcu_lockfile),
             HttpxIngameTransport(config.live_client_data_url),
             hub,
             champion_names=champions.get,
             inference=app.state.inference_runtime,
+            feature_provider=resolved_feature_provider,
         )
 
     app.add_middleware(TokenAuthMiddleware, token=config.token)

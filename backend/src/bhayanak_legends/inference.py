@@ -10,6 +10,7 @@ from typing import Any
 from .models import LiveInference, WhatIfResponse
 from .pack import PackError, PackStore
 from .pack_v2 import FindingsPackV2
+from .live_features import FEATURE_ORDER, LIVE_WP_CONTRACT_VERSION, LiveFeatureVector
 
 
 class InferenceRuntime:
@@ -63,13 +64,24 @@ class InferenceRuntime:
     def _patch_in_scope(patch: str | None, patch_range: Any) -> bool:
         if patch is None:
             return True
-        try:
-            candidate = tuple(int(part) for part in patch.split("."))
-            minimum = tuple(int(part) for part in patch_range.min.split("."))
-            maximum = tuple(int(part) for part in patch_range.max.split("."))
-        except (AttributeError, TypeError, ValueError):
-            return False
-        return minimum <= candidate <= maximum
+
+        def patch_key(value: object) -> tuple[int, int] | None:
+            if not isinstance(value, str):
+                return None
+            parts = value.strip().split(".")
+            if len(parts) < 2 or not parts[0].isdigit() or not parts[1].isdigit():
+                return None
+            return int(parts[0]), int(parts[1])
+
+        candidate = patch_key(patch)
+        minimum = patch_key(getattr(patch_range, "min", None))
+        maximum = patch_key(getattr(patch_range, "max", None))
+        return (
+            candidate is not None
+            and minimum is not None
+            and maximum is not None
+            and minimum <= candidate <= maximum
+        )
 
     def _session(self, model_key: str, declaration: Any, root: Path) -> tuple[object, object]:
         cached = self._sessions.get(model_key)
@@ -250,13 +262,7 @@ class InferenceRuntime:
         observed_game_time_s: float | None = None,
         feature_provider=None,
     ) -> LiveInference:
-        """Evaluate a live snapshot only through an exact injected adapter.
-
-        The default path deliberately has no adapter: official live payloads
-        lack the feature-contract patch/item metadata needed to prove parity.
-        A production caller may inject the registry adapter; arbitrary raw
-        payload fields are never treated as model features.
-        """
+        """Evaluate one exact, typed Live WP vector from an injected adapter."""
         if feature_provider is None or not isinstance(snapshot, Mapping):
             return LiveInference(
                 status="suppressed",
@@ -271,20 +277,51 @@ class InferenceRuntime:
                 observed_game_time_s=observed_game_time_s,
                 reason="live feature extraction failed",
             )
-        if not isinstance(vector, Mapping):
+        if vector is None:
             return LiveInference(
                 status="suppressed",
                 observed_game_time_s=observed_game_time_s,
                 reason="live feature vector unavailable",
             )
-        game_data = snapshot.get("gameData")
-        patch = game_data.get("gameVersion") if isinstance(game_data, Mapping) else None
+        if not isinstance(vector, LiveFeatureVector):
+            return LiveInference(
+                status="suppressed",
+                observed_game_time_s=observed_game_time_s,
+                reason="live feature vector has no typed contract",
+            )
+        if vector.contract_version != LIVE_WP_CONTRACT_VERSION:
+            return LiveInference(
+                status="incompatible",
+                observed_game_time_s=observed_game_time_s,
+                reason="live feature contract is incompatible",
+            )
+
+        def patch_key(value: object) -> tuple[int, int] | None:
+            if not isinstance(value, str):
+                return None
+            parts = value.strip().split(".")
+            if len(parts) < 2 or not parts[0].isdigit() or not parts[1].isdigit():
+                return None
+            return int(parts[0]), int(parts[1])
+
+        if patch_key(vector.patch) != patch_key(vector.data_dragon_version):
+            return LiveInference(
+                status="incompatible",
+                observed_game_time_s=observed_game_time_s,
+                reason="live patch and Data Dragon versions are incompatible",
+            )
+        values = dict(zip(FEATURE_ORDER, vector.values, strict=True))
         return self.predict(
             "live_wp",
-            vector,
-            patch=patch if isinstance(patch, str) else None,
-            observed_game_time_s=observed_game_time_s,
+            values,
+            patch=vector.patch,
+            observed_game_time_s=(
+                observed_game_time_s
+                if observed_game_time_s is not None
+                else vector.observed_at_s
+            ),
         )
+
     def what_if_from_personal_features(
         self,
         adjustments: Mapping[str, object],

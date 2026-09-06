@@ -22,6 +22,7 @@ import contextlib
 import inspect
 import logging
 import math
+import time
 from typing import get_args
 
 from pydantic import BaseModel, Field
@@ -417,7 +418,8 @@ class LiveService:
     ``LiveService(lcu, ingame, hub, poll_interval)`` where both transports
     satisfy the protocols in :mod:`bhayanak_legends.lcu`. ``champion_names``
     may be a ready ``{id: name}`` dict or a (possibly async) zero-arg callable
-    returning one (production passes ChampionDirectory.get).
+    returning one (production passes ChampionDirectory.get).  The optional
+    feature provider prepares one exact adapter before the runtime is called.
     """
 
     def __init__(
@@ -428,6 +430,7 @@ class LiveService:
         poll_interval: float = 2.0,
         champion_names=None,
         inference=None,
+        feature_provider=None,
     ) -> None:
         self._lcu = lcu
         self._ingame = ingame
@@ -435,6 +438,7 @@ class LiveService:
         self._interval_s = poll_interval
         self._names_source = champion_names
         self._inference = inference
+        self._feature_provider = feature_provider
         self._task: asyncio.Task | None = None
         self._session_dump: dict | None = None
         self._ingame_dump: dict | None = None
@@ -480,7 +484,7 @@ class LiveService:
             ),
             last_error=last_error,
         )
-    def _live_inference(self, raw_game: dict | None, clock_s: float) -> LiveInference:
+    async def _live_inference(self, raw_game: dict | None, clock_s: float) -> LiveInference:
         if self._inference is None:
             return LiveInference(
                 status="suppressed",
@@ -494,8 +498,44 @@ class LiveService:
                 observed_game_time_s=clock_s,
                 reason="exact live feature adapter unavailable",
             )
+
+        feature_provider = self._feature_provider
+        if feature_provider is None:
+            return LiveInference(
+                status="suppressed",
+                observed_game_time_s=clock_s,
+                reason="exact live feature adapter unavailable",
+            )
+        prepare = getattr(feature_provider, "prepare", None)
+        if prepare is not None:
+            capture_s = time.time()
+            try:
+                feature_provider = prepare(
+                    raw_game,
+                    observed_at_s=capture_s,
+                    now_s=capture_s,
+                )
+                if inspect.isawaitable(feature_provider):
+                    feature_provider = await feature_provider
+            except Exception:
+                feature_provider = None
+            if feature_provider is None:
+                reason = getattr(
+                    self._feature_provider,
+                    "last_reason",
+                    None,
+                ) or "exact live feature adapter unavailable"
+                return LiveInference(
+                    status="suppressed",
+                    observed_game_time_s=clock_s,
+                    reason=reason,
+                )
         try:
-            result = predictor(raw_game, observed_game_time_s=clock_s)
+            result = predictor(
+                raw_game,
+                observed_game_time_s=clock_s,
+                feature_provider=feature_provider,
+            )
             if isinstance(result, LiveInference):
                 return result
             if isinstance(result, dict):
@@ -552,7 +592,7 @@ class LiveService:
                         clock_value = 0.0
             ingame, self._game_id = build_ingame_snapshot(
                 raw_game,
-                inference=self._live_inference(raw_game, clock_value),
+                inference=await self._live_inference(raw_game, clock_value),
             )
         else:
             self._game_id = None

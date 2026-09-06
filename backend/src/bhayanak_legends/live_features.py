@@ -15,8 +15,9 @@ training/live parity boundary consumed later by the model runtime.
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+import inspect
 import math
 from typing import Any, Final
 
@@ -255,6 +256,82 @@ class LiveFeatureVector:
             "data_dragon_version": self.data_dragon_version,
             "features": dict(zip(FEATURE_ORDER, self.values, strict=True)),
         }
+
+
+class LiveWpFeatureProvider:
+    """Prepare one exact, version-matched Live WP adapter for a snapshot.
+
+    Data Dragon retrieval happens before the inference call and is cached by
+    the injected provider.  The returned callable is pure for the captured
+    snapshot context, so model prediction never performs network or catalog
+    lookup work.
+    """
+
+    def __init__(
+        self,
+        catalog_provider,
+        *,
+        patch_provider: Callable[[Mapping[str, Any]], str | None] | None = None,
+    ) -> None:
+        self._catalog_provider = catalog_provider
+        self._patch_provider = patch_provider or self._snapshot_patch
+        self.last_reason: str | None = None
+
+    @staticmethod
+    def _snapshot_patch(snapshot: Mapping[str, Any]) -> str | None:
+        game_data = snapshot.get("gameData")
+        candidates: list[object] = []
+        if isinstance(game_data, Mapping):
+            candidates.extend((game_data.get("gameVersion"), game_data.get("patch")))
+        candidates.append(snapshot.get("patch"))
+        for candidate in candidates:
+            if isinstance(candidate, str) and _patch_key(candidate) is not None:
+                return candidate.strip()
+        return None
+
+    async def prepare(
+        self,
+        snapshot: Mapping[str, Any] | None,
+        *,
+        observed_at_s: float | None = None,
+        now_s: float | None = None,
+    ) -> Callable[[Mapping[str, Any]], LiveFeatureVector | None] | None:
+        self.last_reason = None
+        if not isinstance(snapshot, Mapping):
+            self.last_reason = "live snapshot unavailable"
+            return None
+        patch = self._patch_provider(snapshot)
+        if not isinstance(patch, str) or _patch_key(patch) is None:
+            self.last_reason = "live patch unavailable"
+            return None
+        try:
+            catalog = self._catalog_provider.get(patch)
+            if inspect.isawaitable(catalog):
+                catalog = await catalog
+        except Exception:
+            self.last_reason = "version-matched Data Dragon item catalog unavailable"
+            return None
+        if not isinstance(catalog, DataDragonCatalog) or not catalog.matches_patch(patch):
+            self.last_reason = "version-matched Data Dragon item catalog unavailable"
+            return None
+
+        capture_override = observed_at_s
+        if any(
+            key in snapshot
+            for key in ("observed_at_s", "observedAtS", "captured_at_s")
+        ):
+            capture_override = None
+
+        def adapt(candidate: Mapping[str, Any]) -> LiveFeatureVector | None:
+            return adapt_live_client_state(
+                candidate,
+                patch,
+                catalog,
+                observed_at_s=capture_override,
+                now_s=now_s,
+            )
+
+        return adapt
 
 
 _ELITE_TO_FEATURE: Final[dict[str, str]] = {
@@ -781,6 +858,7 @@ __all__ = [
     "LiveFeatureDefinition",
     "LiveFeatureRegistry",
     "LiveFeatureVector",
+    "LiveWpFeatureProvider",
     "MAX_CAPTURE_AGE_S",
     "TIMELINE_FRAME_INTERVAL_S",
     "adapt_live_client_state",
