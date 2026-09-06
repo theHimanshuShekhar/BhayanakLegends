@@ -8,13 +8,24 @@ for a missing sample.
 
 from __future__ import annotations
 
+import json
+import math
+import statistics
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from typing import Any, Literal
 
+from .extract_v2 import PARITY_V2_VERSION
+
 Role = Literal["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY", "UNKNOWN"]
-ProfileSampleStatus = Literal["insufficient", "review"]
-WindowCompleteness = Literal["full", "partial", "unavailable"]
+FeatureStatus = Literal["available", "insufficient-sample", "unavailable"]
+FeatureKey = Literal[
+    "unseen_recall_share_by_15m",
+    "avg_banked_gold_at_recall_by_15m",
+    "early_fight_participation_rate",
+    "first_dragon_by_20m_s",
+    "plates_taken_by_14m",
+]
 
 ROLE_ORDER: tuple[Role, ...] = (
     "TOP",
@@ -26,6 +37,152 @@ ROLE_ORDER: tuple[Role, ...] = (
 )
 WINDOW_SIZE = 50
 MIN_REVIEW_SAMPLE = 5
+FEATURE_KEYS: tuple[FeatureKey, ...] = (
+    "unseen_recall_share_by_15m",
+    "avg_banked_gold_at_recall_by_15m",
+    "early_fight_participation_rate",
+    "first_dragon_by_20m_s",
+    "plates_taken_by_14m",
+)
+FEATURE_CAVEATS: dict[FeatureKey, str] = {
+    "unseen_recall_share_by_15m": (
+        "Descriptive recall-visibility association; not a causal recommendation."
+    ),
+    "avg_banked_gold_at_recall_by_15m": (
+        "Descriptive banked-gold association; not a causal recommendation."
+    ),
+    "early_fight_participation_rate": (
+        "Descriptive participation association; not a causal recommendation."
+    ),
+    "first_dragon_by_20m_s": (
+        "Timing association only; possession and denial are separate objective measures."
+    ),
+    "plates_taken_by_14m": (
+        "Weak, era-sensitive diagnostic association; not a causal recommendation."
+    ),
+}
+MIN_FEATURE_BASELINE_SAMPLE = 5
+
+
+def _feature_values(row: Mapping[str, Any], feature_key: FeatureKey) -> tuple[float | None, str]:
+    """Read one value only from a declared, nested parity-v2 payload."""
+    raw_payload = row.get("features_json")
+    payload: Mapping[str, Any] | None = None
+    if isinstance(raw_payload, Mapping):
+        payload = raw_payload
+    elif isinstance(raw_payload, str) and raw_payload.strip():
+        try:
+            decoded = json.loads(raw_payload)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            decoded = None
+        if isinstance(decoded, Mapping):
+            payload = decoded
+    if payload is None:
+        return None, (
+            "Observation unavailable: the persisted row has no readable "
+            f"{PARITY_V2_VERSION} feature payload. {FEATURE_CAVEATS[feature_key]}"
+        )
+    if payload.get("feature_contract_version") != PARITY_V2_VERSION:
+        return None, (
+            "Observation unavailable: the persisted row does not declare "
+            f"{PARITY_V2_VERSION}. {FEATURE_CAVEATS[feature_key]}"
+        )
+    nested = payload.get("features")
+    if not isinstance(nested, Mapping):
+        return None, (
+            "Observation unavailable: the persisted row has no nested feature "
+            f"values. {FEATURE_CAVEATS[feature_key]}"
+        )
+    value = nested.get(feature_key)
+    if not _finite_number(value):
+        return None, (
+            "Observation unavailable in the required feature window. "
+            f"{FEATURE_CAVEATS[feature_key]}"
+        )
+    return float(value), FEATURE_CAVEATS[feature_key]
+
+
+def _finite_number(value: object) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+    )
+
+
+def aggregate_feature_insights(
+    rows: Iterable[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Compare the latest filtered match with prior same-role observations."""
+    ordered = sorted(rows, key=_match_sort_key)
+    if not ordered:
+        return []
+    current_row = ordered[-1]
+    current_role = _role(current_row.get("role"))
+    prior_rows = ordered[:-1]
+    result: list[dict[str, Any]] = []
+    for feature_key in FEATURE_KEYS:
+        current_value, current_caveat = _feature_values(current_row, feature_key)
+        baseline_values = [
+            value
+            for row in prior_rows
+            if _role(row.get("role")) == current_role
+            for value, _ in [_feature_values(row, feature_key)]
+            if value is not None
+        ]
+        sample_size = len(baseline_values)
+        if current_value is None:
+            status: FeatureStatus = "unavailable"
+            role_baseline = None
+            delta = None
+            caveat = current_caveat
+        elif sample_size < MIN_FEATURE_BASELINE_SAMPLE:
+            status = "insufficient-sample"
+            role_baseline = None
+            delta = None
+            caveat = (
+                f"Insufficient matching-role prior observations ({sample_size}; "
+                f"{MIN_FEATURE_BASELINE_SAMPLE} required). {current_caveat}"
+            )
+        else:
+            role_baseline = statistics.fmean(baseline_values)
+            delta = current_value - role_baseline
+            status = "available"
+            caveat = current_caveat
+        result.append(
+            {
+                "feature_key": feature_key,
+                "current_value": current_value,
+                "role_baseline": role_baseline,
+                "delta": delta,
+                "sample_size": sample_size,
+                "status": status,
+                "caveat": caveat,
+            }
+        )
+    return result
+
+
+def aggregate_feature_trajectories(
+    rows: Iterable[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Emit one explicit observation point for every filtered match and key."""
+    ordered = sorted(rows, key=_match_sort_key)
+    result: list[dict[str, Any]] = []
+    for feature_key in FEATURE_KEYS:
+        for row in ordered:
+            value, caveat = _feature_values(row, feature_key)
+            result.append(
+                {
+                    "feature_key": feature_key,
+                    "played_at": _played_at(row.get("played_at")),
+                    "value": value,
+                    "sample_size": 1 if value is not None else 0,
+                    "status": "available" if value is not None else "unavailable",
+                    "caveat": caveat,
+                }
+            )
+    return result
 
 
 def _role(value: object) -> Role:
@@ -217,4 +374,6 @@ def aggregate_insights(
             "latest": _window("latest", latest_rows),
             "preceding": _window("preceding", preceding_rows),
         },
+        "feature_insights": aggregate_feature_insights(ordered),
+        "feature_trajectories": aggregate_feature_trajectories(ordered),
     }

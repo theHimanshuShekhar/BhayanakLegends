@@ -80,7 +80,7 @@ function statusColor(status: HistoryFeatureStatus): string {
 
 function FeatureInsightRow({ row }: { row: HistoryFeatureInsight }) {
   const label = labelFor(row.feature_key);
-  const current = row.status === "available" && row.current_value != null
+  const current = row.current_value != null
     ? formatValue(row.feature_key, row.current_value)
     : null;
   const roleReference = row.status === "available" && row.role_baseline != null
