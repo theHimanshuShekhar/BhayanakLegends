@@ -201,6 +201,21 @@ def ts_type_for(schema: dict[str, Any]) -> str:
     if kind == "array":
         items = schema.get("items") or {}
         return f"Array<{ts_type_for(items)}>"
+    if kind == "object":
+        properties = schema.get("properties")
+        if isinstance(properties, dict) and properties:
+            required = set(schema.get("required", []))
+            fields = [
+                f"{name}{'' if name in required else '?'}: {ts_type_for(value)};"
+                for name, value in properties.items()
+            ]
+            return "{ " + " ".join(fields) + " }"
+        additional = schema.get("additionalProperties")
+        if isinstance(additional, dict):
+            return f"Record<string, {ts_type_for(additional)}>"
+        if additional is True:
+            return "Record<string, unknown>"
+        return "Record<string, unknown>"
     return "unknown"
 
 

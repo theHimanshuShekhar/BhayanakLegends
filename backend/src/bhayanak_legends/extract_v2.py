@@ -567,7 +567,7 @@ def parse_early_fight_features_v2(
         "early_fight_participation_rate": None,
         "early_fight_observation_status": EVENTS_UNUSABLE,
     }
-    if not _has_frame_at_or_after(timeline, EARLY_FIGHT_CUTOFF_MS):
+    if not _has_populated_frame_at_or_after(timeline, EARLY_FIGHT_CUTOFF_MS):
         return values
     status = _event_array_status(timeline)
     values["early_fight_observation_status"] = status
@@ -575,10 +575,15 @@ def parse_early_fight_features_v2(
         return values
 
     records, records_valid = _participant_records(participants)
-    valid_ids = set(records) if records_valid else None
-    kills = _kill_events(timeline)
-    groups = _fight_groups(kills)
-    early = [group for group in groups if group[0]["timestamp"] < EARLY_FIGHT_CUTOFF_MS]
+    if not records_valid or participant_id not in records:
+        return values
+    valid_ids = set(records)
+    kills = [
+        kill
+        for kill in _kill_events(timeline)
+        if kill["timestamp"] < EARLY_FIGHT_CUTOFF_MS
+    ]
+    early = _fight_groups(kills)
     if not early:
         values["early_fights_total"] = 0
         values["early_fights_participated"] = 0
@@ -622,8 +627,13 @@ def _objective_events(
             if monster != objective:
                 continue
             timestamp = _number(event.get("timestamp"))
+            if timestamp is None or timestamp < 0:
+                ambiguous = True
+                continue
+            if timestamp > TWENTY_MINUTE_MS:
+                continue
             team = _team_key(event.get("killerTeamId"))
-            if timestamp is None or timestamp < 0 or team is None:
+            if team is None:
                 ambiguous = True
                 continue
             events.append(
@@ -705,7 +715,10 @@ def _plate_events(timeline: Mapping[str, Any] | None) -> tuple[list[dict[str, An
             if not isinstance(event, Mapping) or event.get("type") != "TURRET_PLATE_DESTROYED":
                 continue
             timestamp = _number(event.get("timestamp"))
-            if timestamp is None or timestamp < 0 or timestamp > FOURTEEN_MINUTE_MS:
+            if timestamp is None or timestamp < 0:
+                ambiguous = True
+                continue
+            if timestamp > FOURTEEN_MINUTE_MS:
                 continue
             killer = _positive_id(event.get("killerId"))
             if killer is None:
@@ -732,7 +745,7 @@ def parse_plates_v2(
     participant_id: int,
     participants: list[dict[str, Any]] | None,
 ) -> int | None:
-    if not _has_frame_at_or_after(timeline, FOURTEEN_MINUTE_MS):
+    if not _has_populated_frame_at_or_after(timeline, FOURTEEN_MINUTE_MS):
         return None
     status = _event_array_status(timeline)
     if status in {EVENTS_MISSING, EVENTS_UNUSABLE}:
@@ -744,10 +757,24 @@ def parse_plates_v2(
     role = str(participant.get("teamPosition") or "").strip().upper()
     if role not in V2_LANE_ROLES:
         return None
+    local_team = _team_key(participant.get("teamId"))
+    if local_team is None:
+        return None
     events, ambiguous = _plate_events(timeline)
     if ambiguous:
         return None
-    return sum(event["killerId"] == participant_id for event in events)
+    for event in events:
+        if (
+            event["killerId"] == participant_id
+            and event["teamId"] is not None
+            and event["teamId"] != local_team
+        ):
+            return None
+    return sum(
+        event["killerId"] == participant_id
+        and event["teamId"] in (None, local_team)
+        for event in events
+    )
 
 
 def personal_history_eligibility(detail: Mapping[str, Any] | None) -> str:

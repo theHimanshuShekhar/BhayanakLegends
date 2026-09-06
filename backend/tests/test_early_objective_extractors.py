@@ -79,6 +79,15 @@ def test_early_fights_group_at_ten_seconds_and_stop_at_cutoff() -> None:
     assert result["early_fight_participation_rate"] == 0.0
 
 
+
+def test_early_fight_excludes_kill_at_exact_fourteen_minute_cutoff() -> None:
+    events = [kill(839_999, killer=OPPONENT_ID), kill(840_000, killer=LOCAL_ID)]
+
+    result = parse_early_fight_features_v2(timeline(events), LOCAL_ID, PARTICIPANTS)
+
+    assert result["early_fights_total"] == 1
+    assert result["early_fights_participated"] == 0
+
 def test_early_fight_duplicate_and_assist_attribution_are_deterministic() -> None:
     first = kill(120_000, killer=OPPONENT_ID)
     first["assistingParticipantIds"] = [LOCAL_ID, LOCAL_ID]
@@ -132,6 +141,16 @@ def test_plates_include_exact_fourteen_minute_event_once_and_only_lane_roles() -
     non_laner = [*PARTICIPANTS]
     non_laner[0] = {**non_laner[0], "teamPosition": "JUNGLE"}
     assert parse_plates_v2(timeline([plate(100_000)]), LOCAL_ID, non_laner) is None
+
+
+def test_plates_with_malformed_or_mismatched_team_attribution_are_unavailable() -> None:
+    mismatched = plate(100_000)
+    mismatched["teamId"] = 200
+    assert parse_plates_v2(timeline([mismatched]), LOCAL_ID, PARTICIPANTS) is None
+
+    malformed = plate(100_000)
+    malformed["timestamp"] = None
+    assert parse_plates_v2(timeline([malformed]), LOCAL_ID, PARTICIPANTS) is None
 
 
 def test_plates_short_or_unpopulated_fourteen_minute_window_is_unavailable() -> None:

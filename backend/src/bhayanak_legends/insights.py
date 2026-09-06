@@ -263,14 +263,24 @@ def _feature_contract_state(rows: Iterable[Mapping[str, Any]]) -> tuple[str | No
     versions: set[str] = set()
     for row in rows:
         version = row.get("feature_contract_version")
+        if not isinstance(version, str) or not version.strip():
+            features = row.get("features")
+            if isinstance(features, Mapping):
+                version = features.get("feature_contract_version")
+            raw_payload = row.get("features_json")
+            if (
+                (not isinstance(version, str) or not version.strip())
+                and isinstance(raw_payload, str)
+                and raw_payload.strip()
+            ):
+                try:
+                    decoded = json.loads(raw_payload)
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    decoded = None
+                if isinstance(decoded, Mapping):
+                    version = decoded.get("feature_contract_version")
         if isinstance(version, str) and version.strip():
             versions.add(version.strip())
-            continue
-        features = row.get("features")
-        if isinstance(features, Mapping):
-            nested = features.get("feature_contract_version")
-            if isinstance(nested, str) and nested.strip():
-                versions.add(nested.strip())
     if not versions:
         return None, "unavailable"
     if len(versions) == 1:

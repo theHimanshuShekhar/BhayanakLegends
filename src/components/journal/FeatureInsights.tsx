@@ -34,11 +34,16 @@ const FEATURE_LABELS: Record<HistoryFeatureKey, string> = {
   plates_taken_by_14m: "Turret plates taken by 14 minutes",
 };
 
-function labelFor(key: HistoryFeatureKey): string {
-  return FEATURE_LABELS[key] ?? key.replaceAll("_", " ");
+function labelFor(key: string): string {
+  return FEATURE_LABELS[key as HistoryFeatureKey] ?? key.replace(/_/g, " ");
 }
 
-function unitFor(key: HistoryFeatureKey): "share" | "gold" | "seconds" | "plates" | "count" {
+function featureRank(key: string): number {
+  const rank = FEATURE_ORDER.indexOf(key as HistoryFeatureKey);
+  return rank === -1 ? FEATURE_ORDER.length : rank;
+}
+
+function unitFor(key: string): "share" | "gold" | "seconds" | "plates" | "count" {
   if (key.includes("share") || key.includes("participation_rate")) return "share";
   if (key.includes("gold")) return "gold";
   if (key.endsWith("_s")) return "seconds";
@@ -46,7 +51,7 @@ function unitFor(key: HistoryFeatureKey): "share" | "gold" | "seconds" | "plates
   return "count";
 }
 
-function formatValue(key: HistoryFeatureKey, value: number): string {
+function formatValue(key: string, value: number): string {
   switch (unitFor(key)) {
     case "share":
       return formatRate(value);
@@ -61,7 +66,7 @@ function formatValue(key: HistoryFeatureKey, value: number): string {
   }
 }
 
-function formatDelta(key: HistoryFeatureKey, value: number): string {
+function formatDelta(key: string, value: number): string {
   const formatted = formatValue(key, Math.abs(value));
   return `${value < 0 ? "−" : "+"}${formatted}`;
 }
@@ -136,7 +141,7 @@ function FeatureTrajectory({
   featureKey,
   points,
 }: {
-  featureKey: HistoryFeatureKey;
+  featureKey: string;
   points: HistoryFeatureTrajectoryPoint[];
 }) {
   const available = points.filter((point) => point.status === "available" && point.value != null);
@@ -198,10 +203,10 @@ export function FeatureInsights({
   trajectories: HistoryFeatureTrajectoryPoint[];
 }) {
   const orderedInsights = [...insights].sort(
-    (left, right) => FEATURE_ORDER.indexOf(left.feature_key) - FEATURE_ORDER.indexOf(right.feature_key),
+    (left, right) => featureRank(left.feature_key) - featureRank(right.feature_key),
   );
   const keys = [...new Set(trajectories.map((point) => point.feature_key))].sort(
-    (left, right) => FEATURE_ORDER.indexOf(left) - FEATURE_ORDER.indexOf(right),
+    (left, right) => featureRank(left) - featureRank(right),
   );
   return (
     <section

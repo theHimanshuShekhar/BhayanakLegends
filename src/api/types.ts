@@ -113,7 +113,7 @@ export interface HistoryInsights {
   filters: { role: Role | null; champion: string | null };
   roles: RoleInsight[];
   champions: ChampionInsight[];
-  windows: { latest: InsightWindow; preceding: InsightWindow };
+  windows: Record<string, InsightWindow>;
   feature_contract_version: string | null;
   feature_contract_status: "available" | "mixed" | "unavailable";
   feature_insights: HistoryFeatureInsight[];
@@ -138,7 +138,7 @@ export type HistoryFeatureKey =
   | "early_fight_participation_rate"
   | "plates_taken_by_14m";
 export interface HistoryFeatureInsight {
-  feature_key: HistoryFeatureKey;
+  feature_key: string;
   current_value: number | null;
   role_baseline: number | null;
   delta: number | null;
@@ -147,7 +147,7 @@ export interface HistoryFeatureInsight {
   caveat: string;
 }
 export interface HistoryFeatureTrajectoryPoint {
-  feature_key: HistoryFeatureKey;
+  feature_key: string;
   played_at: string;
   value: number | null;
   sample_size: number;
@@ -206,7 +206,7 @@ export interface PostGameDigest {
   headline: string;
   feature_contract_version: string | null;
   personal_history_eligibility: "eligible" | "ineligible" | "unknown";
-  features: Partial<Record<HistoryFeatureKey, number | null>>;
+  features: Record<string, number | null>;
   team_state: TeamState | null;
 }
 
@@ -367,14 +367,14 @@ export type WhatIfStatus =
   | "error";
 
 export interface WhatIfRequest {
-  adjustments: unknown;
+  adjustments: Record<string, number>;
 }
 
 export interface WhatIfResponse {
   status: WhatIfStatus;
   probability: number | null;
   baseline_probability: number | null;
-  adjusted_features: unknown;
+  adjusted_features: Record<string, number> | null;
   model_version: string | null;
   pack_version: string | null;
   rejected_fields: string[];

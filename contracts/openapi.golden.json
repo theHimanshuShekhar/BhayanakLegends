@@ -533,6 +533,115 @@
         ],
         "type": "object"
       },
+      "HistoryFeatureInsight": {
+        "additionalProperties": false,
+        "properties": {
+          "caveat": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "current_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "delta": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "feature_key": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "role_baseline": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sample_size": {
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "available",
+              "insufficient-sample",
+              "unavailable"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "feature_key",
+          "sample_size",
+          "status",
+          "caveat"
+        ],
+        "type": "object"
+      },
+      "HistoryFeatureTrajectoryPoint": {
+        "additionalProperties": false,
+        "properties": {
+          "caveat": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "feature_key": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "played_at": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "sample_size": {
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "available",
+              "insufficient-sample",
+              "unavailable"
+            ],
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "feature_key",
+          "played_at",
+          "sample_size",
+          "status",
+          "caveat"
+        ],
+        "type": "object"
+      },
       "HistoryInsights": {
         "additionalProperties": false,
         "properties": {
@@ -559,6 +668,18 @@
                 "type": "null"
               }
             ]
+          },
+          "feature_insights": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryFeatureInsight"
+            },
+            "type": "array"
+          },
+          "feature_trajectories": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryFeatureTrajectoryPoint"
+            },
+            "type": "array"
           },
           "filters": {
             "$ref": "#/components/schemas/InsightFilters"
