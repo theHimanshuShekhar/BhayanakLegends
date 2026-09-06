@@ -242,7 +242,7 @@ function acceptSyncObservation(
   arbiter: SyncStatusArbiter,
   status: SyncStatus,
   token: SyncRequestToken,
-): SyncStatus {
+): SyncStatus | undefined {
   const ownerIsCurrent =
     token.ownerEpoch === arbiter.ownerEpoch &&
     token.ownerKey === arbiter.ownerKey &&
@@ -255,9 +255,9 @@ function acceptSyncObservation(
       ? arbiter.latest
       : undefined;
   if (!ownerIsCurrent || !observerIsCurrent || !sameSyncOwner(status, token.ownerKey, token.ownerGeneration)) {
-    return latest ?? status;
+    return latest;
   }
-  if (token.serial < arbiter.latestSerial) return latest ?? status;
+  if (token.serial < arbiter.latestSerial) return latest;
   arbiter.latestSerial = token.serial;
   arbiter.latest = status;
   queryClient.setQueryData(
@@ -265,6 +265,17 @@ function acceptSyncObservation(
     status,
   );
   return status;
+}
+
+function requireSyncObservation(
+  queryClient: QueryClient,
+  arbiter: SyncStatusArbiter,
+  status: SyncStatus,
+  token: SyncRequestToken,
+): SyncStatus {
+  const accepted = acceptSyncObservation(queryClient, arbiter, status, token);
+  if (!accepted) throw new SupersededSyncObservation();
+  return accepted;
 }
 
 function removeOwnerQueries(queryClient: QueryClient): void {
@@ -561,9 +572,9 @@ export function useStartSync() {
           status.generation,
           observerId,
         );
-        return acceptSyncObservation(qc, arbiter, status, transitionedToken);
+        return requireSyncObservation(qc, arbiter, status, transitionedToken);
       }
-      return acceptSyncObservation(qc, arbiter, status, token);
+      return requireSyncObservation(qc, arbiter, status, token);
     },
   });
 }
@@ -594,9 +605,9 @@ export function useCancelSync() {
           status.generation,
           observerId,
         );
-        return acceptSyncObservation(qc, arbiter, status, transitionedToken);
+        return requireSyncObservation(qc, arbiter, status, transitionedToken);
       }
-      return acceptSyncObservation(qc, arbiter, status, token);
+      return requireSyncObservation(qc, arbiter, status, token);
     },
   });
 }
@@ -645,10 +656,10 @@ export function useSyncStatus() {
           status.generation,
           observerId,
         );
-        acceptSyncObservation(qc, arbiter, status, transitionedToken);
+        requireSyncObservation(qc, arbiter, status, transitionedToken);
         throw new SupersededSyncObservation();
       }
-      return acceptSyncObservation(qc, arbiter, status, token);
+      return requireSyncObservation(qc, arbiter, status, token);
     },
     enabled: settings.data !== undefined,
     refetchInterval: 5_000,

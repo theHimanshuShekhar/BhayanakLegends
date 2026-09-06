@@ -430,11 +430,17 @@ describe("SyncPanel", () => {
     await waitFor(() => expect(api.syncStatus).toHaveBeenCalledTimes(1));
 
     vi.mocked(api.settings).mockResolvedValueOnce(nextSettings);
-    vi.mocked(api.syncStatus).mockResolvedValueOnce(nextIdle);
+    vi.mocked(api.syncStatus).mockResolvedValueOnce(running);
     await act(async () => {
       await queryClient.invalidateQueries({ queryKey: ["settings"] });
     });
     await waitFor(() => expect(screen.getByTestId("input-riot-id")).toHaveValue(nextSettings.riot_id));
+    await waitFor(() => expect(screen.queryByTestId("sync-progress")).toBeNull());
+
+    vi.mocked(api.syncStatus).mockResolvedValueOnce(nextIdle);
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["sync-status"] });
+    });
     await waitFor(() => expect(screen.getByTestId("sync-counters")).toHaveTextContent("0 / 0 matches"));
 
     await act(async () => {
