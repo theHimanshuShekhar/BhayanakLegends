@@ -123,7 +123,7 @@ test.describe("sync freshness browser evidence", () => {
       await mockJournalData(page, settingsA, [idleA, runningA, completedA]);
       await page.goto("/history");
 
-      await expect(page.getByTestId("input-riot-id")).toHaveValue(settingsA.riot_id);
+      await expect(page.getByTestId("input-riot-id")).toHaveValue(settingsA.riot_id ?? "");
       await expect(page.getByTestId("sync-counters")).toHaveText("0 / 0 matches");
       await expect(page.getByRole("button", { name: "Start Backfill" })).toBeEnabled();
       await expectResponsiveHistory(page);
@@ -197,13 +197,13 @@ test.describe("sync freshness browser evidence", () => {
 
       settings = settingsB;
       await page.reload({ waitUntil: "domcontentloaded" });
-      await expect(page.getByTestId("input-riot-id")).toHaveValue(settingsB.riot_id);
+      await expect(page.getByTestId("input-riot-id")).toHaveValue(settingsB.riot_id ?? "");
       releaseOldOwnerStatus.resolve();
       await expect(page.getByTestId("sync-progress")).toHaveCount(0);
       await expect(page.getByTestId("sync-current")).toHaveCount(0);
 
       await page.reload({ waitUntil: "domcontentloaded" });
-      await expect(page.getByTestId("input-riot-id")).toHaveValue(settingsB.riot_id);
+      await expect(page.getByTestId("input-riot-id")).toHaveValue(settingsB.riot_id ?? "");
       await expect(page.getByTestId("sync-counters")).toHaveText("0 / 0 matches");
       await expect(page.getByTestId("sync-current")).toHaveCount(0);
       await expectResponsiveHistory(page);

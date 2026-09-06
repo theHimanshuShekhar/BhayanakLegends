@@ -220,6 +220,7 @@ function isLiveEventDelta(value: unknown): boolean {
       "reason",
     ]) &&
     typeof value.event_id === "string" &&
+    isFiniteNumber(value.source_order) &&
     Number.isInteger(value.source_order) &&
     value.source_order >= 0 &&
     isEnum(LIVE_EVENT_NAMES, value.name) &&
