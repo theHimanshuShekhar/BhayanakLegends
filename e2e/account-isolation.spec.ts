@@ -59,6 +59,7 @@ function insightsFor(
   return {
     state: "available",
     sample_size: sampleSize,
+    filters: { role: null, champion: null },
     roles: [
       {
         role: "MIDDLE",
@@ -98,6 +99,8 @@ function insightsFor(
     },
     feature_contract_version: "v2",
     feature_contract_status: "available",
+    feature_insights: [],
+    feature_trajectories: [],
   };
 }
 
@@ -116,6 +119,8 @@ const emptyInsights: BrowserInsights = {
   windows: null,
   feature_contract_version: null,
   feature_contract_status: "unavailable",
+  feature_insights: [],
+  feature_trajectories: [],
 };
 
 const accountA: AccountFixture = {

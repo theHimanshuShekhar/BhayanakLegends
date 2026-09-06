@@ -1,5 +1,6 @@
 import { ReactNode, useEffect, useRef } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
+import { usePack } from "../api/hooks";
 import { useEvents } from "../api/sse";
 import { LiveCompanion } from "./LiveCompanion";
 import { UpdaterStatus } from "./UpdaterStatus";
@@ -46,6 +47,12 @@ export function ConnectionStatus({ connected }: { connected: boolean }) {
 export function Layout({ children }: { children: ReactNode }) {
   const connected = useEvents();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const pack = usePack();
+  const dataset = pack.data?.dataset;
+  const matchCount = dataset?.eligible_matches.toLocaleString() ?? "unavailable";
+  const packLabel = pack.data
+    ? `Findings Pack ${pack.data.pack_version} · ${matchCount} matches · ${dataset?.patch_range.min}–${dataset?.patch_range.max}`
+    : "Findings Pack · unavailable";
   const skipInitialFocus = useRef(true);
   const screenRef = useRef<HTMLElement>(null);
   const focusRafRef = useRef<number>(0);
@@ -97,7 +104,7 @@ export function Layout({ children }: { children: ReactNode }) {
             BHAYANAK LEGENDS
           </span>
           <span className="rc-topbar-tagline" style={{ fontSize: 10.5, color: "var(--color-dimmer)" }}>
-            friends-first · 26k games
+            friends-first · {matchCount} matches
           </span>
         </div>
         <div className="rc-topbar-status">
@@ -162,7 +169,7 @@ export function Layout({ children }: { children: ReactNode }) {
               aria-hidden="true"
               style={{ width: 6, height: 6, borderRadius: 999, background: "var(--color-info)" }}
             />
-            Findings Pack · 26k games
+            {packLabel}
           </div>
         </div>
       </nav>
