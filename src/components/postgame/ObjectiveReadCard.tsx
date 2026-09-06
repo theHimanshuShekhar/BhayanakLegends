@@ -1,4 +1,4 @@
-import type { FindingsPackV2, PackV2Objective } from "../../api/pack-v2";
+import type { FindingsPackV2 } from "../../api/pack-v2";
 import { formatRate } from "../format";
 import { SectionHead, Unavailable } from "../ui";
 import {
