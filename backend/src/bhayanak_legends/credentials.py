@@ -194,24 +194,10 @@ class CredentialStore:
         raw = self._store.get_raw_setting("riot_key")
         if raw is None:
             return None
-        if isinstance(raw, str):
-            # Legacy rows were plaintext. Migrate only after protection succeeds.
-            protected = self._protector.protect(raw)
-            self._store.set_raw_setting("riot_key", _BLOB_PREFIX + protected)
-            return raw
         if isinstance(raw, memoryview):
             raw = raw.tobytes()
         if isinstance(raw, bytes) and raw.startswith(_BLOB_PREFIX):
             return self._protector.unprotect(raw[len(_BLOB_PREFIX) :])
-        if isinstance(raw, bytes):
-            # Be tolerant of a legacy UTF-8 BLOB created by an older SQLite client.
-            try:
-                legacy = raw.decode("utf-8")
-            except UnicodeDecodeError:
-                raise CredentialError("Stored Riot key has an unsupported format") from None
-            protected = self._protector.protect(legacy)
-            self._store.set_raw_setting("riot_key", _BLOB_PREFIX + protected)
-            return legacy
         raise CredentialError("Stored Riot key has an unsupported format")
 
     def delete(self) -> None:

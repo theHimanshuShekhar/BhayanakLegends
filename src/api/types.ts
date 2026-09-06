@@ -1,10 +1,11 @@
-export type FindingTier = "actionable" | "diagnostic" | "a-lite";
+
 export type RegionRoute = "sea" | "americas" | "europe" | "asia";
 export type Role = "TOP" | "JUNGLE" | "MIDDLE" | "BOTTOM" | "UTILITY" | "UNKNOWN";
 export type AssignedRole = "TOP" | "JUNGLE" | "MIDDLE" | "BOTTOM" | "UTILITY";
 export type HealthStatus = "ok" | "degraded";
 export type SyncState = "idle" | "running" | "cancelled" | "error";
 export type SyncMode = "era_first" | "import";
+export type OwnerState = "unassigned" | "resolving" | "active" | "error";
 export type GameflowPhase =
   | "None"
   | "Lobby"
@@ -50,116 +51,15 @@ export interface Health {
   pack_version: string | null;
 }
 
-export interface TableProvenance {
-  source_document: string;
-  source_section: string;
-  feature_store_manifest_sha256: string;
-  generator_revision: string;
-  feature_contract_version: "loltrends-parity-v1";
+
+export interface OwnerContext {
+  owner_key: string | null;
+  generation: number;
+  owner_state: OwnerState;
+  owner_error: string | null;
 }
 
-export type PackProvenance = Record<
-  | "dataset"
-  | "findings"
-  | "habits"
-  | "objectives"
-  | "comeback_odds"
-  | "ban_advisor"
-  | "trap_picks"
-  | "tier_list"
-  | "matchup_examples"
-  | "benchmarks"
-  | "checkpoints",
-  TableProvenance
->;
-
-export interface ComebackFeatureContract {
-  feature: "gold_diff_15";
-  feature_contract_version: "loltrends-parity-v1";
-}
-
-export interface FindingsPack {
-  schema_version: number;
-  pack_version: string;
-  generated_at: string;
-  comeback_feature_contract: ComebackFeatureContract;
-  provenance: PackProvenance;
-  dataset: { matches: number; player_games: number; patches: string[] };
-  findings: PackFinding[];
-  habits: HabitDef[];
-  objectives: Record<string, number>;
-  comeback_odds: { gold_deficit_at_15: number; win_rate: number }[];
-  ban_advisor: BanAdvice[];
-  trap_picks: { champion: string; win_rate: number }[];
-  tier_list: TierEntry[];
-  matchup_examples: MatchupExample[];
-  benchmarks: BenchmarkRow[];
-  checkpoints: {
-    gold_diff_bucket: "bottom_quartile_@20m" | "top_quartile_@20m";
-    win_rate: number;
-  }[];
-}
-
-export interface PackFinding {
-  key: string;
-  tier: FindingTier;
-  title: string;
-  statement: string;
-  value: number | null;
-  unit: string | null;
-  source_ref: string;
-}
-
-export interface HabitDef {
-  key: string;
-  label: string;
-  /**
-   * Normative unit: multiplier effect on the outcome for one standard-deviation
-   * change of the underlying feature (per backend/tools/build_pack.py). Render
-   * exactly as `×{value} effect per SD` — never as %, WR, or pp.
-   */
-  effect_per_sd: number;
-}
-
-export interface BanAdvice {
-  champion: string;
-  win_rate: number;
-  ban_rate: number;
-  recommendation: "real-threat" | "fear-ban" | "skip";
-}
-
-export interface TierEntry {
-  champion: string;
-  role: Role;
-  games: number;
-  pick_rate: number;
-  win_rate: number;
-  tier: "S" | "A" | "B" | "C";
-}
-
-export interface MatchupExample {
-  champion: string;
-  opponent: string;
-  role: Role;
-  wr: number;
-  ci: number;
-  games: number;
-}
-
-export interface BenchmarkRow {
-  role: Role;
-  cs10_median?: number;
-  level10_median?: number;
-  gold_diff_10_median?: number;
-  feature_contract: {
-    cs10_median?: string;
-    level10_median?: string;
-    gold_diff_10_median?: string;
-  };
-  sample: number;
-}
-
-export interface Settings {
+export interface Settings extends OwnerContext {
   riot_id: string | null;
   region_route: RegionRoute;
   has_key: boolean;
@@ -171,8 +71,7 @@ export interface SettingsPatch {
   riot_key?: string | null;
   auto_sync?: boolean;
 }
-
-export interface SyncStatus {
+export interface SyncStatus extends OwnerContext {
   state: SyncState;
   mode: SyncMode;
   total_queued: number;
@@ -181,6 +80,42 @@ export interface SyncStatus {
   failed: number;
   current_match_id: string | null;
   started_at: string | null;
+}
+
+export type InsightSampleStatus = "insufficient" | "review";
+export type InsightWindowCompleteness = "full" | "partial" | "unavailable";
+export interface RoleInsight {
+  role: Role;
+  games: number;
+  wins: number;
+  win_rate: number;
+  sample_status: InsightSampleStatus;
+}
+export interface ChampionInsight {
+  champion: string;
+  games: number;
+  wins: number;
+  win_rate: number;
+  roles: Role[];
+  sample_status: InsightSampleStatus;
+}
+export interface InsightWindow {
+  name: "latest" | "preceding";
+  games: number;
+  wins: number;
+  win_rate: number;
+  sample_status: InsightSampleStatus;
+  completeness: InsightWindowCompleteness;
+}
+export interface HistoryInsights {
+  state: "empty" | "available";
+  sample_size: number;
+  filters: { role: Role | null; champion: string | null };
+  roles: RoleInsight[];
+  champions: ChampionInsight[];
+  windows: unknown;
+  feature_contract_version: string | null;
+  feature_contract_status: "available" | "mixed" | "unavailable";
 }
 
 export interface HistorySummary {
@@ -210,7 +145,13 @@ export interface PatchAggregate {
   wins: number;
   win_rate: number;
 }
-
+export interface TeamState {
+  feature: "team_gold_diff_15m";
+  feature_contract_version: string;
+  team_gold_diff_15m: number | null;
+  observed_through_s: number | null;
+  non_surrendered: boolean | null;
+}
 export interface PostGameDigest {
   match_id: string;
   played_at: string;
@@ -225,7 +166,12 @@ export interface PostGameDigest {
   };
   habits: HabitOutcome[];
   headline: string;
+  feature_contract_version: string | null;
+  personal_history_eligibility: "eligible" | "ineligible" | "unknown";
+  features: unknown;
+  team_state: TeamState | null;
 }
+
 export interface HabitOutcome {
   key: string;
   label: string;
@@ -328,6 +274,35 @@ export interface LiveEvent {
   detail: string | null; // DragonType on DragonKill
 }
 
+export type LiveInferenceStatus =
+  | "available"
+  | "suppressed"
+  | "stale"
+  | "incompatible"
+  | "unsupported-patch"
+  | "out-of-domain"
+  | "error";
+
+export interface LiveInference {
+  status: LiveInferenceStatus;
+  probability: number | null;
+  observed_game_time_s: number | null;
+  model_version: string | null;
+  pack_version: string | null;
+  reason: string | null;
+}
+
+export interface LiveEventDelta {
+  event_id: string;
+  name: LiveEventName;
+  t_s: number;
+  baseline_probability: number | null;
+  event_probability: number | null;
+  delta_probability: number | null;
+  status: LiveInferenceStatus;
+  reason: string | null;
+}
+
 export interface InGameSnapshot {
   active: boolean;
   clock_s: number;
@@ -336,4 +311,29 @@ export interface InGameSnapshot {
   local_champion: string | null;
   teams: { order: PlayerLive[]; chaos: PlayerLive[] };
   events: LiveEvent[];
+  inference: LiveInference;
+  event_deltas: LiveEventDelta[];
+}
+
+export type WhatIfStatus =
+  | "available"
+  | "suppressed"
+  | "rejected"
+  | "unsupported-patch"
+  | "out-of-domain"
+  | "error";
+
+export interface WhatIfRequest {
+  adjustments: unknown;
+}
+
+export interface WhatIfResponse {
+  status: WhatIfStatus;
+  probability: number | null;
+  baseline_probability: number | null;
+  adjusted_features: unknown;
+  model_version: string | null;
+  pack_version: string | null;
+  rejected_fields: string[];
+  reason: string | null;
 }

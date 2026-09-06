@@ -46,6 +46,8 @@ INVENTORY: dict[str, set[str]] = {
     "/live/status": {"GET"},
     "/live/session": {"GET"},
     "/live/ingame": {"GET"},
+    "/history/insights": {"GET"},
+    "/history/what-if": {"POST"},
     "/history/summary": {"GET"},
     "/pack": {"GET"},
 }
@@ -82,6 +84,15 @@ TS_PARITY_PAIRS = {
     "PlayerLive": "PlayerLive",
     "ItemLive": "ItemLive",
     "LiveEvent": "LiveEvent",
+    "HistoryInsights": "HistoryInsights",
+    "RoleInsight": "RoleInsight",
+    "ChampionInsight": "ChampionInsight",
+    "InsightWindow": "InsightWindow",
+    "TeamState": "TeamState",
+    "LiveInference": "LiveInference",
+    "LiveEventDelta": "LiveEventDelta",
+    "WhatIfRequest": "WhatIfRequest",
+    "WhatIfResponse": "WhatIfResponse",
 }
 
 

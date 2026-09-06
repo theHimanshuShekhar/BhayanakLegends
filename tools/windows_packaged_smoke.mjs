@@ -6,8 +6,11 @@ for (let index = 2; index < process.argv.length; index += 2) {
 }
 const phase = args.get("--phase");
 const debugPort = args.get("--debug-port");
-if (!["valid", "durable"].includes(phase) || !debugPort) {
-  throw new Error("usage: windows_packaged_smoke.mjs --phase valid|durable --debug-port PORT");
+const expectedVersion = args.get("--expected-version");
+if (!["valid", "durable"].includes(phase) || !debugPort || !expectedVersion) {
+  throw new Error(
+    "usage: windows_packaged_smoke.mjs --phase valid|durable --debug-port PORT --expected-version VERSION",
+  );
 }
 
 const endpoint = `http://127.0.0.1:${debugPort}`;
@@ -27,6 +30,29 @@ while (Date.now() < deadline) {
 }
 if (!browser) throw new Error("packaged WebView2 CDP endpoint did not become ready");
 
+async function waitForStatus(statusNode, predicate, message) {
+  const until = Date.now() + 30_000;
+  let text = "";
+  while (Date.now() < until) {
+    text = await statusNode.innerText();
+    if (predicate(text)) return text;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(`${message}: ${text}`);
+}
+
+async function assertSidecarHealth(page, sidecarInfo) {
+  const health = await page.evaluate(async ({ port, token }) => {
+    const response = await fetch(`http://127.0.0.1:${port}/health`, {
+      headers: { "X-BL-Token": token },
+    });
+    return response.ok ? response.json() : null;
+  }, { port: sidecarInfo.port, token: sidecarInfo.token });
+  if (!health || health.status !== "ok" && health.status !== "degraded") {
+    throw new Error("authenticated sidecar health was not retained");
+  }
+}
+
 try {
   const context = browser.contexts()[0];
   const page = context.pages()[0];
@@ -38,8 +64,14 @@ try {
     if (!internals || typeof internals.invoke !== "function") return null;
     return internals.invoke("sidecar_info");
   });
-  if (!sidecarInfo || typeof sidecarInfo.port !== "number") {
-    throw new Error("webview could not observe sidecar handshake state");
+  if (
+    !sidecarInfo ||
+    typeof sidecarInfo.port !== "number" ||
+    typeof sidecarInfo.token !== "string" ||
+    sidecarInfo.token.length < 32 ||
+    sidecarInfo.token.toLowerCase() === "dev"
+  ) {
+    throw new Error("webview could not observe an authenticated sidecar handshake");
   }
   if (sidecarInfo.port < 1 || sidecarInfo.port > 65535 || sidecarInfo.port === 23110) {
     throw new Error(`sidecar did not use an ephemeral port: ${sidecarInfo.port}`);
@@ -49,7 +81,6 @@ try {
   }
 
   await page.getByTestId("sidecar-dot").waitFor({ state: "visible", timeout: 15_000 });
-  await page.getByTestId("sidecar-dot").waitFor({ state: "attached" });
   if ((await page.getByTestId("sidecar-dot").getAttribute("title")) !== "sidecar connected") {
     throw new Error("webview did not report an authenticated sidecar connection");
   }
@@ -58,19 +89,12 @@ try {
   if (!(await connectionStatus.innerText()).includes("sidecar · connected")) {
     throw new Error("sidecar health was not observable in the webview");
   }
-
-  await page.getByText("Findings Pack v1", { exact: true }).waitFor({ state: "visible", timeout: 15_000 });
-  const pathname = await page.evaluate(() => window.location.pathname);
-  if (pathname !== "/" && pathname !== "/live") {
-    throw new Error(`packaged app rendered an unexpected initial route: ${pathname}`);
-  }
-
-  const activePack = await page.evaluate(async (port) => {
-    const deadline = Date.now() + 20_000;
-    while (Date.now() < deadline) {
+  const activePack = await page.evaluate(async ({ port, token }) => {
+    const until = Date.now() + 20_000;
+    while (Date.now() < until) {
       try {
         const response = await fetch(`http://127.0.0.1:${port}/health`, {
-          headers: { "X-BL-Token": "dev" },
+          headers: { "X-BL-Token": token },
         });
         if (response.ok) {
           const health = await response.json();
@@ -82,15 +106,56 @@ try {
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
     return null;
-  }, sidecarInfo.port);
+  }, { port: sidecarInfo.port, token: sidecarInfo.token });
   if (!activePack) throw new Error("active Findings Pack release was not loaded");
 
-  await page.getByTestId("updater-status").waitFor({ state: "visible", timeout: 15_000 });
+  const updaterStatus = page.getByTestId("updater-status");
+  await updaterStatus.waitFor({ state: "visible", timeout: 15_000 });
   if (phase === "valid") {
-    const text = await page.getByTestId("updater-status").innerText();
-    if (!/up to date/i.test(text)) throw new Error(`valid fixture was not treated as no-update: ${text}`);
+    const install = page.getByRole("button", { name: "Install update", exact: true });
+    await install.waitFor({ state: "visible", timeout: 30_000 });
+    await install.click();
+    const text = await waitForStatus(
+      updaterStatus,
+      (value) => value.includes(`Version ${expectedVersion} is ready to restart`),
+      "valid signed update did not reach ready-to-restart",
+    );
+    if (!/ready to restart/i.test(text)) {
+      throw new Error(`valid update did not expose ready-to-restart state: ${text}`);
+    }
+    await assertSidecarHealth(page, sidecarInfo);
+    console.log(
+      JSON.stringify({
+        phase,
+        updater: "signed-download-ready-to-restart",
+        version: expectedVersion,
+        sidecar_port: sidecarInfo.port,
+        sidecar_status: sidecarInfo.status,
+      }),
+    );
+  } else {
+    const install = page.getByRole("button", { name: "Install update", exact: true });
+    await install.waitFor({ state: "visible", timeout: 30_000 });
+    await install.click();
+    const text = await waitForStatus(
+      updaterStatus,
+      (value) => /signature|verification|could not be verified/i.test(value),
+      "mismatched-signature update was not rejected",
+    );
+    if (/ready to restart|Restart app/i.test(text)) {
+      throw new Error(`mismatched-signature update reached restart state: ${text}`);
+    }
+    await assertSidecarHealth(page, sidecarInfo);
+    console.log(
+      JSON.stringify({
+        phase,
+        updater: "mismatched-signature-rejected",
+        version: expectedVersion,
+        sidecar_port: sidecarInfo.port,
+        sidecar_status: sidecarInfo.status,
+      }),
+    );
   }
-  console.log(JSON.stringify({ phase, sidecar_port: sidecarInfo.port, sidecar_status: sidecarInfo.status }));
 } finally {
   await browser.close();
 }

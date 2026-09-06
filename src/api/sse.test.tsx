@@ -58,6 +58,10 @@ const validSyncProgress = {
   type: "sync.progress",
   ts: "2026-08-24T00:00:00Z",
   data: {
+    owner_key: "fixture-owner",
+    generation: 1,
+    owner_state: "active",
+    owner_error: null,
     state: "running",
     mode: "era_first",
     total_queued: 2,
@@ -153,20 +157,20 @@ describe("shared SSE owner", () => {
     const valid = parseSseMessage({
       type: "pack.updated",
       ts: "2026-08-24T00:00:00Z",
-      data: { schema_version: 1, pack_version: "v2" },
+      data: { schema_version: 2, pack_version: "v2" },
     });
     expect(valid).toEqual({
       type: "pack.updated",
       ts: "2026-08-24T00:00:00Z",
-      data: { schema_version: 1, pack_version: "v2" },
+      data: { schema_version: 2, pack_version: "v2" },
     });
 
     for (const data of [
       { schema_version: 1 },
+      { schema_version: 3, pack_version: "v2" },
       { schema_version: 1, pack_version: "" },
       { schema_version: 1, pack_version: "   " },
       { schema_version: 1, pack_version: 42 },
-      { schema_version: 1.5, pack_version: "v2" },
       { schema_version: Number.NaN, pack_version: "v2" },
       { schema_version: Number.POSITIVE_INFINITY, pack_version: "v2" },
     ]) {

@@ -1,14 +1,11 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { eventsUrl, invalidateConnection } from "./client";
-import { isChampSelectSnapshot, PHASES } from "./liveValidation";
+import { isChampSelectSnapshot, isInGameSnapshot, PHASES } from "./liveValidation";
 import type {
   ChampSelectSnapshot,
   GameMode,
   InGameSnapshot,
-  LiveEvent,
-  LiveEventName,
   LiveStatus,
-  PlayerLive,
   SyncStatus,
 } from "./types";
 
@@ -39,21 +36,9 @@ const GAME_MODES: readonly GameMode[] = [
   "ULTBOOK",
   "CHERRY",
 ];
-const LIVE_EVENT_NAMES: readonly LiveEventName[] = [
-  "GameStart",
-  "MinionsSpawning",
-  "FirstBrick",
-  "DragonKill",
-  "HeraldKill",
-  "BaronKill",
-  "ChampionKill",
-  "TurretKilled",
-  "InhibKilled",
-  "GameEnd",
-];
 const SYNC_STATES = ["idle", "running", "cancelled", "error"] as const;
 const SYNC_MODES = ["era_first", "import"] as const;
-
+const OWNER_STATES = ["unassigned", "resolving", "active", "error"] as const;
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -76,7 +61,6 @@ function isNullableString(value: unknown): value is string | null {
 function isEnum<T extends string>(values: readonly T[], value: unknown): value is T {
   return typeof value === "string" && values.some((candidate) => candidate === value);
 }
-
 function isSyncStatus(value: unknown): value is SyncStatus {
   if (!isRecord(value)) return false;
   return (
@@ -87,7 +71,12 @@ function isSyncStatus(value: unknown): value is SyncStatus {
     isFiniteNumber(value.skipped) &&
     isFiniteNumber(value.failed) &&
     isNullableString(value.current_match_id) &&
-    isNullableString(value.started_at)
+    isNullableString(value.started_at) &&
+    (value.owner_key === null || isNonEmptyString(value.owner_key)) &&
+    Number.isInteger(value.generation) &&
+    (value.generation as number) >= 0 &&
+    isEnum(OWNER_STATES, value.owner_state) &&
+    isNullableString(value.owner_error)
   );
 }
 
@@ -107,43 +96,6 @@ function isLiveStatus(value: unknown): value is LiveStatus {
 }
 
 
-function isPlayerLive(value: unknown): value is PlayerLive {
-  if (!isRecord(value) || typeof value.summoner !== "string" || !isNullableString(value.champion)) return false;
-  if (!isFiniteNumber(value.level) || !isFiniteNumber(value.kills) || !isFiniteNumber(value.deaths)) return false;
-  if (!isFiniteNumber(value.assists) || !isFiniteNumber(value.cs) || !isFiniteNumber(value.ward_score)) return false;
-  if (!Array.isArray(value.items)) return false;
-  return value.items.every(
-    (item) => isRecord(item) && Number.isInteger(item.id) && Number.isInteger(item.count),
-  );
-}
-
-function isLiveEvent(value: unknown): value is LiveEvent {
-  return (
-    isRecord(value) &&
-    isEnum(LIVE_EVENT_NAMES, value.name) &&
-    isFiniteNumber(value.t_s) &&
-    isNullableString(value.actor) &&
-    isNullableString(value.victim) &&
-    isNullableString(value.detail)
-  );
-}
-
-function isInGameSnapshot(value: unknown): value is InGameSnapshot {
-  if (!isRecord(value) || !isRecord(value.teams)) return false;
-  return (
-    typeof value.active === "boolean" &&
-    isFiniteNumber(value.clock_s) &&
-    (value.mode === null || isEnum(GAME_MODES, value.mode)) &&
-    isNullableString(value.local_summoner) &&
-    isNullableString(value.local_champion) &&
-    Array.isArray(value.teams.order) &&
-    value.teams.order.every(isPlayerLive) &&
-    Array.isArray(value.teams.chaos) &&
-    value.teams.chaos.every(isPlayerLive) &&
-    Array.isArray(value.events) &&
-    value.events.every(isLiveEvent)
-  );
-}
 
 /** Parses and validates one JSON-decoded SSE envelope. Invalid frames are dropped. */
 export function parseSseMessage(value: unknown): SseMessage | null {
@@ -162,8 +114,7 @@ export function parseSseMessage(value: unknown): SseMessage | null {
       return isLiveStatus(data) ? { type, ts, data } : null;
     case "pack.updated":
       return isRecord(data) &&
-        typeof data.schema_version === "number" &&
-        Number.isInteger(data.schema_version) &&
+        data.schema_version === 2 &&
         isNonEmptyString(data.pack_version)
         ? { type, ts, data: { schema_version: data.schema_version, pack_version: data.pack_version } }
         : null;
@@ -181,9 +132,8 @@ export function parseSseMessage(value: unknown): SseMessage | null {
 type EventListener = (message: SseMessage) => void;
 type StatusListener = () => void;
 type ConnectionListener = (connected: boolean) => void;
-
-export interface UseEventsOptions {
-  onConnectionChange?: (connected: boolean) => void;
+interface UseEventsOptions {
+  onConnectionChange?: ConnectionListener;
 }
 
 const eventListeners = new Set<EventListener>();

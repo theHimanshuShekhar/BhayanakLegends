@@ -16,6 +16,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from bhayanak_legends.release_channel import (
     COMPRESSED_ASSET_MAX_BYTES,
     EXPANDED_ASSET_MAX_BYTES,
+    MANIFEST_MAX_BYTES,
     MAX_ARCHIVE_MEMBERS,
     ReleaseChannel,
     ReleaseChannelError,
@@ -27,17 +28,17 @@ TEST_PRIVATE_KEY = Ed25519PrivateKey.generate()
 TEST_PUBLIC_KEY = TEST_PRIVATE_KEY.public_key().public_bytes_raw()
 
 ROOT = Path(__file__).resolve().parents[2]
-PACK = ROOT / "pack" / "findings-pack.v1.json"
+PACK = ROOT / "pack" / "findings-pack.v2.json"
 SCHEMA = ROOT / "pack" / "pack.schema.json"
 
 
-def _asset(tmp_path: Path, *, pack_version: str = "v2", schema_version: int = 1) -> bytes:
+def _asset(tmp_path: Path, *, pack_version: str = "v3", schema_version: int = 2) -> bytes:
     pack = json.loads(PACK.read_text())
     pack["pack_version"] = pack_version
     pack["schema_version"] = schema_version
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w") as archive:
-        archive.writestr("findings-pack.v1.json", json.dumps(pack))
+        archive.writestr("findings-pack.v2.json", json.dumps(pack))
         archive.writestr("pack.schema.json", SCHEMA.read_text())
         archive.writestr("models/honest-model.bin", b"model-v2")
     return output.getvalue()
@@ -46,9 +47,9 @@ def _channel(tmp_path: Path, asset: bytes, *, manifest: dict | None = None) -> R
     pack_dir.mkdir(exist_ok=True)
     (pack_dir / "pack.schema.json").write_bytes(SCHEMA.read_bytes())
     manifest = {
-        "pack_version": "v2",
-        "schema_version": 1,
-        "feature_contract_version": "loltrends-parity-v1",
+        "pack_version": "v3",
+        "schema_version": 2,
+        "feature_contract_version": "loltrends-population-v2",
         "download_url": "asset.zip",
         "sha256": hashlib.sha256(asset).hexdigest(),
         "size": len(asset),
@@ -88,7 +89,7 @@ def _channel(tmp_path: Path, asset: bytes, *, manifest: dict | None = None) -> R
 def current_pack(tmp_path: Path) -> Path:
     pack_dir = tmp_path / "pack"
     pack_dir.mkdir()
-    (pack_dir / "findings-pack.v1.json").write_bytes(PACK.read_bytes())
+    (pack_dir / "findings-pack.v2.json").write_bytes(PACK.read_bytes())
     (pack_dir / "pack.schema.json").write_bytes(SCHEMA.read_bytes())
     return pack_dir
 
@@ -97,7 +98,7 @@ def current_pack(tmp_path: Path) -> Path:
 async def test_no_update_does_not_download(tmp_path: Path) -> None:
     asset = _asset(tmp_path)
     channel = _channel(tmp_path, asset)
-    result = await channel.check_and_activate("v2")
+    result = await channel.check_and_activate("v3")
     assert not result.activated
     assert result.reason == "up-to-date"
 
@@ -106,28 +107,28 @@ async def test_no_update_does_not_download(tmp_path: Path) -> None:
 async def test_valid_update_activates_and_preserves_artifact_hash(tmp_path: Path) -> None:
     asset = _asset(tmp_path)
     channel = _channel(tmp_path, asset)
-    result = await channel.check_and_activate("v1")
+    result = await channel.check_and_activate("v2")
     assert result.activated
-    assert result.pack_version == "v2"
-    assert json.loads((tmp_path / "pack" / "findings-pack.v1.json").read_text())["pack_version"] == "v2"
+    assert result.pack_version == "v3"
+    assert json.loads((tmp_path / "pack" / "findings-pack.v2.json").read_text())["pack_version"] == "v3"
     assert (tmp_path / "pack" / "models" / "honest-model.bin").read_bytes() == b"model-v2"
 
 
 @pytest.mark.asyncio
 async def test_bad_schema_is_rejected(tmp_path: Path) -> None:
-    asset = _asset(tmp_path, schema_version=2)
+    asset = _asset(tmp_path, schema_version=1)
     channel = _channel(tmp_path, asset)
-    result = await channel.check_and_activate("v1")
+    result = await channel.check_and_activate("v2")
     assert not result.activated
     assert "schema_version" in (result.reason or "")
-    assert not (tmp_path / "pack" / "findings-pack.v1.json").exists()
+    assert not (tmp_path / "pack" / "findings-pack.v2.json").exists()
 
 
 @pytest.mark.asyncio
 async def test_incompatible_contract_is_rejected(tmp_path: Path) -> None:
     asset = _asset(tmp_path)
     channel = _channel(tmp_path, asset, manifest={"feature_contract_version": "future-v2"})
-    result = await channel.check_and_activate("v1")
+    result = await channel.check_and_activate("v2")
     assert not result.activated
     assert "contract" in (result.reason or "")
 
@@ -137,9 +138,9 @@ async def test_corrupt_download_is_rejected(tmp_path: Path) -> None:
     asset = _asset(tmp_path)
     channel = _channel(tmp_path, asset)
     manifest = {
-        "pack_version": "v2",
-        "schema_version": 1,
-        "feature_contract_version": "loltrends-parity-v1",
+        "pack_version": "v3",
+        "schema_version": 2,
+        "feature_contract_version": "loltrends-population-v2",
         "download_url": "asset.zip",
         "sha256": hashlib.sha256(asset).hexdigest(),
         "size": len(b"truncated"),
@@ -155,7 +156,7 @@ async def test_corrupt_download_is_rejected(tmp_path: Path) -> None:
         return httpx.Response(200, content=b"truncated", request=request)
 
     channel.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    result = await channel.check_and_activate("v1")
+    result = await channel.check_and_activate("v2")
     assert not result.activated
     assert "hash mismatch" in (result.reason or "")
 
@@ -167,19 +168,19 @@ async def test_interrupted_swap_leaves_current_pack_untouched(tmp_path: Path, mo
     pack_dir = tmp_path / "pack"
     pack_dir.mkdir(exist_ok=True)
     old = b"old-pack"
-    (pack_dir / "findings-pack.v1.json").write_bytes(old)
+    (pack_dir / "findings-pack.v2.json").write_bytes(old)
     (pack_dir / "pack.schema.json").write_bytes(SCHEMA.read_bytes())
     real_replace = __import__("os").replace
 
     def interrupted(source: str | Path, target: str | Path) -> None:
-        if Path(target).name == "findings-pack.v1.json":
+        if Path(target).name == "findings-pack.v2.json":
             raise OSError("simulated interrupted swap")
         real_replace(source, target)
 
     monkeypatch.setattr("bhayanak_legends.release_channel.os.replace", interrupted)
-    result = await channel.check_and_activate("v1")
+    result = await channel.check_and_activate("v2")
     assert not result.activated
-    assert (pack_dir / "findings-pack.v1.json").read_bytes() == old
+    assert (pack_dir / "findings-pack.v2.json").read_bytes() == old
     assert (pack_dir / "pack.schema.json").read_bytes() == SCHEMA.read_bytes()
 
 
@@ -189,26 +190,26 @@ async def test_activation_transaction_can_roll_back_after_reload_failure(tmp_pat
     channel = _channel(tmp_path, asset)
     pack_dir = tmp_path / "pack"
     old_pack = PACK.read_bytes()
-    old_artifact = b"model-v1"
-    (pack_dir / "findings-pack.v1.json").write_bytes(old_pack)
+    old_artifact = b"previous-model"
+    (pack_dir / "findings-pack.v2.json").write_bytes(old_pack)
     (pack_dir / "models").mkdir()
     (pack_dir / "models" / "honest-model.bin").write_bytes(old_artifact)
 
-    result = await channel.check_and_activate("v1", defer_finalize=True)
+    result = await channel.check_and_activate("v2", defer_finalize=True)
 
     assert result.activated
     assert result.activation is not None
     assert (pack_dir / "models" / "honest-model.bin").read_bytes() == b"model-v2"
     result.activation.rollback()
-    assert (pack_dir / "findings-pack.v1.json").read_bytes() == old_pack
+    assert (pack_dir / "findings-pack.v2.json").read_bytes() == old_pack
     assert (pack_dir / "models" / "honest-model.bin").read_bytes() == old_artifact
 
 
 def _manifest_base(asset: bytes) -> dict:
     return {
-        "pack_version": "v2",
-        "schema_version": 1,
-        "feature_contract_version": "loltrends-parity-v1",
+        "pack_version": "v3",
+        "schema_version": 2,
+        "feature_contract_version": "loltrends-population-v2",
         "download_url": "asset.zip",
         "sha256": hashlib.sha256(asset).hexdigest(),
         "size": len(asset),
@@ -218,12 +219,12 @@ def _manifest_base(asset: bytes) -> dict:
 def _asset_padded_to(tmp_path: Path, target: int) -> bytes:
     """A stored (uncompressed) zip padded to exactly ``target`` bytes."""
     pack = json.loads(PACK.read_text())
-    pack["pack_version"] = "v2"
+    pack["pack_version"] = "v3"
     pad = target
     for _ in range(16):
         output = io.BytesIO()
         with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_STORED) as archive:
-            archive.writestr("findings-pack.v1.json", json.dumps(pack))
+            archive.writestr("findings-pack.v2.json", json.dumps(pack))
             archive.writestr("pack.schema.json", SCHEMA.read_text())
             archive.writestr("models/honest-model.bin", b"model-v2")
             if pad > 0:
@@ -239,10 +240,10 @@ def _asset_padded_to(tmp_path: Path, target: int) -> bytes:
 
 def _asset_with_file_entries(count: int) -> bytes:
     pack = json.loads(PACK.read_text())
-    pack["pack_version"] = "v2"
+    pack["pack_version"] = "v3"
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_STORED) as archive:
-        archive.writestr("findings-pack.v1.json", json.dumps(pack))
+        archive.writestr("findings-pack.v2.json", json.dumps(pack))
         archive.writestr("pack.schema.json", SCHEMA.read_text())
         archive.writestr("models/honest-model.bin", b"model-v2")
         for index in range(count - 3):
@@ -287,18 +288,18 @@ async def test_manifest_without_declared_size_is_refused(tmp_path: Path) -> None
     # merely absent; an explicit null is what a missing field decodes to.
     manifest["size"] = None
     channel = _channel(tmp_path, asset, manifest=manifest)
-    result = await channel.check_and_activate("v1")
+    result = await channel.check_and_activate("v2")
     assert not result.activated
     assert "declared" in (result.reason or "")
-    assert not (tmp_path / "pack" / "findings-pack.v1.json").exists()
+    assert not (tmp_path / "pack" / "findings-pack.v2.json").exists()
     _assert_no_leftovers(tmp_path)
 
 
 def test_manifest_rejects_invalid_declared_sizes() -> None:
     base = {
-        "pack_version": "v2",
-        "schema_version": 1,
-        "feature_contract_version": "loltrends-parity-v1",
+        "pack_version": "v3",
+        "schema_version": 2,
+        "feature_contract_version": "loltrends-population-v2",
         "download_url": "asset.zip",
         "sha256": "a" * 64,
     }
@@ -318,10 +319,10 @@ async def test_manifest_declaring_over_cap_size_is_refused(tmp_path: Path) -> No
         "size": COMPRESSED_ASSET_MAX_BYTES + 1,
     }
     channel = _channel(tmp_path, asset, manifest=manifest)
-    result = await channel.check_and_activate("v1")
+    result = await channel.check_and_activate("v2")
     assert not result.activated
     assert "limit" in (result.reason or "")
-    assert not (tmp_path / "pack" / "findings-pack.v1.json").exists()
+    assert not (tmp_path / "pack" / "findings-pack.v2.json").exists()
     _assert_no_leftovers(tmp_path)
 
 
@@ -330,10 +331,10 @@ async def test_download_at_exact_64mib_boundary_is_eligible(tmp_path: Path) -> N
     asset = _asset_padded_to(tmp_path, COMPRESSED_ASSET_MAX_BYTES)
     assert len(asset) == COMPRESSED_ASSET_MAX_BYTES
     channel = _channel(tmp_path, asset)
-    result = await channel.check_and_activate("v1")
+    result = await channel.check_and_activate("v2")
     assert result.activated
-    assert result.pack_version == "v2"
-    assert json.loads((tmp_path / "pack" / "findings-pack.v1.json").read_text())["pack_version"] == "v2"
+    assert result.pack_version == "v3"
+    assert json.loads((tmp_path / "pack" / "findings-pack.v2.json").read_text())["pack_version"] == "v3"
     _assert_no_leftovers(tmp_path)
 
 
@@ -344,9 +345,9 @@ async def test_streaming_without_content_length_stops_at_first_byte_over_cap(
     asset = _asset_padded_to(tmp_path, COMPRESSED_ASSET_MAX_BYTES)
     pack_dir = tmp_path / "pack"
     pack_dir.mkdir()
-    (pack_dir / "findings-pack.v1.json").write_bytes(PACK.read_bytes())
+    (pack_dir / "findings-pack.v2.json").write_bytes(PACK.read_bytes())
     (pack_dir / "models").mkdir()
-    (pack_dir / "models" / "honest-model.bin").write_bytes(b"model-v1")
+    (pack_dir / "models" / "honest-model.bin").write_bytes(b"model-previous")
 
     async def one_mib_chunks():
         payload = asset + b"\0"  # exactly one byte over the declared cap
@@ -369,11 +370,11 @@ async def test_streaming_without_content_length_stops_at_first_byte_over_cap(
 
     channel = _channel(tmp_path, asset)
     channel.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    result = await channel.check_and_activate("v1")
+    result = await channel.check_and_activate("v2")
     assert not result.activated
     assert "exceeds" in (result.reason or "")
-    assert (pack_dir / "findings-pack.v1.json").read_bytes() == PACK.read_bytes()
-    assert (pack_dir / "models" / "honest-model.bin").read_bytes() == b"model-v1"
+    assert (pack_dir / "findings-pack.v2.json").read_bytes() == PACK.read_bytes()
+    assert (pack_dir / "models" / "honest-model.bin").read_bytes() == b"model-previous"
     _assert_no_leftovers(tmp_path)
 
 
@@ -400,10 +401,10 @@ async def test_false_content_length_header_is_rejected(tmp_path: Path) -> None:
 
     channel = _channel(tmp_path, asset)
     channel.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    result = await channel.check_and_activate("v1")
+    result = await channel.check_and_activate("v2")
     assert not result.activated
     assert "does not match manifest" in (result.reason or "")
-    assert not (tmp_path / "pack" / "findings-pack.v1.json").exists()
+    assert not (tmp_path / "pack" / "findings-pack.v2.json").exists()
     _assert_no_leftovers(tmp_path)
 
 
@@ -430,10 +431,10 @@ async def test_short_body_with_matching_header_is_truncated(tmp_path: Path) -> N
 
     channel = _channel(tmp_path, asset)
     channel.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    result = await channel.check_and_activate("v1")
+    result = await channel.check_and_activate("v2")
     assert not result.activated
     assert "truncated" in (result.reason or "")
-    assert not (tmp_path / "pack" / "findings-pack.v1.json").exists()
+    assert not (tmp_path / "pack" / "findings-pack.v2.json").exists()
     _assert_no_leftovers(tmp_path)
 
 
@@ -441,9 +442,9 @@ async def test_short_body_with_matching_header_is_truncated(tmp_path: Path) -> N
 async def test_zip_with_exactly_1024_entries_is_eligible(tmp_path: Path) -> None:
     asset = _asset_with_file_entries(MAX_ARCHIVE_MEMBERS)
     channel = _channel(tmp_path, asset)
-    result = await channel.check_and_activate("v1")
+    result = await channel.check_and_activate("v2")
     assert result.activated
-    assert result.pack_version == "v2"
+    assert result.pack_version == "v3"
     _assert_no_leftovers(tmp_path)
 
 
@@ -451,10 +452,10 @@ async def test_zip_with_exactly_1024_entries_is_eligible(tmp_path: Path) -> None
 async def test_zip_with_1025_entries_is_rejected(tmp_path: Path) -> None:
     asset = _asset_with_file_entries(MAX_ARCHIVE_MEMBERS + 1)
     channel = _channel(tmp_path, asset)
-    result = await channel.check_and_activate("v1")
+    result = await channel.check_and_activate("v2")
     assert not result.activated
     assert "too many file members" in (result.reason or "")
-    assert not (tmp_path / "pack" / "findings-pack.v1.json").exists()
+    assert not (tmp_path / "pack" / "findings-pack.v2.json").exists()
     _assert_no_leftovers(tmp_path)
 
 
@@ -479,15 +480,15 @@ def test_zip_over_expanded_limit_is_rejected_before_extraction(tmp_path: Path) -
 @pytest.mark.asyncio
 async def test_plain_json_asset_activates_end_to_end(tmp_path: Path) -> None:
     pack = json.loads(PACK.read_text())
-    pack["pack_version"] = "v2"
+    pack["pack_version"] = "v3"
     asset = json.dumps(pack).encode()
     # A bare JSON asset ships no model artifacts; none may be required.
     manifest = _manifest_base(asset)
     manifest["required_model_artifacts"] = []
     channel = _channel(tmp_path, asset, manifest=manifest)
-    result = await channel.check_and_activate("v1")
+    result = await channel.check_and_activate("v2")
     assert result.activated
-    assert json.loads((tmp_path / "pack" / "findings-pack.v1.json").read_text())["pack_version"] == "v2"
+    assert json.loads((tmp_path / "pack" / "findings-pack.v2.json").read_text())["pack_version"] == "v3"
     _assert_no_leftovers(tmp_path)
 
 
@@ -496,7 +497,7 @@ def test_json_asset_at_exact_expanded_boundary_extracts(tmp_path: Path) -> None:
     _blob(download, EXPANDED_ASSET_MAX_BYTES)
     destination = tmp_path / "candidate"
     _extract_candidate(download, destination)
-    assert (destination / "findings-pack.v1.json").stat().st_size == EXPANDED_ASSET_MAX_BYTES
+    assert (destination / "findings-pack.v2.json").stat().st_size == EXPANDED_ASSET_MAX_BYTES
 
 
 def test_json_asset_over_expanded_limit_is_rejected(tmp_path: Path) -> None:
@@ -524,20 +525,20 @@ def test_archive_traversal_members_are_rejected(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_corrupt_zip_member_is_rejected_gracefully(tmp_path: Path) -> None:
     pack = json.loads(PACK.read_text())
-    pack["pack_version"] = "v2"
+    pack["pack_version"] = "v3"
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_STORED) as archive:
-        archive.writestr("findings-pack.v1.json", json.dumps(pack))
+        archive.writestr("findings-pack.v2.json", json.dumps(pack))
         archive.writestr("pack.schema.json", SCHEMA.read_text())
         archive.writestr("models/honest-model.bin", b"model-v2")
     raw = bytearray(output.getvalue())
     raw[raw.index(b"model-v2")] ^= 0xFF  # break the member's CRC-32
     asset = bytes(raw)
     channel = _channel(tmp_path, asset)
-    result = await channel.check_and_activate("v1")
+    result = await channel.check_and_activate("v2")
     assert not result.activated
     assert "CRC" in (result.reason or "")
-    assert not (tmp_path / "pack" / "findings-pack.v1.json").exists()
+    assert not (tmp_path / "pack" / "findings-pack.v2.json").exists()
     _assert_no_leftovers(tmp_path)
 
 
@@ -551,8 +552,106 @@ async def test_wrong_artifact_hash_is_rejected(tmp_path: Path) -> None:
         ],
     }
     channel = _channel(tmp_path, asset, manifest=manifest)
-    result = await channel.check_and_activate("v1")
+    result = await channel.check_and_activate("v2")
     assert not result.activated
     assert "hash mismatch" in (result.reason or "")
-    assert not (tmp_path / "pack" / "findings-pack.v1.json").exists()
+    assert not (tmp_path / "pack" / "findings-pack.v2.json").exists()
     _assert_no_leftovers(tmp_path)
+
+
+@pytest.mark.asyncio
+async def test_github_latest_direct_cdn_redirect_is_pinned_by_metadata(
+    tmp_path: Path,
+) -> None:
+    latest_url = (
+        "https://github.com/acme/project/releases/latest/download/findings-pack-manifest.json"
+    )
+    api_url = "https://api.github.com/repos/acme/project/releases/latest"
+    tag_url = (
+        "https://github.com/acme/project/releases/download/v3.4.5/"
+        "findings-pack-manifest.json"
+    )
+    cdn_url = (
+        "https://release-assets.githubusercontent.com/github-production-release-asset/"
+        "acme/project/123/findings-pack-manifest.json?X-Amz-Signature=fixture"
+    )
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        if str(request.url) == latest_url:
+            return httpx.Response(302, headers={"location": cdn_url}, request=request)
+        if str(request.url) == api_url:
+            return httpx.Response(200, json={"tag_name": "v3.4.5"}, request=request)
+        if str(request.url) == cdn_url:
+            return httpx.Response(200, content=b"signed-manifest", request=request)
+        return httpx.Response(404, request=request)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    channel = ReleaseChannel(tmp_path / "pack")
+    fetched = await channel._fetch_bytes(
+        client,
+        latest_url,
+        limit=MANIFEST_MAX_BYTES,
+        label="release manifest",
+    )
+    await client.aclose()
+
+    assert fetched.logical_url == tag_url
+    assert fetched.transfer_url == cdn_url
+    assert fetched.body == b"signed-manifest"
+    assert seen == [latest_url, api_url, cdn_url]
+
+
+@pytest.mark.asyncio
+async def test_github_latest_direct_cdn_redirect_requires_valid_metadata(
+    tmp_path: Path,
+) -> None:
+    latest_url = "https://github.com/acme/project/releases/latest/download/asset.zip"
+    api_url = "https://api.github.com/repos/acme/project/releases/latest"
+    cdn_url = (
+        "https://release-assets.githubusercontent.com/github-production-release-asset/"
+        "acme/project/123/asset.zip?X-Amz-Signature=fixture"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == latest_url:
+            return httpx.Response(302, headers={"location": cdn_url}, request=request)
+        if str(request.url) == api_url:
+            return httpx.Response(
+                200,
+                json={"tag_name": "release/attacker-controlled"},
+                request=request,
+            )
+        raise AssertionError(f"unexpected request: {request.url}")
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    channel = ReleaseChannel(tmp_path / "pack")
+    with pytest.raises(ReleaseChannelError, match="tag"):
+        await channel._fetch_bytes(
+            client,
+            latest_url,
+            limit=COMPRESSED_ASSET_MAX_BYTES,
+            label="release asset",
+        )
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_github_cdn_cannot_be_used_as_an_unpinned_start(
+    tmp_path: Path,
+) -> None:
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, content=b"untrusted", request=request)
+        )
+    )
+    channel = ReleaseChannel(tmp_path / "pack")
+    with pytest.raises(ReleaseChannelError, match="cannot start"):
+        await channel._fetch_bytes(
+            client,
+            "https://release-assets.githubusercontent.com/arbitrary/asset.zip",
+            limit=COMPRESSED_ASSET_MAX_BYTES,
+            label="release asset",
+        )
+    await client.aclose()

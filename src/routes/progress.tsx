@@ -1,5 +1,6 @@
-import { useBenchmarks, useHistorySummary, usePack, usePatchAggregates } from "../api/hooks";
+import { useBenchmarks, useHistorySummary, usePack, usePatchAggregates, usePostgameLatest } from "../api/hooks";
 import { actionableErrorMessage } from "../api/client";
+import { isFindingsPackV2 } from "../api/pack-v2";
 import { CaveatFooter } from "../components/journal/CaveatFooter";
 import { ProgressSummaryCard } from "../components/progress/ProgressSummaryCard";
 import { RollingWrChart } from "../components/progress/RollingWrChart";
@@ -27,9 +28,12 @@ export function ProgressPage() {
   const benchmarks = useBenchmarks();
   const summary = useHistorySummary();
 
+  const postgame = usePostgameLatest();
+  const packV2 = isFindingsPackV2(pack.data) ? pack.data : null;
   const perPatch = aggregates.data ?? [];
-  const laneFinding =
-    pack.data?.findings.find((f) => LANE_CONVERSION_RE.test(f.key)) ?? null;
+  const laneFinding = packV2
+    ? packV2.findings.find((f) => LANE_CONVERSION_RE.test(f.key)) ?? null
+    : null;
 
   return (
     <div className="progress-page">
@@ -92,7 +96,7 @@ export function ProgressPage() {
               <h2 id="what-if-heading" className="route-panel-heading">
                 What-if simulator
               </h2>
-              <WhatIfPanel />
+              <WhatIfPanel pack={pack.data} digest={postgame.data ?? null} />
             </section>
           </div>
 
@@ -108,7 +112,7 @@ export function ProgressPage() {
             <h2 id="lever-adoption-heading" className="route-panel-heading">
               Lever adoption
             </h2>
-            <LeverAdoption habits={pack.data?.habits ?? []} />
+            <LeverAdoption habits={packV2?.habits ?? []} />
             {pack.isLoading && (
               <>
                 <ProgressSkeleton />

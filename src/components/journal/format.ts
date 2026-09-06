@@ -8,7 +8,7 @@ function parsedPatch(patch: string | null | undefined): [number, number] | null 
 
 export function patchOrder(patch: string | null | undefined): number {
   const parsed = parsedPatch(patch);
-  // Keep legacy numeric consumers deterministic: malformed/missing values sort after valid patches.
+  // Malformed or missing values sort after valid patches.
   return parsed ? parsed[0] * 1_000_000 + parsed[1] : Number.MAX_SAFE_INTEGER;
 }
 

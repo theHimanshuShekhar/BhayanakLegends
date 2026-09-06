@@ -37,9 +37,11 @@ from .models import (
     GameMode,
     GameflowPhase,
     InGameStatus,
+    LiveEventDelta,
     LiveEventName,
-    LiveState,
+    LiveInference,
     LiveStatus,
+    LiveState,
 )
 
 log = logging.getLogger("bhayanak_legends.live")
@@ -87,6 +89,7 @@ class LiveTeams(BaseModel):
     def __getitem__(self, key: str) -> list[PlayerLive]:
         return getattr(self, key)
 
+
 class InGameSnapshot(BaseModel):
     active: bool = False
     clock_s: float = 0.0
@@ -95,6 +98,8 @@ class InGameSnapshot(BaseModel):
     local_champion: str | None = None
     teams: LiveTeams = Field(default_factory=LiveTeams)
     events: list[LiveEvent] = Field(default_factory=list)
+    inference: LiveInference = Field(default_factory=LiveInference)
+    event_deltas: list[LiveEventDelta] = Field(default_factory=list)
 
 _ASSIGNED_ROLES = frozenset({"TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"})
 
@@ -330,12 +335,26 @@ def _build_live_event_row(raw: object) -> LiveEvent | None:
     if any(value is not None and not isinstance(value, str) for value in (actor, victim, detail)):
         return None
     return LiveEvent(name=name, t_s=event_time, actor=actor, victim=victim, detail=detail)
+def build_ingame_snapshot(
+    data: dict | None,
+    *,
+    inference: LiveInference | None = None,
+    event_deltas: list[LiveEventDelta] | None = None,
+) -> tuple[InGameSnapshot, int | None]:
+    """Pure: /liveclientdata/allgamedata payload → (snapshot, game_id).
 
-
-def build_ingame_snapshot(data: dict | None) -> tuple[InGameSnapshot, int | None]:
-    """Pure: /liveclientdata/allgamedata payload → (snapshot, game_id)."""
+    Inference is supplied by the sidecar runtime only after its exact live
+    feature adapter has accepted the same snapshot.  The default is an
+    explicit suppressed state; no clock-only or approximate fallback exists.
+    """
     if not data:
-        return InGameSnapshot(), None
+        return (
+            InGameSnapshot(
+                inference=inference or LiveInference(),
+                event_deltas=event_deltas or [],
+            ),
+            None,
+        )
     game_data = data.get("gameData") or {}
     active_player = data.get("activePlayer") or {}
     local_summoner = active_player.get("summonerName")
@@ -369,6 +388,8 @@ def build_ingame_snapshot(data: dict | None) -> tuple[InGameSnapshot, int | None
             local_champion=local_champion or active_player.get("championName"),
             teams=teams,
             events=events,
+            inference=inference or LiveInference(observed_game_time_s=float(clock)),
+            event_deltas=event_deltas or [],
         ),
         int(game_id) if game_id is not None else None,
     )
@@ -399,12 +420,21 @@ class LiveService:
     returning one (production passes ChampionDirectory.get).
     """
 
-    def __init__(self, lcu, ingame, hub, poll_interval: float = 2.0, champion_names=None) -> None:
+    def __init__(
+        self,
+        lcu,
+        ingame,
+        hub,
+        poll_interval: float = 2.0,
+        champion_names=None,
+        inference=None,
+    ) -> None:
         self._lcu = lcu
         self._ingame = ingame
         self._hub = hub
         self._interval_s = poll_interval
         self._names_source = champion_names
+        self._inference = inference
         self._task: asyncio.Task | None = None
         self._session_dump: dict | None = None
         self._ingame_dump: dict | None = None
@@ -450,6 +480,34 @@ class LiveService:
             ),
             last_error=last_error,
         )
+    def _live_inference(self, raw_game: dict | None, clock_s: float) -> LiveInference:
+        if self._inference is None:
+            return LiveInference(
+                status="suppressed",
+                observed_game_time_s=clock_s,
+                reason="live model declaration unavailable",
+            )
+        predictor = getattr(self._inference, "predict_live_snapshot", None)
+        if predictor is None:
+            return LiveInference(
+                status="suppressed",
+                observed_game_time_s=clock_s,
+                reason="exact live feature adapter unavailable",
+            )
+        try:
+            result = predictor(raw_game, observed_game_time_s=clock_s)
+            if isinstance(result, LiveInference):
+                return result
+            if isinstance(result, dict):
+                return LiveInference.model_validate(result)
+        except Exception as exc:
+            log.debug("live inference suppressed: %s", exc)
+        return LiveInference(
+            status="suppressed",
+            observed_game_time_s=clock_s,
+            reason="live inference could not evaluate the exact snapshot",
+        )
+
 
     async def _publish_changed(self, event: str, current: dict, attr: str) -> bool:
         previous = getattr(self, attr)
@@ -484,7 +542,18 @@ class LiveService:
                 raw_game = await self._ingame.allgamedata()
             except Exception as exc:
                 raw_game, last_error = None, last_error or _truncate(str(exc))
-            ingame, self._game_id = build_ingame_snapshot(raw_game)
+            clock_value = 0.0
+            if isinstance(raw_game, dict):
+                game_data = raw_game.get("gameData")
+                if isinstance(game_data, dict):
+                    try:
+                        clock_value = float(game_data.get("gameTime", game_data.get("gameClock")) or 0)
+                    except (TypeError, ValueError, OverflowError):
+                        clock_value = 0.0
+            ingame, self._game_id = build_ingame_snapshot(
+                raw_game,
+                inference=self._live_inference(raw_game, clock_value),
+            )
         else:
             self._game_id = None
 

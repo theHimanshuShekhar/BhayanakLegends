@@ -6,6 +6,7 @@ import json
 import math
 import re
 import statistics
+from collections.abc import Mapping
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -14,6 +15,7 @@ from .models import (
     BenchmarkResponse,
     Checkpoints,
     HabitOutcome,
+    HistoryInsights,
     HistorySummary,
     PatchAggregate,
     PostGameDigest,
@@ -21,8 +23,13 @@ from .models import (
     RoleBenchmarkPersonal,
     RoleBenchmarkPopulation,
     RoleRow,
+    TeamState,
     TrajectoryPoint,
+    WhatIfRequest,
+    WhatIfResponse,
 )
+from .extract_v2 import PARITY_V2_VERSION
+from .insights import aggregate_insights
 from .pack import PackError
 
 BENCHMARK_FIELD_CONTRACT = (
@@ -82,6 +89,15 @@ def _patch_sort_key(patch: str | None) -> tuple[int, int, int, str]:
     return (1, 0, 0, patch)
 
 
+def _owner_rows(request: Request) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Capture owner once; unresolved transitions never fall back to old rows."""
+    scope = request.app.state.store.capture_owner_scope()
+    owner_key = scope.get("read_owner_key")
+    if not owner_key:
+        return scope, []
+    return scope, request.app.state.store.all_matches(owner_key=owner_key)
+
+
 def _eligible_rows(
     request: Request,
     *,
@@ -89,15 +105,34 @@ def _eligible_rows(
     role: str | None,
     champion: str | None,
 ) -> list[dict[str, Any]]:
+    _scope, rows = _owner_rows(request)
     return [
         row
-        for row in request.app.state.store.all_matches()
+        for row in rows
         if row["patch"]
         and row["role"]
         and (patch is None or row["patch"] == patch)
         and (role is None or row["role"] == role.upper())
         and (champion is None or row["champion"] == champion)
     ]
+def _decode_features(row: Mapping[str, Any]) -> dict[str, Any]:
+    try:
+        decoded = json.loads(row.get("features_json") or "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return decoded if isinstance(decoded, dict) else {}
+
+
+def _v2_features(raw_features: Mapping[str, Any]) -> dict[str, Any]:
+    """Return only the nested features declared by the v2 contract."""
+    if raw_features.get("feature_contract_version") != PARITY_V2_VERSION:
+        return {}
+    features = raw_features.get("features")
+    return features if isinstance(features, dict) else {}
+
+def _latest_row(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    return max(rows, key=lambda row: (row.get("played_at") or "", row.get("match_id") or "")) if rows else None
+
 
 
 def _match_sort_key(row: dict[str, Any]) -> tuple[str, str]:
@@ -132,7 +167,7 @@ def patch_aggregates(
 
 @router.get("/history/summary", response_model=HistorySummary)
 def history_summary(request: Request) -> HistorySummary:
-    rows = request.app.state.store.all_matches()
+    _scope, rows = _owner_rows(request)
     games = len(rows)
     wins = sum(1 for r in rows if r["win"])
     patches = sorted({r["patch"] for r in rows if r["patch"]}, key=_patch_sort_key)
@@ -151,6 +186,16 @@ def history_summary(request: Request) -> HistorySummary:
         "by_role": [entry.model_dump() for entry in sorted(by_role.values(), key=lambda e: e.role)],
         "win_rate": (wins / games) if games else 0.0,
     }
+
+
+@router.get("/history/insights", response_model=HistoryInsights)
+def history_insights(
+    request: Request,
+    role: str | None = None,
+    champion: str | None = None,
+) -> dict:
+    _scope, rows = _owner_rows(request)
+    return aggregate_insights(rows, role=role, champion=champion)
 
 
 @router.get("/progress/trajectories", response_model=list[TrajectoryPoint])
@@ -180,17 +225,39 @@ def trajectories(
             ).model_dump()
         )
     return points
-
-
 @router.get("/postgame/latest", response_model=PostGameDigest | None)
 def postgame_latest(request: Request) -> dict | None:
-    rows = request.app.state.store.all_matches()
-    if not rows:
+    _scope, rows = _owner_rows(request)
+    latest = _latest_row(rows)
+    if latest is None:
         return None
-    latest = max(rows, key=lambda r: r["played_at"] or "")
-    features = json.loads(latest["features_json"] or "{}")
+    raw_features = _decode_features(latest)
+    raw_contract = raw_features.get("feature_contract_version")
+    feature_contract_version = (
+        raw_contract if raw_contract == PARITY_V2_VERSION else None
+    )
+    eligibility = raw_features.get("personal_history_eligibility")
+    if eligibility not in {"eligible", "ineligible", "unknown"}:
+        eligibility = "unknown"
+    candidate_features = _v2_features(raw_features)
+    numeric_features = {
+        key: float(value)
+        for key, value in candidate_features.items()
+        if _finite_number(value)
+    }
+    team_state = raw_features.get("team_state")
+    try:
+        parsed_team_state = (
+            TeamState.model_validate(team_state)
+            if feature_contract_version is not None and isinstance(team_state, dict)
+            else None
+        )
+    except ValueError:
+        parsed_team_state = None
     checkpoints = {
-        f"gold_diff_{m}": features.get(f"gold_diff_{m}") for m in (10, 15, 20)
+        "gold_diff_10": numeric_features.get("gold_diff_10"),
+        "gold_diff_15": None,
+        "gold_diff_20": None,
     }
     return PostGameDigest(
         match_id=latest["match_id"],
@@ -202,7 +269,30 @@ def postgame_latest(request: Request) -> dict | None:
         checkpoints=Checkpoints.model_validate(checkpoints),
         habits=_habit_outcomes(request),
         headline=_headline(latest),
-    ).model_dump()
+        feature_contract_version=feature_contract_version,
+        personal_history_eligibility=eligibility,
+        features=numeric_features,
+        team_state=parsed_team_state,
+    ).model_dump(exclude_none=True)
+
+@router.post("/history/what-if", response_model=WhatIfResponse)
+def history_what_if(request: Request, body: WhatIfRequest) -> dict:
+    _scope, rows = _owner_rows(request)
+    latest = _latest_row(rows)
+    runtime = getattr(request.app.state, "inference_runtime", None)
+    if latest is None or runtime is None:
+        return WhatIfResponse(
+            status="suppressed",
+            reason="compatible Personal History or model runtime is unavailable",
+        ).model_dump()
+    features = _decode_features(latest)
+    personal_features = _v2_features(features)
+    result = runtime.what_if_from_personal_features(
+        body.adjustments,
+        personal_features,
+        patch=latest.get("patch"),
+    )
+    return result.model_dump(exclude_none=True)
 
 
 @router.get(
@@ -216,7 +306,8 @@ def benchmarks(request: Request) -> dict:
     except PackError:
         raise HTTPException(status_code=503, detail="Findings Pack validation failed") from None
 
-    personal = _personal_medians(request.app.state.store.all_matches())
+    _scope, rows = _owner_rows(request)
+    personal = _personal_medians(rows)
     compatible_cells = 0
     result: list[dict] = []
     for entry in pack.get("benchmarks", []):
@@ -270,7 +361,7 @@ def _personal_medians(rows: list[dict[str, Any]]) -> dict[str, dict[str, float]]
         role = row["role"]
         if not role:
             continue
-        features = json.loads(row["features_json"] or "{}")
+        features = _v2_features(_decode_features(row))
         bucket = per_role.setdefault(
             role,
             {definition["canonical_name"]: [] for definition in BENCHMARK_FIELD_CONTRACT},
@@ -286,9 +377,8 @@ def _personal_medians(rows: list[dict[str, Any]]) -> dict[str, dict[str, float]]
         }
     return medians
 
-
 def _habit_outcomes(_request: Request) -> list[HabitOutcome]:
-    """Return only evaluated outcomes; no exact habit extractors exist in v1."""
+    """Return only evaluated outcomes; no exact habit extractors exist in v2."""
     return []
 
 

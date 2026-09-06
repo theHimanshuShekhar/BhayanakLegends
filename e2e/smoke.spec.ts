@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
+import { mockTierEvidencePack } from "./v2-fixtures";
 
 const LCU = "http://127.0.0.1:23123";
 const SIDECAR = "http://127.0.0.1:23122";
@@ -17,7 +18,7 @@ const VIEWPORTS = [
   { width: 980, height: 620 },
 ];
 
-test.describe("Bhayanak Legends v1 smoke", () => {
+test.describe("Bhayanak Legends v2 smoke", () => {
   test("health endpoint of the owned replay stack is used", async ({ request }) => {
     // The replay stack owns 23122 exclusively; this keeps the assertion tied
     // to the configured webServer rather than any external sidecar.
@@ -33,10 +34,10 @@ test.describe("Bhayanak Legends v1 smoke", () => {
 
   test("post-game suppresses comeback rate for the replayed mild deficit", async ({ page }) => {
     await page.goto("/postgame");
-    await expect(page.getByTestId("comeback-odds")).toBeVisible();
-    // Replayed gold@15 is milder than the 2,000g anchor -> domain suppression.
-    await expect(page.getByTestId("comeback-value")).toContainText("Unavailable: no supported population bucket");
-    const card = page.getByTestId("comeback-odds");
+    await expect(page.getByTestId("comeback-card")).toBeVisible();
+    // The replayed game has no eligible v2 team-state cohort observation.
+    await expect(page.getByTestId("comeback-value")).toContainText("Unavailable: no supported population band");
+    const card = page.getByTestId("comeback-card");
     await expect(card).not.toContainText(/Backfill/);
   });
 
@@ -49,7 +50,9 @@ test.describe("Bhayanak Legends v1 smoke", () => {
   test("champ select idle keeps policy note and population intel visible", async ({ page }) => {
     await page.goto("/champ-select");
     await expect(page.getByText("champion-level intel only").first()).toBeVisible();
-    await expect(page.getByText("Recommend ban").first()).toBeVisible();
+    const banContext = page.getByTestId("card-ban-context");
+    await expect(banContext).toBeVisible();
+    await expect(banContext).toContainText(/descriptive Diagnostic context/i);
   });
   for (const viewport of VIEWPORTS) {
     test(`champ-select replay lock flow is truthful at ${viewport.width}x${viewport.height}`, async ({ page, request }) => {
@@ -60,10 +63,10 @@ test.describe("Bhayanak Legends v1 smoke", () => {
       await page.goto("/champ-select");
       await expect(page.getByTestId("champ-select-page")).toBeVisible();
       await expect(page.getByTestId("your-lane-tier")).toHaveText(/TOP · AWAITING PICK/);
-      await expect(page.getByTestId("suggested-role")).toHaveText("TOP");
-      const suggestions = page.getByTestId("card-suggested-picks");
-      await expect(suggestions).toBeVisible();
-      await expect(suggestions).not.toContainText("MIDDLE");
+      const roleTiers = page.getByTestId("card-role-tiers");
+      await expect(roleTiers).toBeVisible();
+      await expect(roleTiers).toContainText(/no qualifying TOP population rows meet the 500-game floor/i);
+      await expect(roleTiers).not.toContainText("MIDDLE");
       await expect(page.getByTestId("cs-lock-status")).toContainText("Choose a pick");
 
       // The route keeps semantic keyboard order and a visible focus target while
@@ -80,14 +83,14 @@ test.describe("Bhayanak Legends v1 smoke", () => {
       await expect(page.getByTestId("your-lane-tier")).toHaveText(/not locked/i);
       await expect(page.getByTestId("cs-session-status")).toContainText("Annie picked — not locked");
       await expect(page.getByTestId("cs-lock-status")).toContainText("Lock Annie");
-      await expect(suggestions).toBeVisible();
+      await expect(roleTiers).toBeVisible();
 
       await setScenario(request, "champ-select-completed-lock");
       await expect(page.getByTestId("cs-session-status")).toHaveText(/Annie locked · MIDDLE/i);
       await expect(page.getByTestId("your-lane-champion")).toHaveText("Annie");
-      await expect(page.getByTestId("card-suggested-picks")).toHaveCount(0);
+      await expect(page.getByTestId("card-role-tiers")).toHaveCount(0);
       await expect(page.getByTestId("cs-lock-status")).toHaveCount(0);
-      await expect(page.getByText("Malzahar", { exact: false })).toHaveCount(0);
+      await expect(page.getByTestId("card-ban-context")).toBeVisible();
 
       const sessionResponse = await request.get(`${SIDECAR}/live/session`, { headers: AUTH });
       expect(sessionResponse.ok()).toBeTruthy();
@@ -102,7 +105,8 @@ test.describe("Bhayanak Legends v1 smoke", () => {
   }
 
   for (const viewport of VIEWPORTS) {
-    test(`champions shipped-pack directional flow at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+    test(`champions v2 evidence directional flow at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+      await mockTierEvidencePack(page);
       await page.setViewportSize(viewport);
       await page.goto("/champions");
 
@@ -116,25 +120,25 @@ test.describe("Bhayanak Legends v1 smoke", () => {
       await expect(initialCard).toBeVisible();
       await expect(initialCard).not.toContainText(/Darius|Garen/i);
 
-      // Choose the TOP role to reveal the shipped tier rows for it.
+      // Choose the TOP role to reveal the v2 fixture tier rows for it.
       await topChip.click();
       await expect(dariusRow).toBeVisible();
 
-      // Keyboard-only selection of the actual shipped Darius tier row.
+      // Keyboard-only selection of the actual v2 fixture Darius tier row.
       await dariusRow.focus();
       await page.keyboard.press("Enter");
 
-      // The shipped table contains exactly one direction: Darius -> Garen at
+      // The v2 fixture contains exactly one direction: Darius -> Garen at
       // 0.4098 wr. It must render; the reverse row must never be claimed as
       // this game's complement.
       await expect(page.getByText(/Darius/i).first()).toBeVisible();
-      await expect(page.getByText("Garen").first()).toBeVisible();
+      await expect(page.getByTestId("matchups-card")).toContainText("Darius vs Garen");
       const body = await page.locator("body").innerText();
       expect(body).toContain("Darius");
       expect(body).not.toContain("wr 59.02%"); // reverse-direction value must not be reoriented
 
       // Changing role clears champion-specific claims until re-selection.
-      await page.getByTestId("role-JUNGLE").click();
+      await page.getByTestId("role-MIDDLE").click();
       const clearedCard = page.getByTestId("matchups-card");
       await expect(clearedCard).toBeVisible();
       await expect(clearedCard).not.toContainText(/Darius/i);

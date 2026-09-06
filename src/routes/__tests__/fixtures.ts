@@ -1,10 +1,6 @@
-import type {
-  ChampSelectSnapshot,
-  FindingsPack,
-  InGameSnapshot,
-  LiveStatus,
-} from "../../api/types";
-import shippedFindingsPack from "../../../pack/findings-pack.v1.json";
+import type { ChampSelectSnapshot, InGameSnapshot, LiveStatus } from "../../api/types";
+import type { FindingsPackV2 } from "../../api/pack-v2";
+import shippedFindingsPack from "../../../pack/findings-pack.v2.json";
 
 export const idleStatus: LiveStatus = {
   champ_select: { active: false, phase: null },
@@ -62,6 +58,15 @@ export const idleIngame: InGameSnapshot = {
   local_champion: null,
   teams: { order: [], chaos: [] },
   events: [],
+  inference: {
+    status: "suppressed",
+    probability: null,
+    observed_game_time_s: null,
+    model_version: null,
+    pack_version: null,
+    reason: "no active game",
+  },
+  event_deltas: [],
 };
 
 /** Mirrors backend/tests/fixtures/lcu/allgamedata.json through the service. */
@@ -95,6 +100,15 @@ export const ingameSnapshot: InGameSnapshot = {
     { name: "ChampionKill", t_s: 700.14, actor: "FixturePlayer03", victim: "FixturePlayer09", detail: null },
     { name: "TurretKilled", t_s: 721.4, actor: "Order", victim: null, detail: null },
   ],
+  inference: {
+    status: "suppressed",
+    probability: null,
+    observed_game_time_s: null,
+    model_version: null,
+    pack_version: null,
+    reason: "fixture inference withheld",
+  },
+  event_deltas: [],
 };
 
 export const champSelectActive: LiveStatus = {
@@ -115,12 +129,11 @@ export const ingameActive: LiveStatus = {
  */
 export const forbiddenEnemyName = "FixturePlayer03-BL03";
 
-const shippedPack = shippedFindingsPack as unknown as FindingsPack;
+const shippedPack = shippedFindingsPack as unknown as FindingsPackV2;
 
-export function makePack(overrides: Partial<FindingsPack> = {}): FindingsPack {
+export function makePack(overrides: Record<string, unknown> = {}): FindingsPackV2 {
   return {
     ...shippedPack,
-    pack_version: "v1",
     ...overrides,
-  };
+  } as FindingsPackV2;
 }

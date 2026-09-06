@@ -1,9 +1,10 @@
-"""Validate the shipped Findings Pack v1 against its schema and the research contract."""
+"""Validate the canonical Findings Pack v2 bundle and producer boundary."""
+
+from __future__ import annotations
 
 import copy
 import importlib.util
 import json
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -12,13 +13,13 @@ import pytest
 from jsonschema import Draft202012Validator, ValidationError
 from pydantic import ValidationError as PydanticValidationError
 
-from bhayanak_legends.models import FindingsPack
 from bhayanak_legends.pack import PackError, PackStore
+from bhayanak_legends.pack_v2 import FindingsPackV2
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PACK_DIR = REPO_ROOT / "pack"
-SCHEMA = json.loads((PACK_DIR / "pack.schema.json").read_text())
-PACK = json.loads((PACK_DIR / "findings-pack.v1.json").read_text())
+SCHEMA = json.loads((PACK_DIR / "pack.schema.json").read_text(encoding="utf-8"))
+PACK = json.loads((PACK_DIR / "findings-pack.v2.json").read_text(encoding="utf-8"))
 
 
 @pytest.fixture(scope="module")
@@ -32,177 +33,92 @@ def generator():
     return module
 
 
-def finding(key: str) -> dict:
-    return next(f for f in PACK["findings"] if f["key"] == key)
-
-
-# Imperative phrasing detector: a diagnostic statement containing any of these
-# word stems is instructing the player, violating ADR-0003.
-IMPERATIVE = re.compile(
-    r"\b(ban|bans|banned|take|takes|play|plays|pick|picks|prioritize|prioritise|focus|"
-    r"roam|roams|recall|recalls|buy|buys|build|builds|dodge|surrender|stack|contest|"
-    r"contests|farm|ward|deny|steal|spend|skip|stop|target|consider|prefer|avoid|"
-    r"recommend|choose|keep|grab|always|never|should)\b",
-    re.IGNORECASE,
-)
-
-
-def test_schema_accepts_unknown_future_tables_only_as_objects():
-    future = copy.deepcopy(PACK)
-    future["future_table"] = {"new_metric": 1}
-    Draft202012Validator(SCHEMA).validate(future)
-
-    future["future_table"] = ["not", "a", "table"]
-    with pytest.raises(ValidationError):
-        Draft202012Validator(SCHEMA).validate(future)
-
-
-def test_pack_matches_schema_and_strict_model():
+def test_pack_matches_canonical_schema_and_strict_model(generator):
     Draft202012Validator.check_schema(SCHEMA)
     Draft202012Validator(SCHEMA).validate(PACK)
 
-    model = FindingsPack.model_validate(PACK)
+    model = FindingsPackV2.model_validate(PACK)
 
-    assert model.pack_version == "v1"
+    assert SCHEMA == generator.build_schema()
+    assert model.schema_version == 2
+    assert model.pack_version == "v2"
+    assert model.dataset.eligible_matches > 0
+
+
+def test_schema_rejects_unknown_root_and_row_fields():
+    broken = copy.deepcopy(PACK)
+    broken["future_table"] = {"new_metric": 1}
+    with pytest.raises(ValidationError):
+        Draft202012Validator(SCHEMA).validate(broken)
+
+    broken = copy.deepcopy(PACK)
+    broken["findings"][0]["future_metric"] = 1
+    with pytest.raises(ValidationError):
+        Draft202012Validator(SCHEMA).validate(broken)
 
 
 def test_pack_store_wraps_unreadable_json_as_pack_error(tmp_path: Path):
     pack_dir = tmp_path / "active"
     pack_dir.mkdir()
-    (pack_dir / "findings-pack.v1.json").write_bytes(b"\xff")
+    (pack_dir / "findings-pack.v2.json").write_bytes(b"\xff")
 
     with pytest.raises(PackError):
         PackStore(pack_dir).load()
 
-def test_pack_declares_canonical_comeback_input():
-    assert PACK["comeback_feature_contract"] == {
-        "feature": "gold_diff_15",
-        "feature_contract_version": "loltrends-parity-v1",
-    }
+
+def test_v2_comeback_rows_use_the_declared_team_state_contract():
+    assert [
+        (row["lower_bound"], row["upper_bound"])
+        for row in PACK["comeback_odds"]
+    ] == [(2000, 3000), (3000, 5000), (5000, None)]
+    assert all(row["feature"] == "team_gold_diff_15m" for row in PACK["comeback_odds"])
+    assert all(
+        row["feature_contract_version"] == "loltrends-parity-v2"
+        for row in PACK["comeback_odds"]
+    )
 
 
-def test_schema_requires_comeback_contract_declaration():
+def test_v2_semantics_reject_mismatched_comeback_contract():
     broken = copy.deepcopy(PACK)
-    del broken["comeback_feature_contract"]
+    broken["comeback_odds"][0]["feature_contract_version"] = "wrong-contract"
 
-    with pytest.raises(ValidationError):
-        Draft202012Validator(SCHEMA).validate(broken)
-
-
-def test_mismatched_comeback_contract_is_valid_but_incompatible():
-    broken = copy.deepcopy(PACK)
-    broken["comeback_feature_contract"]["feature"] = "gold_diff_20"
-
-    validated = FindingsPack.model_validate(broken)
-
-    assert validated.comeback_feature_contract.is_compatible() is False
-
-
-@pytest.mark.parametrize(
-    "rows",
-    [
-        [],
-        [{"gold_diff_bucket": "bottom_quartile_@20m", "win_rate": 0.282}],
-        [
-            {"gold_diff_bucket": "bottom_quartile_@20m", "win_rate": 0.282},
-            {"gold_diff_bucket": "top_quartile_@20m", "win_rate": 0.718},
-            {"gold_diff_bucket": "top_quartile_@20m", "win_rate": 0.718},
-        ],
-        [
-            {"gold_diff_bucket": "bottom_quartile_@20m", "win_rate": 0.282},
-            {"gold_diff_bucket": "bottom_quartile_@20m", "win_rate": 0.3},
-        ],
-        [
-            {"gold_diff_bucket": "bottom_quartile_@15m", "win_rate": 0.282},
-            {"gold_diff_bucket": "top_quartile_@20m", "win_rate": 0.718},
-        ],
-    ],
-)
-def test_schema_rejects_non_normative_checkpoint_rows(rows):
-    broken = copy.deepcopy(PACK)
-    broken["checkpoints"] = rows
-    with pytest.raises(ValidationError):
-        Draft202012Validator(SCHEMA).validate(broken)
-
-
-@pytest.mark.parametrize(
-    "rows",
-    [
-        [{"gold_deficit_at_15": -2000, "win_rate": 0.276}],
-        [
-            {"gold_deficit_at_15": -2000, "win_rate": 0.276},
-            {"gold_deficit_at_15": -2000, "win_rate": 0.276},
-            {"gold_deficit_at_15": -7000, "win_rate": 0.03},
-        ],
-        [
-            {"gold_deficit_at_15": -2000, "win_rate": 0.276},
-            {"gold_deficit_at_15": -7000, "win_rate": 0.03},
-            {"gold_deficit_at_15": -5000, "win_rate": 0.076},
-        ],
-        [
-            {"gold_deficit_at_15": 0, "win_rate": 0.276},
-            {"gold_deficit_at_15": -5000, "win_rate": 0.076},
-            {"gold_deficit_at_15": -7000, "win_rate": 0.03},
-        ],
-        [
-            {"gold_deficit_at_15": -2000.5, "win_rate": 0.276},
-            {"gold_deficit_at_15": -5000, "win_rate": 0.076},
-            {"gold_deficit_at_15": -7000, "win_rate": 0.03},
-        ],
-    ],
-)
-def test_pack_model_rejects_malformed_comeback_rows(rows):
-    broken = copy.deepcopy(PACK)
-    broken["comeback_odds"] = rows
     with pytest.raises(PydanticValidationError):
-        FindingsPack.model_validate(broken)
+        FindingsPackV2.model_validate(broken)
 
 
-NUMERIC_TABLES = (
-    "dataset",
-    "findings",
-    "habits",
-    "objectives",
-    "comeback_odds",
-    "ban_advisor",
-    "trap_picks",
-    "tier_list",
-    "matchup_examples",
-    "benchmarks",
-    "checkpoints",
-)
-
-
-def test_every_numeric_table_has_complete_provenance():
-    assert set(PACK["provenance"]) == set(NUMERIC_TABLES)
-    for table in NUMERIC_TABLES:
-        provenance = PACK["provenance"][table]
-        assert provenance["source_document"]
-        assert provenance["source_section"]
-        assert re.fullmatch(r"[0-9a-f]{64}", provenance["feature_store_manifest_sha256"])
-        assert re.fullmatch(r"sha256:[0-9a-f]{64}", provenance["generator_revision"])
-        assert provenance["feature_contract_version"] == "loltrends-parity-v1"
-
-
-@pytest.mark.parametrize(
-    ("table", "field", "value"),
-    [
-        ("tier_list", "provenance", None),
-        ("tier_list", "feature_store_manifest_sha256", "not-a-sha"),
-        ("tier_list", "feature_contract_version", "loltrends-parity-v0"),
-    ],
-)
-def test_schema_rejects_invalid_table_provenance(table, field, value):
+def test_v2_semantics_require_withheld_findings_to_explain_release():
     broken = copy.deepcopy(PACK)
-    if field == "provenance":
-        del broken["provenance"][table]
-    else:
-        broken["provenance"][table][field] = value
-    with pytest.raises(ValidationError):
-        Draft202012Validator(SCHEMA).validate(broken)
+    finding = next(row for row in broken["findings"] if row["key"] == "surrender_advisor")
+    finding.pop("release_reason", None)
+
+    with pytest.raises(PydanticValidationError):
+        FindingsPackV2.model_validate(broken)
 
 
-def test_generator_reproduces_from_declared_feature_store(tmp_path):
+def test_every_evidence_row_references_matching_provenance():
+    model = FindingsPackV2.model_validate(PACK)
+    groups = (
+        [model.dataset],
+        model.findings,
+        model.habits,
+        model.objectives,
+        model.comeback_odds,
+        model.ban_context,
+        model.tier_list,
+        model.matchup_examples,
+        model.checkpoints,
+        model.route_archetypes,
+        [model.build_evidence],
+    )
+    for rows in groups:
+        for row in rows:
+            provenance = model.provenance[row.provenance_key]
+            assert row.source_document == provenance.source_document
+            assert row.source_section == provenance.source_section
+            assert row.source_ref == provenance.source_ref
+
+
+def test_generator_reproduces_deterministically_from_declared_feature_store(tmp_path: Path):
     pd = pytest.importorskip("pandas")
     rows = [
         {
@@ -240,341 +156,50 @@ def test_generator_reproduces_from_declared_feature_store(tmp_path):
             capture_output=True,
             text=True,
         )
-        generated = json.loads((output_dir / "findings-pack.v1.json").read_text())
-        Draft202012Validator(SCHEMA).validate(generated)
-        assert generated["comeback_feature_contract"] == {
-            "feature": "gold_diff_15",
-            "feature_contract_version": "loltrends-parity-v1",
-        }
+        generated = json.loads(
+            (output_dir / "findings-pack.v2.json").read_text(encoding="utf-8")
+        )
+        generated_schema = json.loads(
+            (output_dir / "pack.schema.json").read_text(encoding="utf-8")
+        )
+        Draft202012Validator(generated_schema).validate(generated)
+        FindingsPackV2.model_validate(generated)
+        assert generated_schema == SCHEMA
         generated.pop("generated_at")
         outputs.append(generated)
     assert outputs[0] == outputs[1]
 
 
-def test_header_fields():
-    assert PACK["schema_version"] == 1
-    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", PACK["generated_at"])
-    assert PACK["dataset"]["matches"] > 0
-    assert PACK["dataset"]["player_games"] >= PACK["dataset"]["matches"]
-    assert len(PACK["dataset"]["patches"]) == 2
+def test_header_and_release_contract_fields_are_v2_only():
+    assert PACK["schema_version"] == 2
+    assert PACK["pack_version"] == "v2"
+    assert PACK["feature_contracts"]["personal_history"] == "loltrends-parity-v2"
+    assert set(PACK) == {
+        "schema_version",
+        "pack_version",
+        "generated_at",
+        "patch_range",
+        "dataset",
+        "feature_contracts",
+        "provenance",
+        "findings",
+        "habits",
+        "objectives",
+        "comeback_odds",
+        "ban_context",
+        "tier_list",
+        "matchup_examples",
+        "checkpoints",
+        "route_archetypes",
+        "build_evidence",
+        "models",
+    }
 
 
-def test_findings_pack_ignores_unknown_future_fields_and_tables():
-    future = copy.deepcopy(PACK)
-    future["pack_version"] = "v1"
-    future["benchmarks"][0]["future_metric"] = 1
-    future["benchmarks"][0]["feature_contract"]["future_feature"] = "future-v2"
-
-    validated = FindingsPack.model_validate(future)
-
-    assert validated.pack_version == "v1"
-    assert not hasattr(validated, "future_table")
-    assert not hasattr(validated.benchmarks[0], "future_metric")
-
-
-@pytest.mark.parametrize("value", [None, 1, ""])
-def test_findings_pack_rejects_invalid_pack_version(value):
+@pytest.mark.parametrize("field", ["schema_version", "pack_version"])
+def test_v2_header_fields_cannot_be_downgraded(field: str):
     broken = copy.deepcopy(PACK)
-    broken["pack_version"] = value
+    broken[field] = 1 if field == "schema_version" else ""
 
     with pytest.raises(PydanticValidationError):
-        FindingsPack.model_validate(broken)
-
-
-def test_findings_pack_defaults_missing_version_to_v1():
-    legacy = copy.deepcopy(PACK)
-    legacy.pop("pack_version", None)
-
-    model = FindingsPack.model_validate(legacy)
-
-    assert model.pack_version == "v1"
-
-
-@pytest.mark.parametrize("value", [None, 1, ""])
-def test_pack_feature_contract_rejects_missing_null_non_string_and_empty(value):
-    broken = copy.deepcopy(PACK)
-    if value is None:
-        broken["benchmarks"][0]["feature_contract"].pop("cs10_median")
-    else:
-        broken["benchmarks"][0]["feature_contract"]["cs10_median"] = value
-
-    with pytest.raises(PydanticValidationError):
-        FindingsPack.model_validate(broken)
-
-
-def test_every_finding_has_nonempty_statement_and_source_ref():
-    for f in PACK["findings"]:
-        assert f["statement"].strip(), f["key"]
-        assert f["title"].strip(), f["key"]
-        assert f["source_ref"].startswith("companion-app-content.md#"), f["key"]
-
-
-def test_tier_discipline_diagnostic_never_instructs():
-    offenders = []
-    for f in PACK["findings"]:
-        match = IMPERATIVE.search(f["statement"])
-        if match and f["tier"] == "diagnostic":
-            offenders.append(f"{f['key']}: imperative verb '{match.group(0)}'")
-        if match is None:
-            # statements with no imperative may be any tier; nothing to check
-            continue
-        if f["tier"] not in ("actionable", "a-lite"):
-            offenders.append(f"{f['key']}: tier {f['tier']} with imperative phrasing")
-    assert not offenders, "ADR-0003 violations:\n" + "\n".join(offenders)
-
-
-def test_curated_mastery_premium():
-    f = finding("mastery_premium")
-    assert f["tier"] == "actionable"
-    assert f["value"] == 3.7
-    assert f["unit"] == "pp"
-
-
-def test_curated_counterpick_honesty():
-    f = finding("counterpick_honesty")
-    assert f["tier"] == "diagnostic"
-    assert f["value"] == 2.5
-
-
-def test_curated_ban_waste_correlation():
-    f = finding("ban_waste_correlation")
-    assert f["tier"] == "actionable"
-    assert f["value"] == 0.125
-
-
-def test_curated_level_over_farm():
-    f = finding("level_over_farm_signal")
-    assert f["tier"] == "diagnostic"
-    assert f["value"] == 0.43
-
-
-def test_curated_smite_contest_trap():
-    f = finding("smite_contest_trap")
-    assert f["tier"] == "diagnostic"
-    assert f["value"] == 0.57
-
-
-def test_curated_duo_stacking_null():
-    f = finding("duo_stacking_null")
-    assert f["tier"] == "diagnostic"
-    assert f["value"] == 48.4
-
-
-def test_habits_are_exactly_the_four_surviving_keys():
-    expected = {
-        "recall_safety": 2.24,
-        "fast_first_dragon": 0.83,
-        "spend_before_backing": 0.88,
-        "plates_by_14": 1.08,
-    }
-    habits = {h["key"]: h["effect_per_sd"] for h in PACK["habits"]}
-    assert set(habits) == set(expected)
-    assert len(PACK["habits"]) == 4
-    for key, effect in expected.items():
-        assert habits[key] == effect, key
-
-
-def test_objectives_block_matches_doc():
-    assert PACK["objectives"] == {
-        "baron_pre25_win_rate": 0.814,
-        "baron_comeback_lift_pp": 29.5,
-        "dragon_denial_win_rate": 0.954,
-        "first_dragon_pre20_win_rate": 0.603,
-        "herald_pre20_win_rate": 0.666,
-    }
-
-
-def test_comeback_odds_rows_match_doc():
-    assert [(r["gold_deficit_at_15"], r["win_rate"]) for r in PACK["comeback_odds"]] == [
-        (-2000, 0.276),
-        (-5000, 0.076),
-        (-7000, 0.03),
-    ]
-
-
-def test_checkpoints_quartiles_match_doc():
-    assert [(c["gold_diff_bucket"], c["win_rate"]) for c in PACK["checkpoints"]] == [
-        ("bottom_quartile_@20m", 0.282),
-        ("top_quartile_@20m", 0.718),
-    ]
-
-
-def test_ban_advisor_has_real_threat_entries():
-    real_threat = [r for r in PACK["ban_advisor"] if r["recommendation"] == "real-threat"]
-    assert len(real_threat) > 0
-    for row in real_threat:
-        assert row["win_rate"] >= 0.52
-        assert row["ban_rate"] <= 0.03
-
-
-def test_trap_picks_are_bottom_of_the_barrel():
-    traps = PACK["trap_picks"]
-    assert 0 < len(traps) <= 5
-    win_rates = [t["win_rate"] for t in traps]
-    assert win_rates == sorted(win_rates)
-    assert all(wr < 0.45 for wr in win_rates)
-
-
-def test_tier_list_minimum_sample():
-    for entry in PACK["tier_list"]:
-        assert entry["games"] >= 100, entry
-    tiers = {"S", "A", "B", "C"}
-    assert all(entry["tier"] in tiers for entry in PACK["tier_list"])
-
-def test_matchup_rows_keep_direction_and_reject_self_rows(generator):
-    pd = pytest.importorskip("pandas")
-    rows = [
-        {"champion_name": "Darius", "opponent_champion_name": "Darius", "role": "TOP", "win": True},
-        {"champion_name": "Darius", "opponent_champion_name": "Garen", "role": "TOP", "win": True},
-        {"champion_name": "Garen", "opponent_champion_name": "Darius", "role": "TOP", "win": False},
-    ]
-
-    matchups = generator.build_matchup_examples(pd.DataFrame(rows), wanted=10, min_games=1)
-
-    assert {(row["champion"], row["opponent"], row["role"]) for row in matchups} == {
-        ("Darius", "Garen", "TOP"),
-        ("Garen", "Darius", "TOP"),
-    }
-    assert {row["champion"]: row["wr"] for row in matchups} == {"Darius": 1.0, "Garen": 0.0}
-
-
-def test_matchup_validator_rejects_exact_duplicate_but_allows_reverse_and_role(generator):
-    rows = [
-        {"champion": "Darius", "opponent": "Garen", "role": "TOP"},
-        {"champion": "Garen", "opponent": "Darius", "role": "TOP"},
-        {"champion": "Darius", "opponent": "Garen", "role": "JUNGLE"},
-    ]
-
-    assert generator.validate_matchup_examples(rows) == rows
-    with pytest.raises(ValueError, match="duplicate matchup direction"):
-        generator.validate_matchup_examples([*rows, rows[0]])
-
-def test_matchup_validator_rejects_self_rows(generator):
-    with pytest.raises(ValueError, match="self-matchup"):
-        generator.validate_matchup_examples(
-            [{"champion": "Darius", "opponent": "Darius", "role": "TOP"}]
-        )
-
-
-def test_matchup_builder_returns_no_rows_for_empty_and_all_self_input(generator):
-    pd = pytest.importorskip("pandas")
-    columns = ["champion_name", "opponent_champion_name", "role", "win"]
-    assert generator.build_matchup_examples(pd.DataFrame({c: [] for c in columns}), wanted=8, min_games=1) == []
-
-    all_self = pd.DataFrame(
-        [
-            {"champion_name": "Darius", "opponent_champion_name": "Darius", "role": role, "win": True}
-            for role in ("TOP", "JUNGLE")
-        ]
-    )
-    assert generator.build_matchup_examples(all_self, wanted=8, min_games=1) == []
-
-
-def test_matchup_builder_preserves_reverse_only_input_without_synthesis(generator):
-    pd = pytest.importorskip("pandas")
-    frame = pd.DataFrame(
-        [
-            {"champion_name": "Garen", "opponent_champion_name": "Darius", "role": "TOP", "win": True},
-            {"champion_name": "Garen", "opponent_champion_name": "Darius", "role": "TOP", "win": False},
-        ]
-    )
-
-    matchups = generator.build_matchup_examples(frame, wanted=8, min_games=1)
-
-    assert [(row["champion"], row["opponent"], row["role"]) for row in matchups] == [
-        ("Garen", "Darius", "TOP")
-    ]
-    assert matchups[0]["wr"] == 0.5
-
-
-def test_shipped_darius_garen_rows_are_independently_oriented():
-    rows = {
-        (row["champion"], row["opponent"], row["role"]): row["wr"]
-        for row in PACK["matchup_examples"]
-        if {row["champion"], row["opponent"]} == {"Darius", "Garen"}
-    }
-    assert rows[("Darius", "Garen", "TOP")] == 0.4098
-    assert rows[("Garen", "Darius", "TOP")] == 0.5902
-
-
-@pytest.mark.parametrize(
-    "rows",
-    [
-        [{"role": "TOP", "sample": 1, "feature_contract": {"cs10_median": "cs10"}}],
-        [{"role": "TOP", "sample": 1, "cs10_median": 60.0, "feature_contract": {}}],
-        [{"role": "TOP", "sample": 1, "cs10_median": None, "feature_contract": {"cs10_median": "cs10"}}],
-        [{"role": "TOP", "sample": 1, "cs10_median": float("nan"), "feature_contract": {"cs10_median": "cs10"}}],
-        [{"role": "TOP", "sample": 1, "cs10_median": float("inf"), "feature_contract": {"cs10_median": "cs10"}}],
-    ],
-)
-def test_benchmark_validator_rejects_untruthful_sparse_pairs(generator, rows):
-    with pytest.raises(ValueError):
-        generator.validate_benchmarks(rows)
-
-
-def test_benchmark_builder_omits_uncomputed_features_truthfully(generator):
-    pd = pytest.importorskip("pandas")
-    frame = pd.DataFrame(
-        [
-            {"role": "TOP", "lane_minions_first_10m": 60.0},
-            {"role": "TOP", "lane_minions_first_10m": float("nan")},
-            {"role": "JUNGLE", "lane_minions_first_10m": float("nan")},
-        ]
-    )
-
-    benchmarks = generator.build_benchmarks(frame)
-
-    assert benchmarks == [
-        {
-            "role": "TOP",
-            "cs10_median": 60.0,
-            "feature_contract": {"cs10_median": "lane_minions_first_10m"},
-            "sample": 1,
-        }
-    ]
-
-
-def test_sparse_schema_accepts_truthful_pair_and_rejects_unpaired_median():
-    benchmark = {"role": "TOP", "cs10_median": 60.0, "feature_contract": {"cs10_median": "cs10"}, "sample": 1}
-    sparse = {**PACK, "benchmarks": [benchmark]}
-    Draft202012Validator(SCHEMA).validate(sparse)
-
-    broken = {**sparse, "benchmarks": [{**benchmark, "feature_contract": {}}]}
-    with pytest.raises(ValidationError):
-        Draft202012Validator(SCHEMA).validate(broken)
-
-    unpaired_declaration = {
-        **sparse,
-        "benchmarks": [{k: v for k, v in benchmark.items() if k != "cs10_median"}],
-    }
-    with pytest.raises(ValidationError):
-        Draft202012Validator(SCHEMA).validate(unpaired_declaration)
-
-
-def test_benchmarks_cover_all_roles_with_sample():
-    roles = {b["role"]: b for b in PACK["benchmarks"]}
-    assert set(roles) == {"TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"}
-    for bench in roles.values():
-        assert bench["sample"] > 0
-
-
-def test_benchmark_pack_fields_declare_only_computed_source_features():
-    for bench in PACK["benchmarks"]:
-        assert "level10_median" not in bench
-        assert "gold_diff_10_median" not in bench
-        assert bench["feature_contract"] == {"cs10_median": "lane_minions_first_10m"}
-        assert isinstance(bench["cs10_median"], (int, float))
-
-
-def test_shipped_pack_passes_generator_boundary_semantic_validation(generator):
-    generator.validate_matchup_examples(PACK["matchup_examples"])
-    generator.validate_benchmarks(PACK["benchmarks"])
-
-
-def test_shipped_benchmark_declaration_stays_incompatible_with_total_cs10():
-    # docs/CONTRACT.md: lane-only CS is not total cs10 even when similarly
-    # named, so the shipped declaration must never claim the canonical feature.
-    for bench in PACK["benchmarks"]:
-        declared = bench["feature_contract"]["cs10_median"]
-        assert declared == "lane_minions_first_10m"
-        assert declared != "cs10"
+        FindingsPackV2.model_validate(broken)

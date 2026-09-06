@@ -9,14 +9,15 @@ import type {
   ChampSelectSessionView,
   FindingsPackState,
 } from "../components/champ-select/shared";
+import { tierEvidence } from "../components/populationEvidence";
 import { BanStrip, championLabel } from "../components/champ-select/BanStrip";
 import { YourLaneCard } from "../components/champ-select/YourLaneCard";
 import { MasteryCard } from "../components/champ-select/MasteryCard";
+import { PopulationRoleTiers } from "../components/champ-select/PopulationRoleTiers";
 import { HowToPlayCard } from "../components/champ-select/HowToPlayCard";
-import { SuggestedPicks } from "../components/champ-select/SuggestedPicks";
 import { CompReadCard } from "../components/champ-select/CompReadCard";
 import { LoadoutCard } from "../components/champ-select/LoadoutCard";
-import { BanAdvisorCard } from "../components/champ-select/BanAdvisorCard";
+import { BanContextCard } from "../components/champ-select/BanContextCard";
 import { YourSideCard } from "../components/champ-select/YourSideCard";
 import { MatchStartCard } from "../components/champ-select/MatchStartCard";
 import { PageHeader } from "../components/Layout";
@@ -119,9 +120,9 @@ export function ChampSelectPage() {
   const timerUrgent = timerKnown && timerSec <= TIMER_URGENT_S;
   const localTier =
     sessionView.locked && sessionView.localChampion
-      ? packQuery.data?.tier_list.find(
-          (entry) => entry.champion === sessionView.localChampion && entry.role === sessionView.assignedRole,
-        )?.tier ?? null
+      ? tierEvidence(packQuery.data, sessionView.assignedRole).find(
+          (entry) => entry.champion === sessionView.localChampion,
+        )?.rankBand ?? null
       : null;
 
   return (
@@ -161,6 +162,7 @@ export function ChampSelectPage() {
         }}
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 11, minHeight: 0, minWidth: 0 }}>
+          <MasteryCard pack={packQuery.data} packState={packState} />
           <YourLaneCard
             champion={sessionView.localChampion}
             tier={localTier}
@@ -168,12 +170,16 @@ export function ChampSelectPage() {
             state={sessionView.localCell?.state}
             locked={sessionView.locked}
           />
-          <MasteryCard pack={packQuery.data} packState={packState} />
           <HowToPlayCard session={sessionView} packState={packState} />
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0, minWidth: 0 }}>
-          <SuggestedPicks pack={packQuery.data} role={sessionView.assignedRole} locked={sessionView.locked} />
+          <PopulationRoleTiers
+            pack={packQuery.data}
+            role={sessionView.assignedRole}
+            packState={packState}
+            locked={sessionView.locked}
+          />
           <div
             className="champ-select-secondary"
             style={{
@@ -191,7 +197,7 @@ export function ChampSelectPage() {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0, minWidth: 0 }}>
-          <BanAdvisorCard pack={packQuery.data} />
+          <BanContextCard pack={packQuery.data} />
           <YourSideCard session={sessionView} />
           <MatchStartCard session={sessionView} />
         </div>

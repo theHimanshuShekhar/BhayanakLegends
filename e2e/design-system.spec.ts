@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 import { expect, test, type APIRequestContext, type Page, type TestInfo } from "@playwright/test";
-
+import { mockTierEvidencePack } from "./v2-fixtures";
 // The design-system browser seam for #99 (parent #37): token/unit/copy
 // inspection, action hierarchy, hover/focus/disabled affordances, the
 // urgent-dot-only motion contract, and named-pair contrast. Cross-route
@@ -24,10 +24,10 @@ const VIEWPORTS = [
 
 const ROUTES = [
   { path: "/live", nav: "live", h1: "Live Companion: In Game", ready: "bridge-status" },
-  { path: "/champ-select", nav: "champ-select", h1: "Live Companion: Champ Select", ready: "card-ban-advisor" },
+  { path: "/champ-select", nav: "champ-select", h1: "Live Companion: Champ Select", ready: "card-ban-context" },
   { path: "/postgame", nav: "postgame", h1: "Post-game Review", ready: "verdict-header" },
   { path: "/progress", nav: "progress", h1: "Trajectory", ready: null },
-  { path: "/champions", nav: "champions", h1: "Champion Evidence", ready: "role-MIDDLE" },
+  { path: "/champions", nav: "champions", h1: "Champion Evidence", ready: "tier-list-card" },
   { path: "/history", nav: "history", h1: "Improvement Journal", ready: "summary-matches" },
 ] as const;
 
@@ -207,6 +207,7 @@ test.describe("design system evidence", () => {
     test.setTimeout(240_000);
     const evidence = makeEvidence();
     const errors = collectConsoleErrors(page);
+    await mockTierEvidencePack(page);
 
     for (const viewport of VIEWPORTS) {
       const vp = `${viewport.width}x${viewport.height}`;
@@ -255,15 +256,15 @@ test.describe("design system evidence", () => {
         await gotoRoute(page, route);
         await screenshot(page, testInfo, `ds-${route.nav}-loaded-${viewport.width}`);
         const bodyText = await page.locator("body").innerText();
-        expect(bodyText, `${route.path} avoided vocabulary`).not.toMatch(/\b(?:lands|arrives|ships)\b/i);
+        expect(bodyText, `${route.path} avoided stale action vocabulary`).not.toMatch(/\b(?:lands|arrives)\b/i);
         expect(bodyText, `${route.path} generic pending copy`).not.toMatch(/\bpending\b/i);
         evidence.add("route", `${route.path} loaded, no forbidden vocabulary`, { viewport: vp });
       }
 
-      // effect_per_sd renders with multiplier semantics on /progress (seed pack habit 2.24).
+      // v2 pack recall_safety renders with multiplier semantics on /progress.
       await gotoRoute(page, ROUTES[3]);
-      await expect(page.getByTestId("lever-adoption")).toContainText(/×2\.24 effect per SD/);
-      evidence.add("units", "effect_per_sd renders ×2.24 effect per SD, never % or pp", { viewport: vp });
+      await expect(page.getByTestId("lever-adoption")).toContainText(/×2\.32/);
+      evidence.add("units", "recall_safety renders ×2.32 as an odds-ratio multiplier, never % or pp", { viewport: vp });
       // The remaining sections deliberately provoke 503s/error states; Chrome logs those (and
       // any react-query retry against the now-unrouted real endpoint) as console errors on their
       // own schedule regardless of app-level handling. ui-integrity's equivalent fixture test
@@ -301,7 +302,6 @@ test.describe("design system evidence", () => {
       evidence.add("state", "history loading: skeleton region visible", { viewport: vp });
       await page.unroute("**/history/summary");
 
-      // --- Victory / defeat: semantic colors + formatted gold on checkpoints. ---
       const digestBase = {
         match_id: "ds-e2e",
         played_at: "2026-08-25T00:00:00Z",
@@ -311,6 +311,16 @@ test.describe("design system evidence", () => {
         checkpoints: { gold_diff_10: 240, gold_diff_15: -610, gold_diff_20: 980 },
         habits: [],
         headline: "Clean early game",
+        feature_contract_version: "loltrends-parity-v2",
+        personal_history_eligibility: "eligible",
+        features: { team_gold_diff_15m: -610 },
+        team_state: {
+          feature: "team_gold_diff_15m",
+          feature_contract_version: "loltrends-parity-v2",
+          team_gold_diff_15m: -610,
+          observed_through_s: 1893,
+          non_surrendered: true,
+        },
       };
       await page.route("**/postgame/latest", (route) =>
         route.fulfill({ status: 200, json: { ...digestBase, win: true } }),
@@ -342,10 +352,25 @@ test.describe("design system evidence", () => {
       });
       await page.unroute("**/postgame/latest");
 
-      // --- Backfill action hierarchy + full state set (pristine/invalid/dirty/saved/running/error). ---
-      await request.put(`${SIDECAR}/settings`, {
-        headers: AUTH,
-        data: { riot_id: "FixturePlayer03#BL03", region_route: "sea", auto_sync: false },
+      // The sidecar's seeded owner is already active. Keep this lifecycle
+      // fixture local to the browser so changing the displayed Riot ID does
+      // not leave the shared replay owner in an unresolved transition.
+      const backfillSettings = {
+        owner_key: "e2e-design-owner",
+        generation: 1,
+        owner_state: "active",
+        owner_error: null,
+        riot_id: "FixturePlayer03#BL03",
+        region_route: "sea",
+        has_key: true,
+        auto_sync: false,
+      };
+      await page.route("**/settings", async (route) => {
+        if (route.request().method() === "GET" || route.request().method() === "PUT") {
+          await route.fulfill({ status: 200, json: backfillSettings });
+          return;
+        }
+        await route.fallback();
       });
       await page.goto("/history");
       const start = page.getByTestId("start-sync");

@@ -51,3 +51,17 @@ export function formatInitials(value: string | null | undefined, unavailableReas
 export function formatEffectPerSd(value: number | null | undefined, unavailableReason = "effect per SD unavailable"): string {
   return value == null ? formatUnavailable(unavailableReason) : `×${value.toFixed(2)} effect per SD`;
 }
+export function formatPatchScope(range: { min: string; max: string } | null): string {
+  return range ? `${range.min}–${range.max} · pooled` : "Pooled patch scope unavailable";
+}
+
+export function formatCorrelation(value: number | null | undefined): string {
+  if (value == null) return "Unavailable";
+  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}`;
+}
+
+export function formatInterval(interval: { lower: number; upper: number }): string {
+  const left = `${(interval.lower * 100).toFixed(1)}%`;
+  const right = `${(interval.upper * 100).toFixed(1)}%`;
+  return `${left}–${right}`;
+}

@@ -5,9 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as ClientApi from "../../api/client";
 import type {
   BenchmarkResponse,
+  HistoryInsights,
   HistorySummary,
   InGameSnapshot,
-  LiveStatus,
   PatchAggregate,
   PostGameDigest,
   Settings,
@@ -41,6 +41,16 @@ const victoryDigest: PostGameDigest = {
   checkpoints: { gold_diff_10: 100, gold_diff_15: -500, gold_diff_20: 250 },
   habits: [],
   headline: "A measured game",
+  feature_contract_version: "loltrends-parity-v2",
+  personal_history_eligibility: "eligible",
+  features: { team_gold_diff_15m: -500 },
+  team_state: {
+    feature: "team_gold_diff_15m",
+    feature_contract_version: "loltrends-parity-v2",
+    team_gold_diff_15m: -500,
+    observed_through_s: 1800,
+    non_surrendered: true,
+  },
 };
 
 const defeatDigest: PostGameDigest = {
@@ -68,15 +78,36 @@ const emptySummary: HistorySummary = {
   by_role: [],
   win_rate: 0,
 };
+const historyInsights: HistoryInsights = {
+  state: "empty",
+  sample_size: 0,
+  filters: { role: null, champion: null },
+  roles: [],
+  champions: [],
+  windows: {
+    latest: { name: "latest", games: 0, wins: 0, win_rate: 0, sample_status: "insufficient", completeness: "unavailable" },
+    preceding: { name: "preceding", games: 0, wins: 0, win_rate: 0, sample_status: "insufficient", completeness: "unavailable" },
+  },
+  feature_contract_version: null,
+  feature_contract_status: "unavailable",
+};
 
 const settings: Settings = {
-  riot_id: null,
-  region_route: "sea",
-  has_key: false,
+  owner_key: "fixture-owner",
+  generation: 1,
+  owner_state: "active",
+  owner_error: null,
+  riot_id: "Fixture#EUW",
+  region_route: "europe",
+  has_key: true,
   auto_sync: false,
 };
 
 const idleSync: SyncStatus = {
+  owner_key: "fixture-owner",
+  generation: 1,
+  owner_state: "active",
+  owner_error: null,
   state: "idle",
   mode: "era_first",
   total_queued: 0,
@@ -89,6 +120,10 @@ const idleSync: SyncStatus = {
 
 // Unknown totals: a running Backfill whose queue size is not known yet.
 const unknownTotalsSync: SyncStatus = {
+  owner_key: "fixture-owner",
+  generation: 1,
+  owner_state: "active",
+  owner_error: null,
   state: "running",
   mode: "era_first",
   total_queued: 0,
@@ -137,7 +172,7 @@ function respond<T>(endpoint: string, value: T): Promise<T> {
   if (fixtureState.failing.includes(endpoint)) {
     return Promise.reject(new Error("sidecar fixture failure"));
   }
-  if (fixtureState.mode === "held") {
+  if (fixtureState.mode === "held" && endpoint !== "settings") {
     return new Promise<T>((resolve) => {
       fixtureState.pending.push(() => resolve(value));
     });
@@ -151,9 +186,11 @@ function pickOverride<T>(override: unknown, fallback: T): T {
 }
 
 const liveState = vi.hoisted(() => ({
-  status: null as LiveStatus | null,
   session: null as typeof champSelectSession | null,
   ingame: null as InGameSnapshot | null,
+  // Imported fixtures are initialized after hoisted factories run. Keep the
+  // initial value literal-free here; beforeEach installs the idle fixture.
+  status: null as typeof idleStatus | typeof champSelectActive | typeof ingameActive | null,
 }));
 
 // This is the union mock graph for every route. Keeping all API exports present
@@ -164,8 +201,10 @@ vi.mock("../../api/client", async (importOriginal) => {
   return {
     ...actual,
     api: {
-      health: vi.fn(async () => ({ status: "ok", app_version: "test", pack_version: "v1" })),
+      ...actual.api,
+      health: vi.fn(async () => ({ status: "ok", app_version: "test", pack_version: "v2" })),
       pack: vi.fn(async () => respond("pack", makePack())),
+      historyInsights: vi.fn(async () => respond("insights", historyInsights)),
       settings: vi.fn(async () => respond("settings", settings)),
       updateSettings: vi.fn(async () => respond("settings", settings)),
       startSync: vi.fn(async () =>
@@ -221,11 +260,11 @@ function renderRoute(page: ReactElement) {
 }
 
 const routes = [
-  ["champ-select", <ChampSelectPage />, () => screen.findByTestId("card-ban-advisor")],
+  ["champ-select", <ChampSelectPage />, () => screen.findByTestId("card-ban-context")],
   ["live-match", <LiveMatchPage />, () => screen.findByTestId("bridge-status")],
   ["postgame", <PostGamePage />, () => screen.findByTestId("verdict-header")],
   ["progress", <ProgressPage />, () => screen.findByRole("heading", { name: "Benchmarks" })],
-  ["champions", <ChampionsPage />, () => screen.findByTestId("role-MIDDLE")],
+  ["champions", <ChampionsPage />, () => screen.findByRole("heading", { name: "Champion Evidence" })],
   ["history", <HistoryPage />, () => screen.findByTestId("summary-matches")],
 ] as const;
 
@@ -433,9 +472,9 @@ describe("route UI integrity", () => {
     // jsdom's accname computation returns "" for this sr-only live region,
     // so match on content plus explicit role instead of role + name.
     const history = renderRoute(routes[5][1]);
-    expect(document.querySelectorAll(".history-skeletons").length).toBeGreaterThan(0);
     const announcement = await history.findByText("Loading personal history");
     expect(announcement).toHaveAttribute("role", "status");
+    expect(history.container.querySelectorAll(".history-skeletons").length).toBeGreaterThan(0);
 
     // Trajectory: rail skeleton while the same graph stays parked.
     const progress = renderRoute(routes[3][1]);

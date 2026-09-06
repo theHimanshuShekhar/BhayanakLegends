@@ -1,8 +1,9 @@
-import type { MatchupExample } from "../../api/types";
-import { formatCount, formatPercentagePoints, formatRate } from "../format";
+import type { MatchupEvidenceRow } from "../populationEvidence";
+import { EvidenceMeta } from "../populationEvidence";
+import { formatCount, formatInterval, formatRate } from "../format";
 import { SectionHead } from "../ui";
 
-function MatchupRow({ m }: { m: MatchupExample }) {
+function MatchupRow({ m }: { m: MatchupEvidenceRow }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
       <span
@@ -27,12 +28,11 @@ function MatchupRow({ m }: { m: MatchupExample }) {
           flex: "none",
         }}
       >
-        {/* Findings Pack population evidence: blue in both directions. */}
         <div
           data-testid={`matchup-bar-${m.champion}-${m.opponent}`}
           className="bl-width"
           style={{
-            width: `${Math.round(m.wr * 100)}%`,
+            width: `${Math.round(m.estimate * 100)}%`,
             height: "100%",
             background: "var(--color-info)",
           }}
@@ -41,7 +41,7 @@ function MatchupRow({ m }: { m: MatchupExample }) {
       <span
         className="mono-n"
         style={{
-          width: 112,
+          width: 156,
           textAlign: "right",
           fontSize: 9.5,
           color: "var(--color-dim)",
@@ -49,8 +49,9 @@ function MatchupRow({ m }: { m: MatchupExample }) {
           whiteSpace: "nowrap",
         }}
       >
-        {formatRate(m.wr)} ±{formatPercentagePoints(Math.abs(m.ci)).slice(1)} · {formatCount(m.games, "games")}
+        {formatRate(m.estimate)} · {formatInterval(m.interval)} · {formatCount(m.games, "games")}
       </span>
+      <EvidenceMeta metadata={m.metadata} />
     </div>
   );
 }
@@ -64,10 +65,10 @@ export function MatchupsCard({
   matchups,
 }: {
   champion: string | null;
-  matchups: MatchupExample[];
+  matchups: MatchupEvidenceRow[];
 }) {
-  const favorable = matchups.filter((m) => m.wr >= 0.5).sort((a, b) => b.wr - a.wr);
-  const difficult = matchups.filter((m) => m.wr < 0.5).sort((a, b) => a.wr - b.wr);
+  const higher = matchups.filter((m) => m.estimate >= 0.5).sort((a, b) => b.estimate - a.estimate);
+  const lower = matchups.filter((m) => m.estimate < 0.5).sort((a, b) => a.estimate - b.estimate);
   const empty = `The current Findings Pack has no directional example for ${champion ?? "this champion"}.`;
 
   return (
@@ -88,16 +89,14 @@ export function MatchupsCard({
         <EmptyLine text="Select a champion to see directional examples." />
       ) : (
         <>
-          {/* Favorable/difficult framing is carried by the words, not by
-              recoloring the population evidence itself (blue throughout). */}
           <div style={{ fontSize: 9.5, color: "var(--color-dim)", letterSpacing: ".08em" }}>
-            FAVORABLE EXAMPLES FOR {champion.toUpperCase()}
+            HIGHER OBSERVED ESTIMATES FOR {champion.toUpperCase()}
           </div>
           <div data-testid="favorable-list" style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-            {favorable.map((m) => (
-              <MatchupRow key={`${m.champion}-${m.opponent}`} m={m} />
+            {higher.map((m) => (
+              <MatchupRow key={`${m.champion}-${m.opponent}-${m.role}`} m={m} />
             ))}
-            {favorable.length === 0 && <EmptyLine text={empty} />}
+            {higher.length === 0 && <EmptyLine text={empty} />}
           </div>
           <div
             style={{
@@ -107,13 +106,13 @@ export function MatchupsCard({
               marginTop: 4,
             }}
           >
-            DIFFICULT EXAMPLES FOR {champion.toUpperCase()}
+            LOWER OBSERVED ESTIMATES FOR {champion.toUpperCase()}
           </div>
           <div data-testid="difficult-list" style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-            {difficult.map((m) => (
-              <MatchupRow key={`${m.champion}-${m.opponent}`} m={m} />
+            {lower.map((m) => (
+              <MatchupRow key={`${m.champion}-${m.opponent}-${m.role}`} m={m} />
             ))}
-            {difficult.length === 0 && <EmptyLine text={empty} />}
+            {lower.length === 0 && <EmptyLine text={empty} />}
           </div>
           <p
             style={{
@@ -123,7 +122,7 @@ export function MatchupsCard({
               color: "var(--color-dimmer)",
             }}
           >
-            Source: Findings Pack · matchup_examples
+            Source: Findings Pack · matchup_examples · directional estimate with interval
           </p>
         </>
       )}

@@ -1,300 +1,2252 @@
 {
+  "$defs": {
+    "PackV2Artifact": {
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "onnx",
+          "title": "Format",
+          "type": "string"
+        },
+        "model_card_path": {
+          "minLength": 1,
+          "title": "Model Card Path",
+          "type": "string"
+        },
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size": {
+          "exclusiveMinimum": 0,
+          "title": "Size",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "format",
+        "sha256",
+        "size",
+        "model_card_path"
+      ],
+      "title": "PackV2Artifact",
+      "type": "object"
+    },
+    "PackV2BanContext": {
+      "additionalProperties": false,
+      "properties": {
+        "caveats": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Caveats",
+          "type": "array"
+        },
+        "champion": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Champion"
+        },
+        "era_stability": {
+          "enum": [
+            "stable",
+            "sensitive",
+            "insufficient",
+            "not_evaluated"
+          ],
+          "title": "Era Stability",
+          "type": "string"
+        },
+        "key": {
+          "minLength": 1,
+          "title": "Key",
+          "type": "string"
+        },
+        "metric_kind": {
+          "enum": [
+            "ban_rate_win_rate_correlation",
+            "ban_rate",
+            "win_rate"
+          ],
+          "title": "Metric Kind",
+          "type": "string"
+        },
+        "patch_range": {
+          "$ref": "#/$defs/PackV2PatchRange"
+        },
+        "population_scope": {
+          "minLength": 1,
+          "title": "Population Scope",
+          "type": "string"
+        },
+        "provenance_key": {
+          "minLength": 1,
+          "title": "Provenance Key",
+          "type": "string"
+        },
+        "release_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Release Reason"
+        },
+        "release_status": {
+          "enum": [
+            "available",
+            "approximate",
+            "withheld",
+            "superseded"
+          ],
+          "title": "Release Status",
+          "type": "string"
+        },
+        "sample": {
+          "exclusiveMinimum": 0,
+          "title": "Sample",
+          "type": "integer"
+        },
+        "source_document": {
+          "minLength": 1,
+          "title": "Source Document",
+          "type": "string"
+        },
+        "source_ref": {
+          "minLength": 1,
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "source_section": {
+          "minLength": 1,
+          "title": "Source Section",
+          "type": "string"
+        },
+        "tier": {
+          "const": "diagnostic",
+          "title": "Tier",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "patch_range",
+        "population_scope",
+        "era_stability",
+        "caveats",
+        "source_document",
+        "source_section",
+        "source_ref",
+        "provenance_key",
+        "key",
+        "metric_kind",
+        "value",
+        "sample",
+        "tier",
+        "release_status"
+      ],
+      "title": "PackV2BanContext",
+      "type": "object"
+    },
+    "PackV2BuildEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "caveats": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Caveats",
+          "type": "array"
+        },
+        "era_stability": {
+          "enum": [
+            "stable",
+            "sensitive",
+            "insufficient",
+            "not_evaluated"
+          ],
+          "title": "Era Stability",
+          "type": "string"
+        },
+        "patch_range": {
+          "$ref": "#/$defs/PackV2PatchRange"
+        },
+        "population_scope": {
+          "minLength": 1,
+          "title": "Population Scope",
+          "type": "string"
+        },
+        "provenance_key": {
+          "minLength": 1,
+          "title": "Provenance Key",
+          "type": "string"
+        },
+        "release_reason": {
+          "minLength": 1,
+          "title": "Release Reason",
+          "type": "string"
+        },
+        "release_status": {
+          "const": "withheld",
+          "title": "Release Status",
+          "type": "string"
+        },
+        "rows": {
+          "anyOf": [
+            {
+              "items": {},
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rows"
+        },
+        "source_document": {
+          "minLength": 1,
+          "title": "Source Document",
+          "type": "string"
+        },
+        "source_ref": {
+          "minLength": 1,
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "source_section": {
+          "minLength": 1,
+          "title": "Source Section",
+          "type": "string"
+        }
+      },
+      "required": [
+        "patch_range",
+        "population_scope",
+        "era_stability",
+        "caveats",
+        "source_document",
+        "source_section",
+        "source_ref",
+        "provenance_key",
+        "release_status",
+        "release_reason"
+      ],
+      "title": "PackV2BuildEvidence",
+      "type": "object"
+    },
+    "PackV2Checkpoint": {
+      "additionalProperties": false,
+      "properties": {
+        "caveats": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Caveats",
+          "type": "array"
+        },
+        "era_stability": {
+          "enum": [
+            "stable",
+            "sensitive",
+            "insufficient",
+            "not_evaluated"
+          ],
+          "title": "Era Stability",
+          "type": "string"
+        },
+        "feature": {
+          "minLength": 1,
+          "title": "Feature",
+          "type": "string"
+        },
+        "patch_range": {
+          "$ref": "#/$defs/PackV2PatchRange"
+        },
+        "population_scope": {
+          "minLength": 1,
+          "title": "Population Scope",
+          "type": "string"
+        },
+        "provenance_key": {
+          "minLength": 1,
+          "title": "Provenance Key",
+          "type": "string"
+        },
+        "release_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Release Reason"
+        },
+        "release_status": {
+          "enum": [
+            "available",
+            "approximate",
+            "withheld",
+            "superseded"
+          ],
+          "title": "Release Status",
+          "type": "string"
+        },
+        "sample": {
+          "exclusiveMinimum": 0,
+          "title": "Sample",
+          "type": "integer"
+        },
+        "source_document": {
+          "minLength": 1,
+          "title": "Source Document",
+          "type": "string"
+        },
+        "source_ref": {
+          "minLength": 1,
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "source_section": {
+          "minLength": 1,
+          "title": "Source Section",
+          "type": "string"
+        },
+        "tier": {
+          "enum": [
+            "actionable",
+            "diagnostic",
+            "a-lite"
+          ],
+          "title": "Tier",
+          "type": "string"
+        },
+        "unit": {
+          "minLength": 1,
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        },
+        "window": {
+          "$ref": "#/$defs/PackV2ObservationWindow"
+        }
+      },
+      "required": [
+        "patch_range",
+        "population_scope",
+        "era_stability",
+        "caveats",
+        "source_document",
+        "source_section",
+        "source_ref",
+        "provenance_key",
+        "feature",
+        "window",
+        "value",
+        "unit",
+        "sample",
+        "tier",
+        "release_status"
+      ],
+      "title": "PackV2Checkpoint",
+      "type": "object"
+    },
+    "PackV2ComebackBand": {
+      "additionalProperties": false,
+      "properties": {
+        "caveats": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Caveats",
+          "type": "array"
+        },
+        "checkpoint_seconds": {
+          "const": 900,
+          "title": "Checkpoint Seconds",
+          "type": "integer"
+        },
+        "eligibility": {
+          "minLength": 1,
+          "title": "Eligibility",
+          "type": "string"
+        },
+        "era_stability": {
+          "enum": [
+            "stable",
+            "sensitive",
+            "insufficient",
+            "not_evaluated"
+          ],
+          "title": "Era Stability",
+          "type": "string"
+        },
+        "feature": {
+          "const": "team_gold_diff_15m",
+          "title": "Feature",
+          "type": "string"
+        },
+        "feature_contract_version": {
+          "minLength": 1,
+          "title": "Feature Contract Version",
+          "type": "string"
+        },
+        "include_lower": {
+          "title": "Include Lower",
+          "type": "boolean"
+        },
+        "include_upper": {
+          "const": false,
+          "title": "Include Upper",
+          "type": "boolean"
+        },
+        "lower_bound": {
+          "minimum": 0,
+          "title": "Lower Bound",
+          "type": "number"
+        },
+        "patch_range": {
+          "$ref": "#/$defs/PackV2PatchRange"
+        },
+        "population_scope": {
+          "minLength": 1,
+          "title": "Population Scope",
+          "type": "string"
+        },
+        "provenance_key": {
+          "minLength": 1,
+          "title": "Provenance Key",
+          "type": "string"
+        },
+        "rate": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rate"
+        },
+        "release_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Release Reason"
+        },
+        "release_status": {
+          "enum": [
+            "available",
+            "approximate",
+            "withheld",
+            "superseded"
+          ],
+          "title": "Release Status",
+          "type": "string"
+        },
+        "sample": {
+          "minimum": 0,
+          "title": "Sample",
+          "type": "integer"
+        },
+        "source_document": {
+          "minLength": 1,
+          "title": "Source Document",
+          "type": "string"
+        },
+        "source_ref": {
+          "minLength": 1,
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "source_section": {
+          "minLength": 1,
+          "title": "Source Section",
+          "type": "string"
+        },
+        "tier": {
+          "enum": [
+            "actionable",
+            "diagnostic",
+            "a-lite"
+          ],
+          "title": "Tier",
+          "type": "string"
+        },
+        "unit": {
+          "const": "gold",
+          "title": "Unit",
+          "type": "string"
+        },
+        "upper_bound": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Upper Bound"
+        }
+      },
+      "required": [
+        "patch_range",
+        "population_scope",
+        "era_stability",
+        "caveats",
+        "source_document",
+        "source_section",
+        "source_ref",
+        "provenance_key",
+        "feature",
+        "feature_contract_version",
+        "checkpoint_seconds",
+        "unit",
+        "lower_bound",
+        "include_lower",
+        "include_upper",
+        "sample",
+        "eligibility",
+        "tier",
+        "release_status"
+      ],
+      "title": "PackV2ComebackBand",
+      "type": "object"
+    },
+    "PackV2Dataset": {
+      "additionalProperties": false,
+      "properties": {
+        "caveats": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Caveats",
+          "type": "array"
+        },
+        "eligibility": {
+          "minLength": 1,
+          "title": "Eligibility",
+          "type": "string"
+        },
+        "eligible_matches": {
+          "minimum": 0,
+          "title": "Eligible Matches",
+          "type": "integer"
+        },
+        "era_stability": {
+          "enum": [
+            "stable",
+            "sensitive",
+            "insufficient",
+            "not_evaluated"
+          ],
+          "title": "Era Stability",
+          "type": "string"
+        },
+        "median_game_minutes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Median Game Minutes"
+        },
+        "participant_performances": {
+          "minimum": 0,
+          "title": "Participant Performances",
+          "type": "integer"
+        },
+        "patch_buckets": {
+          "minimum": 0,
+          "title": "Patch Buckets",
+          "type": "integer"
+        },
+        "patch_range": {
+          "$ref": "#/$defs/PackV2PatchRange"
+        },
+        "patches": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Patches",
+          "type": "array"
+        },
+        "population_scope": {
+          "minLength": 1,
+          "title": "Population Scope",
+          "type": "string"
+        },
+        "provenance_key": {
+          "minLength": 1,
+          "title": "Provenance Key",
+          "type": "string"
+        },
+        "raw_unique_matches": {
+          "minimum": 0,
+          "title": "Raw Unique Matches",
+          "type": "integer"
+        },
+        "source_document": {
+          "minLength": 1,
+          "title": "Source Document",
+          "type": "string"
+        },
+        "source_ref": {
+          "minLength": 1,
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "source_section": {
+          "minLength": 1,
+          "title": "Source Section",
+          "type": "string"
+        },
+        "surrender_rate": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Surrender Rate"
+        },
+        "tracked_players": {
+          "minimum": 0,
+          "title": "Tracked Players",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "patch_range",
+        "population_scope",
+        "era_stability",
+        "caveats",
+        "source_document",
+        "source_section",
+        "source_ref",
+        "provenance_key",
+        "raw_unique_matches",
+        "eligible_matches",
+        "participant_performances",
+        "tracked_players",
+        "patch_buckets",
+        "patches",
+        "eligibility"
+      ],
+      "title": "PackV2Dataset",
+      "type": "object"
+    },
+    "PackV2FeatureContracts": {
+      "additionalProperties": false,
+      "properties": {
+        "models": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Models"
+        },
+        "personal_history": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Personal History"
+        },
+        "population": {
+          "minLength": 1,
+          "title": "Population",
+          "type": "string"
+        }
+      },
+      "required": [
+        "population"
+      ],
+      "title": "PackV2FeatureContracts",
+      "type": "object"
+    },
+    "PackV2Finding": {
+      "additionalProperties": false,
+      "properties": {
+        "caveats": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Caveats",
+          "type": "array"
+        },
+        "era_stability": {
+          "enum": [
+            "stable",
+            "sensitive",
+            "insufficient",
+            "not_evaluated"
+          ],
+          "title": "Era Stability",
+          "type": "string"
+        },
+        "key": {
+          "minLength": 1,
+          "title": "Key",
+          "type": "string"
+        },
+        "metric_kind": {
+          "enum": [
+            "win_rate",
+            "odds_ratio",
+            "correlation",
+            "percentage_points",
+            "count",
+            "auc",
+            "status"
+          ],
+          "title": "Metric Kind",
+          "type": "string"
+        },
+        "patch_range": {
+          "$ref": "#/$defs/PackV2PatchRange"
+        },
+        "population_scope": {
+          "minLength": 1,
+          "title": "Population Scope",
+          "type": "string"
+        },
+        "provenance_key": {
+          "minLength": 1,
+          "title": "Provenance Key",
+          "type": "string"
+        },
+        "release_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Release Reason"
+        },
+        "release_status": {
+          "enum": [
+            "available",
+            "approximate",
+            "withheld",
+            "superseded"
+          ],
+          "title": "Release Status",
+          "type": "string"
+        },
+        "sample": {
+          "exclusiveMinimum": 0,
+          "title": "Sample",
+          "type": "integer"
+        },
+        "source_document": {
+          "minLength": 1,
+          "title": "Source Document",
+          "type": "string"
+        },
+        "source_ref": {
+          "minLength": 1,
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "source_section": {
+          "minLength": 1,
+          "title": "Source Section",
+          "type": "string"
+        },
+        "statement": {
+          "minLength": 1,
+          "title": "Statement",
+          "type": "string"
+        },
+        "tier": {
+          "enum": [
+            "actionable",
+            "diagnostic",
+            "a-lite"
+          ],
+          "title": "Tier",
+          "type": "string"
+        },
+        "title": {
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "unit": {
+          "minLength": 1,
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "patch_range",
+        "population_scope",
+        "era_stability",
+        "caveats",
+        "source_document",
+        "source_section",
+        "source_ref",
+        "provenance_key",
+        "key",
+        "tier",
+        "release_status",
+        "title",
+        "statement",
+        "metric_kind",
+        "unit",
+        "sample"
+      ],
+      "title": "PackV2Finding",
+      "type": "object"
+    },
+    "PackV2Habit": {
+      "additionalProperties": false,
+      "properties": {
+        "caveats": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Caveats",
+          "type": "array"
+        },
+        "effect": {
+          "title": "Effect",
+          "type": "number"
+        },
+        "eligibility": {
+          "minLength": 1,
+          "title": "Eligibility",
+          "type": "string"
+        },
+        "era_stability": {
+          "enum": [
+            "stable",
+            "sensitive",
+            "insufficient",
+            "not_evaluated"
+          ],
+          "title": "Era Stability",
+          "type": "string"
+        },
+        "feature": {
+          "minLength": 1,
+          "title": "Feature",
+          "type": "string"
+        },
+        "key": {
+          "minLength": 1,
+          "title": "Key",
+          "type": "string"
+        },
+        "label": {
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "metric_kind": {
+          "enum": [
+            "odds_ratio_per_standard_deviation",
+            "percentage_points",
+            "win_rate"
+          ],
+          "title": "Metric Kind",
+          "type": "string"
+        },
+        "patch_range": {
+          "$ref": "#/$defs/PackV2PatchRange"
+        },
+        "population_scope": {
+          "minLength": 1,
+          "title": "Population Scope",
+          "type": "string"
+        },
+        "provenance_key": {
+          "minLength": 1,
+          "title": "Provenance Key",
+          "type": "string"
+        },
+        "release_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Release Reason"
+        },
+        "release_status": {
+          "enum": [
+            "available",
+            "approximate",
+            "withheld",
+            "superseded"
+          ],
+          "title": "Release Status",
+          "type": "string"
+        },
+        "sample": {
+          "exclusiveMinimum": 0,
+          "title": "Sample",
+          "type": "integer"
+        },
+        "source_document": {
+          "minLength": 1,
+          "title": "Source Document",
+          "type": "string"
+        },
+        "source_ref": {
+          "minLength": 1,
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "source_section": {
+          "minLength": 1,
+          "title": "Source Section",
+          "type": "string"
+        },
+        "tier": {
+          "enum": [
+            "actionable",
+            "diagnostic",
+            "a-lite"
+          ],
+          "title": "Tier",
+          "type": "string"
+        },
+        "unit": {
+          "minLength": 1,
+          "title": "Unit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "patch_range",
+        "population_scope",
+        "era_stability",
+        "caveats",
+        "source_document",
+        "source_section",
+        "source_ref",
+        "provenance_key",
+        "key",
+        "label",
+        "metric_kind",
+        "unit",
+        "effect",
+        "feature",
+        "eligibility",
+        "tier",
+        "release_status",
+        "sample"
+      ],
+      "title": "PackV2Habit",
+      "type": "object"
+    },
+    "PackV2Interval": {
+      "additionalProperties": false,
+      "properties": {
+        "include_lower": {
+          "title": "Include Lower",
+          "type": "boolean"
+        },
+        "include_upper": {
+          "title": "Include Upper",
+          "type": "boolean"
+        },
+        "lower": {
+          "title": "Lower",
+          "type": "number"
+        },
+        "upper": {
+          "title": "Upper",
+          "type": "number"
+        }
+      },
+      "required": [
+        "lower",
+        "upper",
+        "include_lower",
+        "include_upper"
+      ],
+      "title": "PackV2Interval",
+      "type": "object"
+    },
+    "PackV2Matchup": {
+      "additionalProperties": false,
+      "properties": {
+        "caveats": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Caveats",
+          "type": "array"
+        },
+        "champion": {
+          "minLength": 1,
+          "title": "Champion",
+          "type": "string"
+        },
+        "era_stability": {
+          "enum": [
+            "stable",
+            "sensitive",
+            "insufficient",
+            "not_evaluated"
+          ],
+          "title": "Era Stability",
+          "type": "string"
+        },
+        "estimate": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Estimate",
+          "type": "number"
+        },
+        "games": {
+          "exclusiveMinimum": 0,
+          "title": "Games",
+          "type": "integer"
+        },
+        "interval": {
+          "$ref": "#/$defs/PackV2Interval"
+        },
+        "opponent": {
+          "minLength": 1,
+          "title": "Opponent",
+          "type": "string"
+        },
+        "patch_range": {
+          "$ref": "#/$defs/PackV2PatchRange"
+        },
+        "population_scope": {
+          "minLength": 1,
+          "title": "Population Scope",
+          "type": "string"
+        },
+        "provenance_key": {
+          "minLength": 1,
+          "title": "Provenance Key",
+          "type": "string"
+        },
+        "release_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Release Reason"
+        },
+        "release_status": {
+          "enum": [
+            "available",
+            "approximate",
+            "withheld",
+            "superseded"
+          ],
+          "title": "Release Status",
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "TOP",
+            "JUNGLE",
+            "MIDDLE",
+            "BOTTOM",
+            "UTILITY"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "source_document": {
+          "minLength": 1,
+          "title": "Source Document",
+          "type": "string"
+        },
+        "source_ref": {
+          "minLength": 1,
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "source_section": {
+          "minLength": 1,
+          "title": "Source Section",
+          "type": "string"
+        },
+        "tier": {
+          "const": "diagnostic",
+          "title": "Tier",
+          "type": "string"
+        }
+      },
+      "required": [
+        "patch_range",
+        "population_scope",
+        "era_stability",
+        "caveats",
+        "source_document",
+        "source_section",
+        "source_ref",
+        "provenance_key",
+        "champion",
+        "opponent",
+        "role",
+        "games",
+        "estimate",
+        "interval",
+        "tier",
+        "release_status"
+      ],
+      "title": "PackV2Matchup",
+      "type": "object"
+    },
+    "PackV2ModelCard": {
+      "additionalProperties": false,
+      "properties": {
+        "bounds": {
+          "additionalProperties": {
+            "$ref": "#/$defs/PackV2ModelInterval"
+          },
+          "title": "Bounds",
+          "type": "object"
+        },
+        "caveats": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Caveats",
+          "type": "array"
+        },
+        "feature_contract_version": {
+          "minLength": 1,
+          "title": "Feature Contract Version",
+          "type": "string"
+        },
+        "feature_order": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Feature Order",
+          "type": "array"
+        },
+        "features": {
+          "items": {
+            "$ref": "#/$defs/PackV2ModelFeature"
+          },
+          "minItems": 1,
+          "title": "Features",
+          "type": "array"
+        },
+        "input_names": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Input Names",
+          "type": "array"
+        },
+        "model_id": {
+          "minLength": 1,
+          "title": "Model Id",
+          "type": "string"
+        },
+        "model_version": {
+          "minLength": 1,
+          "title": "Model Version",
+          "type": "string"
+        },
+        "output_names": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Output Names",
+          "type": "array"
+        },
+        "patch_scope": {
+          "$ref": "#/$defs/PackV2PatchRange"
+        },
+        "preprocessing": {
+          "items": {
+            "$ref": "#/$defs/PackV2PreprocessingStep"
+          },
+          "title": "Preprocessing",
+          "type": "array"
+        },
+        "smoke_test": {
+          "$ref": "#/$defs/PackV2SmokeTest"
+        },
+        "validation": {
+          "$ref": "#/$defs/PackV2ModelValidation"
+        }
+      },
+      "required": [
+        "model_id",
+        "model_version",
+        "feature_contract_version",
+        "input_names",
+        "output_names",
+        "features",
+        "feature_order",
+        "preprocessing",
+        "bounds",
+        "patch_scope",
+        "validation",
+        "caveats",
+        "smoke_test"
+      ],
+      "title": "PackV2ModelCard",
+      "type": "object"
+    },
+    "PackV2ModelDeclaration": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PackV2Artifact"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "model_card": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PackV2ModelCard"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "model_id": {
+          "minLength": 1,
+          "title": "Model Id",
+          "type": "string"
+        },
+        "release_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Release Reason"
+        },
+        "release_status": {
+          "enum": [
+            "available",
+            "approximate",
+            "withheld",
+            "superseded"
+          ],
+          "title": "Release Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "model_id",
+        "release_status"
+      ],
+      "title": "PackV2ModelDeclaration",
+      "type": "object"
+    },
+    "PackV2ModelFeature": {
+      "additionalProperties": false,
+      "properties": {
+        "adjustable": {
+          "title": "Adjustable",
+          "type": "boolean"
+        },
+        "bounds": {
+          "$ref": "#/$defs/PackV2ModelInterval"
+        },
+        "dtype": {
+          "const": "float32",
+          "title": "Dtype",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "unit": {
+          "minLength": 1,
+          "title": "Unit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "dtype",
+        "unit",
+        "source",
+        "adjustable",
+        "bounds"
+      ],
+      "title": "PackV2ModelFeature",
+      "type": "object"
+    },
+    "PackV2ModelInterval": {
+      "additionalProperties": false,
+      "properties": {
+        "max": {
+          "title": "Max",
+          "type": "number"
+        },
+        "min": {
+          "title": "Min",
+          "type": "number"
+        }
+      },
+      "required": [
+        "min",
+        "max"
+      ],
+      "title": "PackV2ModelInterval",
+      "type": "object"
+    },
+    "PackV2ModelValidation": {
+      "additionalProperties": false,
+      "properties": {
+        "calibration": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Calibration",
+          "type": "object"
+        },
+        "gates": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "boolean"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gates"
+        },
+        "grouped_holdout": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Grouped Holdout",
+          "type": "object"
+        },
+        "parity": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          },
+          "title": "Parity",
+          "type": "object"
+        },
+        "temporal_holdout": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Temporal Holdout",
+          "type": "object"
+        }
+      },
+      "required": [
+        "grouped_holdout",
+        "temporal_holdout",
+        "calibration",
+        "parity"
+      ],
+      "title": "PackV2ModelValidation",
+      "type": "object"
+    },
+    "PackV2Objective": {
+      "additionalProperties": false,
+      "properties": {
+        "caveats": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Caveats",
+          "type": "array"
+        },
+        "era_stability": {
+          "enum": [
+            "stable",
+            "sensitive",
+            "insufficient",
+            "not_evaluated"
+          ],
+          "title": "Era Stability",
+          "type": "string"
+        },
+        "metric_kind": {
+          "enum": [
+            "possession_rate",
+            "before_time_rate",
+            "contested_first_rate",
+            "no_objective_rate",
+            "matched_effect"
+          ],
+          "title": "Metric Kind",
+          "type": "string"
+        },
+        "objective": {
+          "enum": [
+            "dragon",
+            "herald",
+            "baron"
+          ],
+          "title": "Objective",
+          "type": "string"
+        },
+        "patch_range": {
+          "$ref": "#/$defs/PackV2PatchRange"
+        },
+        "population_scope": {
+          "minLength": 1,
+          "title": "Population Scope",
+          "type": "string"
+        },
+        "provenance_key": {
+          "minLength": 1,
+          "title": "Provenance Key",
+          "type": "string"
+        },
+        "rate": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Rate",
+          "type": "number"
+        },
+        "release_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Release Reason"
+        },
+        "release_status": {
+          "enum": [
+            "available",
+            "approximate",
+            "withheld",
+            "superseded"
+          ],
+          "title": "Release Status",
+          "type": "string"
+        },
+        "sample": {
+          "exclusiveMinimum": 0,
+          "title": "Sample",
+          "type": "integer"
+        },
+        "source_document": {
+          "minLength": 1,
+          "title": "Source Document",
+          "type": "string"
+        },
+        "source_ref": {
+          "minLength": 1,
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "source_section": {
+          "minLength": 1,
+          "title": "Source Section",
+          "type": "string"
+        },
+        "tier": {
+          "enum": [
+            "actionable",
+            "diagnostic",
+            "a-lite"
+          ],
+          "title": "Tier",
+          "type": "string"
+        },
+        "window": {
+          "$ref": "#/$defs/PackV2ObservationWindow"
+        }
+      },
+      "required": [
+        "patch_range",
+        "population_scope",
+        "era_stability",
+        "caveats",
+        "source_document",
+        "source_section",
+        "source_ref",
+        "provenance_key",
+        "objective",
+        "metric_kind",
+        "window",
+        "rate",
+        "sample",
+        "tier",
+        "release_status"
+      ],
+      "title": "PackV2Objective",
+      "type": "object"
+    },
+    "PackV2ObservationWindow": {
+      "additionalProperties": false,
+      "properties": {
+        "end_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End Seconds"
+        },
+        "include_end": {
+          "title": "Include End",
+          "type": "boolean"
+        },
+        "include_start": {
+          "title": "Include Start",
+          "type": "boolean"
+        },
+        "kind": {
+          "enum": [
+            "pooled",
+            "full_match",
+            "at_checkpoint",
+            "before_time",
+            "interval"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "rule": {
+          "minLength": 1,
+          "title": "Rule",
+          "type": "string"
+        },
+        "start_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start Seconds"
+        }
+      },
+      "required": [
+        "kind",
+        "include_start",
+        "include_end",
+        "rule"
+      ],
+      "title": "PackV2ObservationWindow",
+      "type": "object"
+    },
+    "PackV2PatchRange": {
+      "additionalProperties": false,
+      "properties": {
+        "max": {
+          "minLength": 1,
+          "title": "Max",
+          "type": "string"
+        },
+        "min": {
+          "minLength": 1,
+          "title": "Min",
+          "type": "string"
+        }
+      },
+      "required": [
+        "min",
+        "max"
+      ],
+      "title": "PackV2PatchRange",
+      "type": "object"
+    },
+    "PackV2PreprocessingStep": {
+      "additionalProperties": false,
+      "properties": {
+        "feature": {
+          "minLength": 1,
+          "title": "Feature",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "operation": {
+          "minLength": 1,
+          "title": "Operation",
+          "type": "string"
+        },
+        "parameters": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parameters"
+        }
+      },
+      "required": [
+        "name",
+        "feature",
+        "operation"
+      ],
+      "title": "PackV2PreprocessingStep",
+      "type": "object"
+    },
+    "PackV2Provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "feature_contract_version": {
+          "minLength": 1,
+          "title": "Feature Contract Version",
+          "type": "string"
+        },
+        "feature_store_manifest_sha256": {
+          "title": "Feature Store Manifest Sha256",
+          "type": "string"
+        },
+        "generator_revision": {
+          "title": "Generator Revision",
+          "type": "string"
+        },
+        "source_document": {
+          "minLength": 1,
+          "title": "Source Document",
+          "type": "string"
+        },
+        "source_ref": {
+          "minLength": 1,
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "source_section": {
+          "minLength": 1,
+          "title": "Source Section",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_document",
+        "source_section",
+        "source_ref",
+        "feature_store_manifest_sha256",
+        "generator_revision",
+        "feature_contract_version"
+      ],
+      "title": "PackV2Provenance",
+      "type": "object"
+    },
+    "PackV2RouteArchetype": {
+      "additionalProperties": false,
+      "properties": {
+        "caveats": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Caveats",
+          "type": "array"
+        },
+        "champion_context": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Champion Context"
+        },
+        "coordinate_validation": {
+          "enum": [
+            "validated",
+            "approximate",
+            "unavailable"
+          ],
+          "title": "Coordinate Validation",
+          "type": "string"
+        },
+        "era_stability": {
+          "enum": [
+            "stable",
+            "sensitive",
+            "insufficient",
+            "not_evaluated"
+          ],
+          "title": "Era Stability",
+          "type": "string"
+        },
+        "key": {
+          "minLength": 1,
+          "title": "Key",
+          "type": "string"
+        },
+        "label": {
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "observed_outcome": {
+          "title": "Observed Outcome",
+          "type": "number"
+        },
+        "patch_range": {
+          "$ref": "#/$defs/PackV2PatchRange"
+        },
+        "population_scope": {
+          "minLength": 1,
+          "title": "Population Scope",
+          "type": "string"
+        },
+        "provenance_key": {
+          "minLength": 1,
+          "title": "Provenance Key",
+          "type": "string"
+        },
+        "release_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Release Reason"
+        },
+        "release_status": {
+          "const": "approximate",
+          "title": "Release Status",
+          "type": "string"
+        },
+        "sample": {
+          "exclusiveMinimum": 0,
+          "title": "Sample",
+          "type": "integer"
+        },
+        "side_context": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Side Context"
+        },
+        "source_document": {
+          "minLength": 1,
+          "title": "Source Document",
+          "type": "string"
+        },
+        "source_ref": {
+          "minLength": 1,
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "source_section": {
+          "minLength": 1,
+          "title": "Source Section",
+          "type": "string"
+        },
+        "tier": {
+          "enum": [
+            "a-lite",
+            "diagnostic"
+          ],
+          "title": "Tier",
+          "type": "string"
+        }
+      },
+      "required": [
+        "patch_range",
+        "population_scope",
+        "era_stability",
+        "caveats",
+        "source_document",
+        "source_section",
+        "source_ref",
+        "provenance_key",
+        "key",
+        "label",
+        "sample",
+        "observed_outcome",
+        "side_context",
+        "champion_context",
+        "coordinate_validation",
+        "tier",
+        "release_status"
+      ],
+      "title": "PackV2RouteArchetype",
+      "type": "object"
+    },
+    "PackV2SmokeTest": {
+      "additionalProperties": false,
+      "properties": {
+        "expected": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Expected",
+          "type": "number"
+        },
+        "features": {
+          "items": {
+            "type": "number"
+          },
+          "minItems": 1,
+          "title": "Features",
+          "type": "array"
+        },
+        "tolerance": {
+          "minimum": 0,
+          "title": "Tolerance",
+          "type": "number"
+        }
+      },
+      "required": [
+        "features",
+        "expected",
+        "tolerance"
+      ],
+      "title": "PackV2SmokeTest",
+      "type": "object"
+    },
+    "PackV2TierEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "caveats": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Caveats",
+          "type": "array"
+        },
+        "champion": {
+          "minLength": 1,
+          "title": "Champion",
+          "type": "string"
+        },
+        "era_stability": {
+          "enum": [
+            "stable",
+            "sensitive",
+            "insufficient",
+            "not_evaluated"
+          ],
+          "title": "Era Stability",
+          "type": "string"
+        },
+        "games": {
+          "minimum": 0,
+          "title": "Games",
+          "type": "integer"
+        },
+        "minimum_games": {
+          "const": 500,
+          "title": "Minimum Games",
+          "type": "integer"
+        },
+        "observed_win_rate": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Observed Win Rate",
+          "type": "number"
+        },
+        "patch_range": {
+          "$ref": "#/$defs/PackV2PatchRange"
+        },
+        "population_scope": {
+          "minLength": 1,
+          "title": "Population Scope",
+          "type": "string"
+        },
+        "provenance_key": {
+          "minLength": 1,
+          "title": "Provenance Key",
+          "type": "string"
+        },
+        "rank_band": {
+          "enum": [
+            "S",
+            "A",
+            "B",
+            "C"
+          ],
+          "title": "Rank Band",
+          "type": "string"
+        },
+        "release_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Release Reason"
+        },
+        "release_status": {
+          "enum": [
+            "available",
+            "approximate",
+            "withheld",
+            "superseded"
+          ],
+          "title": "Release Status",
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "TOP",
+            "JUNGLE",
+            "MIDDLE",
+            "BOTTOM",
+            "UTILITY"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "role_pick_rate": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Role Pick Rate",
+          "type": "number"
+        },
+        "source_document": {
+          "minLength": 1,
+          "title": "Source Document",
+          "type": "string"
+        },
+        "source_ref": {
+          "minLength": 1,
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "source_section": {
+          "minLength": 1,
+          "title": "Source Section",
+          "type": "string"
+        },
+        "tier": {
+          "const": "diagnostic",
+          "title": "Tier",
+          "type": "string"
+        }
+      },
+      "required": [
+        "patch_range",
+        "population_scope",
+        "era_stability",
+        "caveats",
+        "source_document",
+        "source_section",
+        "source_ref",
+        "provenance_key",
+        "champion",
+        "role",
+        "games",
+        "observed_win_rate",
+        "role_pick_rate",
+        "rank_band",
+        "minimum_games",
+        "tier",
+        "release_status"
+      ],
+      "title": "PackV2TierEntry",
+      "type": "object"
+    }
+  },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://bhayanak-legends.local/pack.schema.json",
-  "title": "Findings Pack v1",
-  "description": "Versioned export of population findings from the LoLTrends research. Every numeric-bearing table has a provenance block identifying its source document/section, Feature Store manifest, generator revision, and feature-contract version; findings retain per-finding source_ref.",
-  "type": "object",
-  "additionalProperties": { "type": "object" },
+  "additionalProperties": false,
+  "properties": {
+    "ban_context": {
+      "items": {
+        "$ref": "#/$defs/PackV2BanContext"
+      },
+      "title": "Ban Context",
+      "type": "array"
+    },
+    "build_evidence": {
+      "$ref": "#/$defs/PackV2BuildEvidence"
+    },
+    "checkpoints": {
+      "items": {
+        "$ref": "#/$defs/PackV2Checkpoint"
+      },
+      "title": "Checkpoints",
+      "type": "array"
+    },
+    "comeback_odds": {
+      "items": {
+        "$ref": "#/$defs/PackV2ComebackBand"
+      },
+      "title": "Comeback Odds",
+      "type": "array"
+    },
+    "dataset": {
+      "$ref": "#/$defs/PackV2Dataset"
+    },
+    "feature_contracts": {
+      "$ref": "#/$defs/PackV2FeatureContracts"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/PackV2Finding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "generated_at": {
+      "minLength": 1,
+      "title": "Generated At",
+      "type": "string"
+    },
+    "habits": {
+      "items": {
+        "$ref": "#/$defs/PackV2Habit"
+      },
+      "title": "Habits",
+      "type": "array"
+    },
+    "matchup_examples": {
+      "items": {
+        "$ref": "#/$defs/PackV2Matchup"
+      },
+      "title": "Matchup Examples",
+      "type": "array"
+    },
+    "models": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/PackV2ModelDeclaration"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Models"
+    },
+    "objectives": {
+      "items": {
+        "$ref": "#/$defs/PackV2Objective"
+      },
+      "title": "Objectives",
+      "type": "array"
+    },
+    "pack_version": {
+      "minLength": 1,
+      "title": "Pack Version",
+      "type": "string"
+    },
+    "patch_range": {
+      "$ref": "#/$defs/PackV2PatchRange"
+    },
+    "provenance": {
+      "additionalProperties": {
+        "$ref": "#/$defs/PackV2Provenance"
+      },
+      "title": "Provenance",
+      "type": "object"
+    },
+    "route_archetypes": {
+      "items": {
+        "$ref": "#/$defs/PackV2RouteArchetype"
+      },
+      "title": "Route Archetypes",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 2,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "tier_list": {
+      "items": {
+        "$ref": "#/$defs/PackV2TierEntry"
+      },
+      "title": "Tier List",
+      "type": "array"
+    }
+  },
   "required": [
     "schema_version",
+    "pack_version",
     "generated_at",
-    "comeback_feature_contract",
-    "provenance",
+    "patch_range",
     "dataset",
+    "feature_contracts",
+    "provenance",
     "findings",
     "habits",
     "objectives",
     "comeback_odds",
-    "ban_advisor",
-    "trap_picks",
+    "ban_context",
     "tier_list",
     "matchup_examples",
-    "benchmarks",
-    "checkpoints"
+    "checkpoints",
+    "route_archetypes",
+    "build_evidence"
   ],
-  "properties": {
-    "provenance": {
-      "type": "object",
-      "additionalProperties": true,
-      "required": ["dataset", "findings", "habits", "objectives", "comeback_odds", "ban_advisor", "trap_picks", "tier_list", "matchup_examples", "benchmarks", "checkpoints"],
-      "properties": {
-        "dataset": { "$ref": "#/$defs/provenance" },
-        "findings": { "$ref": "#/$defs/provenance" },
-        "habits": { "$ref": "#/$defs/provenance" },
-        "objectives": { "$ref": "#/$defs/provenance" },
-        "comeback_odds": { "$ref": "#/$defs/provenance" },
-        "ban_advisor": { "$ref": "#/$defs/provenance" },
-        "trap_picks": { "$ref": "#/$defs/provenance" },
-        "tier_list": { "$ref": "#/$defs/provenance" },
-        "matchup_examples": { "$ref": "#/$defs/provenance" },
-        "benchmarks": { "$ref": "#/$defs/provenance" },
-        "checkpoints": { "$ref": "#/$defs/provenance" }
-      }
-    },
-    "schema_version": { "const": 1 },
-    "pack_version": { "type": "string", "minLength": 1 },
-    "generated_at": { "type": "string", "format": "date-time", "description": "UTC ISO-8601 build timestamp" },
-    "comeback_feature_contract": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["feature", "feature_contract_version"],
-      "properties": {
-        "feature": { "type": "string", "minLength": 1 },
-        "feature_contract_version": { "type": "string", "minLength": 1 }
-      }
-    },
-    "dataset": {
-      "type": "object",
-      "additionalProperties": true,
-      "required": ["matches", "player_games", "patches"],
-      "properties": {
-        "matches": { "type": "integer", "minimum": 1 },
-        "player_games": { "type": "integer", "minimum": 1 },
-        "patches": {
-          "type": "array",
-          "items": { "type": "string", "pattern": "^\\d+\\.\\d+$" },
-          "minItems": 2,
-          "maxItems": 2,
-          "description": "[min patch, max patch], numerically ordered"
-        }
-      }
-    },
-    "findings": {
-      "type": "array",
-      "minItems": 1,
-      "items": {
-        "type": "object",
-        "additionalProperties": true,
-        "required": ["key", "tier", "title", "statement", "value", "unit", "source_ref"],
-        "properties": {
-          "key": { "type": "string", "minLength": 1 },
-          "tier": { "enum": ["actionable", "diagnostic", "a-lite"] },
-          "title": { "type": "string", "minLength": 1 },
-          "statement": { "type": "string", "minLength": 1, "description": "Diagnostic statements describe; only actionable/a-lite may instruct (ADR-0003)" },
-          "value": { "type": "number" },
-          "unit": { "type": "string", "minLength": 1 },
-          "source_ref": { "type": "string", "pattern": "^companion-app-content\\.md#\\d+$" }
-        }
-      }
-    },
-    "habits": {
-      "type": "array",
-      "minItems": 4,
-      "maxItems": 4,
-      "uniqueItems": true,
-      "description": "The four surviving coachable habits, fixed keys",
-      "items": {
-        "type": "object",
-        "additionalProperties": true,
-        "required": ["key", "label", "effect_per_sd"],
-        "properties": {
-          "key": { "enum": ["recall_safety", "fast_first_dragon", "spend_before_backing", "plates_by_14"] },
-          "label": { "type": "string", "minLength": 1 },
-          "effect_per_sd": { "type": "number" }
-        }
-      }
-    },
-    "objectives": {
-      "type": "object",
-      "additionalProperties": true,
-      "required": [
-        "baron_pre25_win_rate",
-        "baron_comeback_lift_pp",
-        "dragon_denial_win_rate",
-        "first_dragon_pre20_win_rate",
-        "herald_pre20_win_rate"
-      ],
-      "properties": {
-        "baron_pre25_win_rate": { "type": "number", "minimum": 0, "maximum": 1 },
-        "baron_comeback_lift_pp": { "type": "number" },
-        "dragon_denial_win_rate": { "type": "number", "minimum": 0, "maximum": 1 },
-        "first_dragon_pre20_win_rate": { "type": "number", "minimum": 0, "maximum": 1 },
-        "herald_pre20_win_rate": { "type": "number", "minimum": 0, "maximum": 1 }
-      }
-    },
-    "comeback_odds": {
-      "type": "array",
-      "minItems": 3,
-      "maxItems": 3,
-      "description": "Ordered, mildest-to-most-severe negative gold deficits at 15 minutes.",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["gold_deficit_at_15", "win_rate"],
-        "properties": {
-          "gold_deficit_at_15": { "type": "integer", "maximum": -1 },
-          "win_rate": { "type": "number", "minimum": 0, "maximum": 1 }
-        }
-      }
-    },
-    "ban_advisor": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": true,
-        "required": ["champion", "win_rate", "ban_rate", "recommendation"],
-        "properties": {
-          "champion": { "type": "string", "minLength": 1 },
-          "win_rate": { "type": "number", "minimum": 0, "maximum": 1 },
-          "ban_rate": { "type": "number", "minimum": 0, "maximum": 1 },
-          "recommendation": { "enum": ["real-threat", "skip"] }
-        }
-      }
-    },
-    "trap_picks": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": true,
-        "required": ["champion", "win_rate"],
-        "properties": {
-          "champion": { "type": "string", "minLength": 1 },
-          "win_rate": { "type": "number", "minimum": 0, "maximum": 1 }
-        }
-      }
-    },
-    "tier_list": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": true,
-        "required": ["champion", "role", "games", "pick_rate", "win_rate", "tier"],
-        "properties": {
-          "champion": { "type": "string", "minLength": 1 },
-          "role": { "enum": ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"] },
-          "games": { "type": "integer", "minimum": 100 },
-          "pick_rate": { "type": "number", "minimum": 0, "maximum": 1 },
-          "win_rate": { "type": "number", "minimum": 0, "maximum": 1 },
-          "tier": { "enum": ["S", "A", "B", "C"] }
-        }
-      }
-    },
-    "matchup_examples": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": true,
-        "required": ["champion", "opponent", "role", "wr", "ci", "games"],
-        "properties": {
-          "champion": { "type": "string", "minLength": 1 },
-          "opponent": { "type": "string", "minLength": 1 },
-          "role": { "enum": ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"] },
-          "wr": { "type": "number", "minimum": 0, "maximum": 1 },
-          "ci": { "type": "number", "minimum": 0, "description": "95% CI half-width in percentage points (raw rates, no shrinkage)" },
-          "games": { "type": "integer", "minimum": 30 }
-        }
-      }
-    },
-    "benchmarks": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["role", "feature_contract", "sample"],
-        "properties": {
-          "role": { "enum": ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"] },
-          "cs10_median": { "type": "number" },
-          "level10_median": { "type": "number" },
-          "gold_diff_10_median": { "type": "number" },
-          "feature_contract": {
-            "type": "object",
-            "additionalProperties": false,
-            "minProperties": 1,
-            "properties": {
-              "cs10_median": { "type": "string", "minLength": 1 },
-              "level10_median": { "type": "string", "minLength": 1 },
-              "gold_diff_10_median": { "type": "string", "minLength": 1 }
-            }
-          },
-          "sample": { "type": "integer", "minimum": 1 }
-        },
-        "allOf": [
-          {
-            "if": { "required": ["cs10_median"] },
-            "then": { "properties": { "feature_contract": { "required": ["cs10_median"] } } }
-          },
-          {
-            "if": { "required": ["level10_median"] },
-            "then": { "properties": { "feature_contract": { "required": ["level10_median"] } } }
-          },
-          {
-            "if": { "required": ["gold_diff_10_median"] },
-            "then": { "properties": { "feature_contract": { "required": ["gold_diff_10_median"] } } }
-          },
-          {
-            "if": { "properties": { "feature_contract": { "required": ["cs10_median"] } } },
-            "then": { "required": ["cs10_median"] }
-          },
-          {
-            "if": { "properties": { "feature_contract": { "required": ["level10_median"] } } },
-            "then": { "required": ["level10_median"] }
-          },
-          {
-            "if": { "properties": { "feature_contract": { "required": ["gold_diff_10_median"] } } },
-            "then": { "required": ["gold_diff_10_median"] }
-          }
-        ]
-      }
-    },
-    "checkpoints": {
-      "type": "array",
-      "minItems": 2,
-      "maxItems": 2,
-      "uniqueItems": true,
-      "description": "Exactly two categorical Findings Pack population cohorts at 20 minutes; these are not timeline points.",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["gold_diff_bucket", "win_rate"],
-        "properties": {
-          "gold_diff_bucket": {
-            "enum": ["bottom_quartile_@20m", "top_quartile_@20m"]
-          },
-          "win_rate": { "type": "number", "minimum": 0, "maximum": 1 }
-        }
-      },
-      "allOf": [
-        {
-          "contains": {
-            "type": "object",
-            "properties": { "gold_diff_bucket": { "const": "bottom_quartile_@20m" } }
-          },
-          "minContains": 1,
-          "maxContains": 1
-        },
-        {
-          "contains": {
-            "type": "object",
-            "properties": { "gold_diff_bucket": { "const": "top_quartile_@20m" } }
-          },
-          "minContains": 1,
-          "maxContains": 1
-        }
-      ]
-    }
-  },
-  "$defs": {
-    "provenance": {
-      "type": "object",
-      "additionalProperties": true,
-      "required": ["source_document", "source_section", "feature_store_manifest_sha256", "generator_revision", "feature_contract_version"],
-      "properties": {
-        "source_document": { "type": "string", "minLength": 1 },
-        "source_section": { "type": "string", "minLength": 1 },
-        "feature_store_manifest_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-        "generator_revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-        "feature_contract_version": { "const": "loltrends-parity-v1" }
-      }
-    }
-  }
+  "title": "FindingsPackV2",
+  "type": "object"
 }

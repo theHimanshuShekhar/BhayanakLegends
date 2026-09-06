@@ -3,7 +3,8 @@ param(
   [Parameter(Mandatory = $true)][string]$InstallerPath,
   [Parameter(Mandatory = $true)][string]$InstallRoot,
   [Parameter(Mandatory = $true)][string]$DebugPort,
-  [Parameter(Mandatory = $true)][string]$StatePath
+  [Parameter(Mandatory = $true)][string]$StatePath,
+  [Parameter(Mandatory = $true)][string]$ExpectedVersion
 )
 
 $ErrorActionPreference = "Stop"
@@ -11,6 +12,7 @@ $state = [ordered]@{
   installer = $InstallerPath
   install_root = $InstallRoot
   debug_port = [int]$DebugPort
+  expected_version = $ExpectedVersion
   phases = @()
   owned_sidecars = @()
   errors = @()
@@ -33,6 +35,22 @@ function Wait-Exit([int]$ProcessId, [int]$TimeoutSeconds = 20) {
     Start-Sleep -Milliseconds 250
   } while ((Get-Date) -lt $deadline)
   return $false
+}
+
+function Get-AppVersion([string]$Path) {
+  $raw = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($Path).ProductVersion
+  if ($raw -match "(\d+\.\d+\.\d+)") {
+    return $Matches[1]
+  }
+  throw "packaged executable has no semantic product version: $raw"
+}
+
+function Get-InstallSnapshot([string]$Root) {
+  @(
+    Get-ChildItem -Path $Root -File -Recurse |
+      ForEach-Object { "$($_.FullName)|$((Get-FileHash $_.FullName).Hash)" } |
+      Sort-Object
+  )
 }
 
 function Close-App([System.Diagnostics.Process]$App, [array]$BaselineSidecars) {
@@ -70,60 +88,85 @@ try {
 
   $appPath = Join-Path $InstallRoot "Bhayanak Legends.exe"
   if (-not (Test-Path $appPath)) {
-    $candidate = Get-ChildItem -Path $InstallRoot -Filter "*.exe" -Recurse | Where-Object { $_.Name -notlike "uninstall*" } | Select-Object -First 1
+    $candidate = Get-ChildItem -Path $InstallRoot -Filter "*.exe" -Recurse |
+      Where-Object { $_.Name -notlike "uninstall*" } | Select-Object -First 1
     if (-not $candidate) { throw "packaged executable was not found under $InstallRoot" }
     $appPath = $candidate.FullName
   }
   $state.executable = $appPath
-
-  $installSnapshot = @(
-    Get-ChildItem -Path $InstallRoot -File -Recurse |
-      ForEach-Object { "$($_.FullName)|$((Get-FileHash $_.FullName).Hash)" } |
-      Sort-Object
-  )
+  $lowerVersion = Get-AppVersion -Path $appPath
+  $state.lower_version = $lowerVersion
+  $lowerSnapshot = Get-InstallSnapshot -Root $InstallRoot
 
   $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$DebugPort"
   $app = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru
   try {
-    & node tools/windows_packaged_smoke.mjs --phase valid --debug-port $DebugPort
-    if ($LASTEXITCODE -ne 0) { throw "webview assertion failed during activation phase" }
-    $state.phases += [ordered]@{ name = "activated"; result = "passed" }
+    & node tools/windows_packaged_smoke.mjs `
+      --phase valid --debug-port $DebugPort --expected-version $ExpectedVersion
+    if ($LASTEXITCODE -ne 0) { throw "webview assertion failed during signed update phase" }
+    $state.phases += [ordered]@{
+      name = "ready-to-restart"
+      result = "passed"
+      version = $ExpectedVersion
+    }
   } catch {
-    $state.phases += [ordered]@{ name = "activated"; result = "failed"; error = $_.Exception.Message }
+    $state.phases += [ordered]@{
+      name = "ready-to-restart"
+      result = "failed"
+      error = $_.Exception.Message
+    }
     throw
   } finally {
     Close-App -App $app -BaselineSidecars $baseline
   }
   Save-State
 
-  if ($env:FIXTURE_PID) {
-    Stop-Process -Id ([int]$env:FIXTURE_PID) -Force -ErrorAction SilentlyContinue
-  }
-  Remove-Item Env:BHAYANAK_PACK_RELEASE_MANIFEST_URL -ErrorAction SilentlyContinue
-
+  # The clean close above is the explicit relaunch boundary.  Starting the
+  # installed executable again proves the updater replaced the lower version.
   $app = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru
+  $installedVersion = Get-AppVersion -Path $appPath
+  $state.installed_version = $installedVersion
+  if ($installedVersion -ne $ExpectedVersion) {
+    throw "signed updater did not install expected version $ExpectedVersion (got $installedVersion)"
+  }
+  $higherSnapshot = Get-InstallSnapshot -Root $InstallRoot
+  if (-not (Compare-Object -ReferenceObject $lowerSnapshot -DifferenceObject $higherSnapshot)) {
+    throw "signed updater did not change the lower-version install"
+  }
+  $state.phases += [ordered]@{
+    name = "relaunch"
+    result = "passed"
+    version = $installedVersion
+  }
+  Save-State
+
   try {
-    & node tools/windows_packaged_smoke.mjs --phase durable --debug-port $DebugPort
-    if ($LASTEXITCODE -ne 0) { throw "webview assertion failed during durable restart phase" }
-    $state.phases += [ordered]@{ name = "durable"; result = "passed" }
+    & node tools/windows_packaged_smoke.mjs `
+      --phase durable --debug-port $DebugPort --expected-version $ExpectedVersion
+    if ($LASTEXITCODE -ne 0) { throw "webview assertion failed during mismatched-signature phase" }
+    $state.phases += [ordered]@{
+      name = "mismatched-signature"
+      result = "passed"
+      version = $installedVersion
+    }
   } catch {
-    $state.phases += [ordered]@{ name = "durable"; result = "failed"; error = $_.Exception.Message }
+    $state.phases += [ordered]@{
+      name = "mismatched-signature"
+      result = "failed"
+      error = $_.Exception.Message
+    }
     throw
   } finally {
     Close-App -App $app -BaselineSidecars $baseline
   }
   Save-State
-  $installAfter = @(
-    Get-ChildItem -Path $InstallRoot -File -Recurse |
-      ForEach-Object { "$($_.FullName)|$((Get-FileHash $_.FullName).Hash)" } |
-      Sort-Object
-  )
-  $installChanges = Compare-Object -ReferenceObject $installSnapshot -DifferenceObject $installAfter
-  if ($installChanges) {
-    $state.errors += "installed files changed during pack activation/restart"
-    throw "packaged install files were modified at runtime"
+
+  $afterRejected = Get-InstallSnapshot -Root $InstallRoot
+  if (Compare-Object -ReferenceObject $higherSnapshot -DifferenceObject $afterRejected) {
+    $state.errors += "installed files changed after mismatched-signature rejection"
+    throw "rejected updater changed the installed version or executable"
   }
-  $state.install_files_unchanged = $true
+  $state.rejected_version_unchanged = $true
   $state.result = "passed"
   Save-State
 } catch {

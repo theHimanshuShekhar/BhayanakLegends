@@ -1,0 +1,1073 @@
+{
+  "contract_version": "live-wp-v2",
+  "feature_order": [
+    "elapsed_time_s",
+    "team_kills_diff",
+    "team_deaths_diff",
+    "team_assists_diff",
+    "team_cs_diff",
+    "team_levels_diff",
+    "team_inventory_value_diff",
+    "team_turrets_diff",
+    "team_dragons_diff",
+    "team_heralds_diff",
+    "team_barons_diff"
+  ],
+  "patch": "16.17.791.1234",
+  "data_dragon_version": "16.17.1",
+  "data_dragon_items": {
+    "1001": 300,
+    "1055": 450,
+    "3065": 2800,
+    "3157": 2600
+  },
+  "match": {
+    "info": {
+      "gameVersion": "16.17.791.1234",
+      "gameMode": "CLASSIC",
+      "participants": [
+        {
+          "participantId": 1,
+          "teamId": 100
+        },
+        {
+          "participantId": 2,
+          "teamId": 100
+        },
+        {
+          "participantId": 3,
+          "teamId": 100
+        },
+        {
+          "participantId": 4,
+          "teamId": 100
+        },
+        {
+          "participantId": 5,
+          "teamId": 100
+        },
+        {
+          "participantId": 6,
+          "teamId": 200
+        },
+        {
+          "participantId": 7,
+          "teamId": 200
+        },
+        {
+          "participantId": 8,
+          "teamId": 200
+        },
+        {
+          "participantId": 9,
+          "teamId": 200
+        },
+        {
+          "participantId": 10,
+          "teamId": 200
+        }
+      ]
+    }
+  },
+  "timeline": {
+    "info": {
+      "frameInterval": 60000,
+      "frames": [
+        {
+          "timestamp": 0,
+          "events": [
+            {
+              "type": "ITEM_PURCHASED",
+              "participantId": 1,
+              "itemId": 1001,
+              "timestamp": 100000
+            },
+            {
+              "type": "CHAMPION_KILL",
+              "killerId": 1,
+              "victimId": 6,
+              "assistingParticipantIds": [
+                2
+              ],
+              "timestamp": 120000
+            },
+            {
+              "type": "ITEM_PURCHASED",
+              "participantId": 6,
+              "itemId": 1001,
+              "timestamp": 150000
+            },
+            {
+              "type": "ITEM_PURCHASED",
+              "participantId": 1,
+              "itemId": 1055,
+              "timestamp": 200000
+            },
+            {
+              "type": "ELITE_MONSTER_KILL",
+              "monsterType": "DRAGON",
+              "killerTeamId": 100,
+              "timestamp": 250000
+            },
+            {
+              "type": "BUILDING_KILL",
+              "buildingType": "TOWER_BUILDING",
+              "killerId": 6,
+              "teamId": 100,
+              "timestamp": 280000
+            }
+          ],
+          "participantFrames": {}
+        },
+        {
+          "timestamp": 300000,
+          "events": [
+            {
+              "type": "ITEM_PURCHASED",
+              "participantId": 1,
+              "itemId": 3065,
+              "timestamp": 350000
+            },
+            {
+              "type": "ITEM_PURCHASED",
+              "participantId": 6,
+              "itemId": 1055,
+              "timestamp": 450000
+            },
+            {
+              "type": "ITEM_PURCHASED",
+              "participantId": 6,
+              "itemId": 3157,
+              "timestamp": 500000
+            },
+            {
+              "type": "CHAMPION_KILL",
+              "killerId": 7,
+              "victimId": 2,
+              "assistingParticipantIds": [
+                8
+              ],
+              "timestamp": 550000
+            }
+          ],
+          "participantFrames": {
+            "1": {
+              "minionsKilled": 80,
+              "jungleMinionsKilled": 0,
+              "level": 7
+            },
+            "2": {
+              "minionsKilled": 70,
+              "jungleMinionsKilled": 0,
+              "level": 7
+            },
+            "3": {
+              "minionsKilled": 75,
+              "jungleMinionsKilled": 0,
+              "level": 8
+            },
+            "4": {
+              "minionsKilled": 82,
+              "jungleMinionsKilled": 0,
+              "level": 8
+            },
+            "5": {
+              "minionsKilled": 10,
+              "jungleMinionsKilled": 0,
+              "level": 5
+            },
+            "6": {
+              "minionsKilled": 78,
+              "jungleMinionsKilled": 0,
+              "level": 7
+            },
+            "7": {
+              "minionsKilled": 66,
+              "jungleMinionsKilled": 0,
+              "level": 6
+            },
+            "8": {
+              "minionsKilled": 72,
+              "jungleMinionsKilled": 0,
+              "level": 7
+            },
+            "9": {
+              "minionsKilled": 80,
+              "jungleMinionsKilled": 0,
+              "level": 8
+            },
+            "10": {
+              "minionsKilled": 8,
+              "jungleMinionsKilled": 0,
+              "level": 5
+            }
+          }
+        },
+        {
+          "timestamp": 600000,
+          "events": [
+            {
+              "type": "CHAMPION_KILL",
+              "killerId": 1,
+              "victimId": 7,
+              "assistingParticipantIds": [
+                4,
+                5
+              ],
+              "timestamp": 700000
+            },
+            {
+              "type": "ELITE_MONSTER_KILL",
+              "monsterType": "RIFTHERALD",
+              "killerTeamId": 200,
+              "timestamp": 700000
+            },
+            {
+              "type": "BUILDING_KILL",
+              "buildingType": "TOWER_BUILDING",
+              "killerId": 2,
+              "teamId": 200,
+              "timestamp": 750000
+            },
+            {
+              "type": "ELITE_MONSTER_KILL",
+              "monsterType": "BARON_NASHOR",
+              "killerTeamId": 100,
+              "timestamp": 780000
+            }
+          ],
+          "participantFrames": {
+            "1": {
+              "minionsKilled": 100,
+              "jungleMinionsKilled": 0,
+              "level": 8
+            },
+            "2": {
+              "minionsKilled": 90,
+              "jungleMinionsKilled": 0,
+              "level": 8
+            },
+            "3": {
+              "minionsKilled": 95,
+              "jungleMinionsKilled": 0,
+              "level": 9
+            },
+            "4": {
+              "minionsKilled": 102,
+              "jungleMinionsKilled": 0,
+              "level": 9
+            },
+            "5": {
+              "minionsKilled": 20,
+              "jungleMinionsKilled": 0,
+              "level": 6
+            },
+            "6": {
+              "minionsKilled": 98,
+              "jungleMinionsKilled": 0,
+              "level": 8
+            },
+            "7": {
+              "minionsKilled": 86,
+              "jungleMinionsKilled": 0,
+              "level": 7
+            },
+            "8": {
+              "minionsKilled": 92,
+              "jungleMinionsKilled": 0,
+              "level": 8
+            },
+            "9": {
+              "minionsKilled": 100,
+              "jungleMinionsKilled": 0,
+              "level": 9
+            },
+            "10": {
+              "minionsKilled": 18,
+              "jungleMinionsKilled": 0,
+              "level": 6
+            }
+          }
+        },
+        {
+          "timestamp": 900000,
+          "events": [],
+          "participantFrames": {
+            "1": {
+              "minionsKilled": 100,
+              "jungleMinionsKilled": 0,
+              "level": 8
+            },
+            "2": {
+              "minionsKilled": 90,
+              "jungleMinionsKilled": 0,
+              "level": 8
+            },
+            "3": {
+              "minionsKilled": 95,
+              "jungleMinionsKilled": 0,
+              "level": 9
+            },
+            "4": {
+              "minionsKilled": 102,
+              "jungleMinionsKilled": 0,
+              "level": 9
+            },
+            "5": {
+              "minionsKilled": 20,
+              "jungleMinionsKilled": 0,
+              "level": 6
+            },
+            "6": {
+              "minionsKilled": 98,
+              "jungleMinionsKilled": 0,
+              "level": 8
+            },
+            "7": {
+              "minionsKilled": 86,
+              "jungleMinionsKilled": 0,
+              "level": 7
+            },
+            "8": {
+              "minionsKilled": 92,
+              "jungleMinionsKilled": 0,
+              "level": 8
+            },
+            "9": {
+              "minionsKilled": 100,
+              "jungleMinionsKilled": 0,
+              "level": 9
+            },
+            "10": {
+              "minionsKilled": 18,
+              "jungleMinionsKilled": 0,
+              "level": 6
+            }
+          }
+        }
+      ]
+    }
+  },
+  "observations": [
+    {
+      "time_s": 300,
+      "expected": {
+        "100": [
+          300,
+          1,
+          -1,
+          1,
+          13,
+          2,
+          450,
+          -1,
+          1,
+          0,
+          0
+        ],
+        "200": [
+          300,
+          -1,
+          1,
+          -1,
+          -13,
+          -2,
+          -450,
+          1,
+          -1,
+          0,
+          0
+        ]
+      },
+      "live": {
+        "gameData": {
+          "gameId": 1300,
+          "gameMode": "CLASSIC",
+          "gameTime": 300.0
+        },
+        "activePlayer": {
+          "summonerName": "FixturePlayer25",
+          "championName": "Champion1"
+        },
+        "allPlayers": [
+          {
+            "summonerName": "FixturePlayer25",
+            "championName": "Champion1",
+            "team": "ORDER",
+            "level": 7,
+            "scores": {
+              "kills": 1,
+              "deaths": 0,
+              "assists": 0,
+              "creepScore": 80,
+              "wardScore": 0
+            },
+            "items": [
+              {
+                "itemID": 1001,
+                "count": 1,
+                "slot": 0
+              },
+              {
+                "itemID": 1055,
+                "count": 1,
+                "slot": 1
+              }
+            ]
+          },
+          {
+            "summonerName": "FixturePlayer27",
+            "championName": "Champion2",
+            "team": "ORDER",
+            "level": 7,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 1,
+              "creepScore": 70,
+              "wardScore": 0
+            },
+            "items": []
+          },
+          {
+            "summonerName": "FixturePlayer28",
+            "championName": "Champion3",
+            "team": "ORDER",
+            "level": 8,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0,
+              "creepScore": 75,
+              "wardScore": 0
+            },
+            "items": []
+          },
+          {
+            "summonerName": "FixturePlayer29",
+            "championName": "Champion4",
+            "team": "ORDER",
+            "level": 8,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0,
+              "creepScore": 82,
+              "wardScore": 0
+            },
+            "items": []
+          },
+          {
+            "summonerName": "FixturePlayer30",
+            "championName": "Champion5",
+            "team": "ORDER",
+            "level": 5,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0,
+              "creepScore": 10,
+              "wardScore": 0
+            },
+            "items": []
+          },
+          {
+            "summonerName": "FixturePlayer31",
+            "championName": "Champion6",
+            "team": "CHAOS",
+            "level": 7,
+            "scores": {
+              "kills": 0,
+              "deaths": 1,
+              "assists": 0,
+              "creepScore": 78,
+              "wardScore": 0
+            },
+            "items": [
+              {
+                "itemID": 1001,
+                "count": 1,
+                "slot": 0
+              }
+            ]
+          },
+          {
+            "summonerName": "FixturePlayer32",
+            "championName": "Champion7",
+            "team": "CHAOS",
+            "level": 6,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0,
+              "creepScore": 66,
+              "wardScore": 0
+            },
+            "items": []
+          },
+          {
+            "summonerName": "FixturePlayer33",
+            "championName": "Champion8",
+            "team": "CHAOS",
+            "level": 7,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0,
+              "creepScore": 72,
+              "wardScore": 0
+            },
+            "items": []
+          },
+          {
+            "summonerName": "FixturePlayer34",
+            "championName": "Champion9",
+            "team": "CHAOS",
+            "level": 8,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0,
+              "creepScore": 80,
+              "wardScore": 0
+            },
+            "items": []
+          },
+          {
+            "summonerName": "FixturePlayer26",
+            "championName": "Champion10",
+            "team": "CHAOS",
+            "level": 5,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0,
+              "creepScore": 8,
+              "wardScore": 0
+            },
+            "items": []
+          }
+        ],
+        "events": {
+          "Events": [
+            {
+              "EventName": "DragonKill",
+              "EventTime": 250.0,
+              "KillerName": "ORDER"
+            },
+            {
+              "EventName": "TurretKilled",
+              "EventTime": 280.0,
+              "KillerName": "CHAOS"
+            },
+            {
+              "EventName": "HeraldKill",
+              "EventTime": 700.0,
+              "KillerName": "CHAOS"
+            },
+            {
+              "EventName": "TurretKilled",
+              "EventTime": 750.0,
+              "KillerName": "FixturePlayer27"
+            },
+            {
+              "EventName": "BaronKill",
+              "EventTime": 780.0,
+              "KillerName": "ORDER"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "time_s": 600,
+      "expected": {
+        "100": [
+          600,
+          0,
+          0,
+          0,
+          13,
+          2,
+          200,
+          -1,
+          1,
+          0,
+          0
+        ],
+        "200": [
+          600,
+          0,
+          0,
+          0,
+          -13,
+          -2,
+          -200,
+          1,
+          -1,
+          0,
+          0
+        ]
+      },
+      "live": {
+        "gameData": {
+          "gameId": 1600,
+          "gameMode": "CLASSIC",
+          "gameTime": 600.0
+        },
+        "activePlayer": {
+          "summonerName": "FixturePlayer25",
+          "championName": "Champion1"
+        },
+        "allPlayers": [
+          {
+            "summonerName": "FixturePlayer25",
+            "championName": "Champion1",
+            "team": "ORDER",
+            "level": 8,
+            "scores": {
+              "kills": 1,
+              "deaths": 0,
+              "assists": 0,
+              "creepScore": 100,
+              "wardScore": 0
+            },
+            "items": [
+              {
+                "itemID": 1001,
+                "count": 1,
+                "slot": 0
+              },
+              {
+                "itemID": 1055,
+                "count": 1,
+                "slot": 1
+              },
+              {
+                "itemID": 3065,
+                "count": 1,
+                "slot": 2
+              }
+            ]
+          },
+          {
+            "summonerName": "FixturePlayer27",
+            "championName": "Champion2",
+            "team": "ORDER",
+            "level": 8,
+            "scores": {
+              "kills": 0,
+              "deaths": 1,
+              "assists": 1,
+              "creepScore": 90,
+              "wardScore": 0
+            },
+            "items": []
+          },
+          {
+            "summonerName": "FixturePlayer28",
+            "championName": "Champion3",
+            "team": "ORDER",
+            "level": 9,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0,
+              "creepScore": 95,
+              "wardScore": 0
+            },
+            "items": []
+          },
+          {
+            "summonerName": "FixturePlayer29",
+            "championName": "Champion4",
+            "team": "ORDER",
+            "level": 9,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0,
+              "creepScore": 102,
+              "wardScore": 0
+            },
+            "items": []
+          },
+          {
+            "summonerName": "FixturePlayer30",
+            "championName": "Champion5",
+            "team": "ORDER",
+            "level": 6,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0,
+              "creepScore": 20,
+              "wardScore": 0
+            },
+            "items": []
+          },
+          {
+            "summonerName": "FixturePlayer31",
+            "championName": "Champion6",
+            "team": "CHAOS",
+            "level": 8,
+            "scores": {
+              "kills": 0,
+              "deaths": 1,
+              "assists": 0,
+              "creepScore": 98,
+              "wardScore": 0
+            },
+            "items": [
+              {
+                "itemID": 1001,
+                "count": 1,
+                "slot": 0
+              },
+              {
+                "itemID": 1055,
+                "count": 1,
+                "slot": 1
+              },
+              {
+                "itemID": 3157,
+                "count": 1,
+                "slot": 2
+              }
+            ]
+          },
+          {
+            "summonerName": "FixturePlayer32",
+            "championName": "Champion7",
+            "team": "CHAOS",
+            "level": 7,
+            "scores": {
+              "kills": 1,
+              "deaths": 0,
+              "assists": 0,
+              "creepScore": 86,
+              "wardScore": 0
+            },
+            "items": []
+          },
+          {
+            "summonerName": "FixturePlayer33",
+            "championName": "Champion8",
+            "team": "CHAOS",
+            "level": 8,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 1,
+              "creepScore": 92,
+              "wardScore": 0
+            },
+            "items": []
+          },
+          {
+            "summonerName": "FixturePlayer34",
+            "championName": "Champion9",
+            "team": "CHAOS",
+            "level": 9,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0,
+              "creepScore": 100,
+              "wardScore": 0
+            },
+            "items": []
+          },
+          {
+            "summonerName": "FixturePlayer26",
+            "championName": "Champion10",
+            "team": "CHAOS",
+            "level": 6,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0,
+              "creepScore": 18,
+              "wardScore": 0
+            },
+            "items": []
+          }
+        ],
+        "events": {
+          "Events": [
+            {
+              "EventName": "DragonKill",
+              "EventTime": 250.0,
+              "KillerName": "ORDER"
+            },
+            {
+              "EventName": "TurretKilled",
+              "EventTime": 280.0,
+              "KillerName": "CHAOS"
+            },
+            {
+              "EventName": "HeraldKill",
+              "EventTime": 700.0,
+              "KillerName": "CHAOS"
+            },
+            {
+              "EventName": "TurretKilled",
+              "EventTime": 750.0,
+              "KillerName": "FixturePlayer27"
+            },
+            {
+              "EventName": "BaronKill",
+              "EventTime": 780.0,
+              "KillerName": "ORDER"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "time_s": 800,
+      "expected": {
+        "100": [
+          800,
+          1,
+          -1,
+          2,
+          13,
+          2,
+          200,
+          0,
+          1,
+          -1,
+          1
+        ],
+        "200": [
+          800,
+          -1,
+          1,
+          -2,
+          -13,
+          -2,
+          -200,
+          0,
+          -1,
+          1,
+          -1
+        ]
+      },
+      "live": {
+        "gameData": {
+          "gameId": 1800,
+          "gameMode": "CLASSIC",
+          "gameTime": 800.0
+        },
+        "activePlayer": {
+          "summonerName": "FixturePlayer25",
+          "championName": "Champion1"
+        },
+        "allPlayers": [
+          {
+            "summonerName": "FixturePlayer25",
+            "championName": "Champion1",
+            "team": "ORDER",
+            "level": 8,
+            "scores": {
+              "kills": 2,
+              "deaths": 0,
+              "assists": 0,
+              "creepScore": 100,
+              "wardScore": 0
+            },
+            "items": [
+              {
+                "itemID": 1001,
+                "count": 1,
+                "slot": 0
+              },
+              {
+                "itemID": 1055,
+                "count": 1,
+                "slot": 1
+              },
+              {
+                "itemID": 3065,
+                "count": 1,
+                "slot": 2
+              }
+            ]
+          },
+          {
+            "summonerName": "FixturePlayer27",
+            "championName": "Champion2",
+            "team": "ORDER",
+            "level": 8,
+            "scores": {
+              "kills": 0,
+              "deaths": 1,
+              "assists": 1,
+              "creepScore": 90,
+              "wardScore": 0
+            },
+            "items": []
+          },
+          {
+            "summonerName": "FixturePlayer28",
+            "championName": "Champion3",
+            "team": "ORDER",
+            "level": 9,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0,
+              "creepScore": 95,
+              "wardScore": 0
+            },
+            "items": []
+          },
+          {
+            "summonerName": "FixturePlayer29",
+            "championName": "Champion4",
+            "team": "ORDER",
+            "level": 9,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 1,
+              "creepScore": 102,
+              "wardScore": 0
+            },
+            "items": []
+          },
+          {
+            "summonerName": "FixturePlayer30",
+            "championName": "Champion5",
+            "team": "ORDER",
+            "level": 6,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 1,
+              "creepScore": 20,
+              "wardScore": 0
+            },
+            "items": []
+          },
+          {
+            "summonerName": "FixturePlayer31",
+            "championName": "Champion6",
+            "team": "CHAOS",
+            "level": 8,
+            "scores": {
+              "kills": 0,
+              "deaths": 1,
+              "assists": 0,
+              "creepScore": 98,
+              "wardScore": 0
+            },
+            "items": [
+              {
+                "itemID": 1001,
+                "count": 1,
+                "slot": 0
+              },
+              {
+                "itemID": 1055,
+                "count": 1,
+                "slot": 1
+              },
+              {
+                "itemID": 3157,
+                "count": 1,
+                "slot": 2
+              }
+            ]
+          },
+          {
+            "summonerName": "FixturePlayer32",
+            "championName": "Champion7",
+            "team": "CHAOS",
+            "level": 7,
+            "scores": {
+              "kills": 1,
+              "deaths": 1,
+              "assists": 0,
+              "creepScore": 86,
+              "wardScore": 0
+            },
+            "items": []
+          },
+          {
+            "summonerName": "FixturePlayer33",
+            "championName": "Champion8",
+            "team": "CHAOS",
+            "level": 8,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 1,
+              "creepScore": 92,
+              "wardScore": 0
+            },
+            "items": []
+          },
+          {
+            "summonerName": "FixturePlayer34",
+            "championName": "Champion9",
+            "team": "CHAOS",
+            "level": 9,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0,
+              "creepScore": 100,
+              "wardScore": 0
+            },
+            "items": []
+          },
+          {
+            "summonerName": "FixturePlayer26",
+            "championName": "Champion10",
+            "team": "CHAOS",
+            "level": 6,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0,
+              "creepScore": 18,
+              "wardScore": 0
+            },
+            "items": []
+          }
+        ],
+        "events": {
+          "Events": [
+            {
+              "EventName": "DragonKill",
+              "EventTime": 250.0,
+              "KillerName": "ORDER"
+            },
+            {
+              "EventName": "TurretKilled",
+              "EventTime": 280.0,
+              "KillerName": "CHAOS"
+            },
+            {
+              "EventName": "HeraldKill",
+              "EventTime": 700.0,
+              "KillerName": "CHAOS"
+            },
+            {
+              "EventName": "TurretKilled",
+              "EventTime": 750.0,
+              "KillerName": "FixturePlayer27"
+            },
+            {
+              "EventName": "BaronKill",
+              "EventTime": 780.0,
+              "KillerName": "ORDER"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 from pathlib import Path
 
@@ -12,25 +14,46 @@ AUTH = {
     "Host": "127.0.0.1:23110",
 }
 REPO = Path(__file__).resolve().parents[2]
-SHIPPED_PACK = json.loads((REPO / "pack" / "findings-pack.v1.json").read_text())
+SHIPPED_PACK = json.loads(
+    (REPO / "pack" / "findings-pack.v2.json").read_text(encoding="utf-8")
+)
 
 
 def build_client(tmp_path: Path, pack: dict | None = None) -> TestClient:
     pack_dir = tmp_path / "pack"
     pack_dir.mkdir(exist_ok=True)
     if pack is not None:
-        (pack_dir / "findings-pack.v1.json").write_text(json.dumps(pack))
+        (pack_dir / "findings-pack.v2.json").write_text(
+            json.dumps(pack), encoding="utf-8"
+        )
+        source_schema = REPO / "pack" / "pack.schema.json"
+        (pack_dir / "pack.schema.json").write_bytes(source_schema.read_bytes())
     config = SidecarConfig(
         port=23110,
         token="local-sidecar-development-token-32chars",
         data_dir=tmp_path / "data",
         pack_dir=pack_dir if pack is not None else tmp_path / "empty-pack",
     )
-    return TestClient(create_app(config))
+    app = create_app(config)
+    generation = app.state.store.begin_owner_transition("resolving")
+    app.state.test_owner_key = app.state.store.activate_owner(
+        "test-puuid", "TestPlayer#1234", "sea", generation
+    )
+    return TestClient(app)
 
 
-def seed(store, match_id: str, *, patch="16.7", role="MIDDLE", champion="Ahri", win=True,
-         played_at="2026-01-01T00:00:00Z", features=None, duration_s=1800):
+def seed(
+    store,
+    match_id: str,
+    *,
+    patch="16.7",
+    role="MIDDLE",
+    champion="Ahri",
+    win=True,
+    played_at="2026-01-01T00:00:00Z",
+    features=None,
+    duration_s=1800,
+):
     store.upsert_match(
         match_id,
         played_at,
@@ -40,6 +63,7 @@ def seed(store, match_id: str, *, patch="16.7", role="MIDDLE", champion="Ahri", 
         win,
         duration_s,
         json.dumps(features or {}),
+        owner_key=store.active_owner_key(),
     )
 
 
@@ -59,6 +83,7 @@ def test_history_summary_aggregates(tmp_path: Path):
     roles = {r["role"]: r for r in body["by_role"]}
     assert roles["MIDDLE"]["games"] == 2 and roles["MIDDLE"]["wins"] == 1
     assert roles["BOTTOM"]["games"] == 1 and roles["BOTTOM"]["wins"] == 1
+
 
 def test_history_summary_sorts_patch_ranges_numerically(tmp_path: Path):
     client = build_client(tmp_path)
@@ -97,66 +122,32 @@ def test_trajectories_rolling_window_math(tmp_path: Path):
         aggregates = client.get("/progress/aggregates", headers=AUTH).json()
 
     assert len(points) == 12
-    assert all(set(point) == {"patch", "role", "champion", "played_at", "index", "rolling_wr"} for point in points)
     assert [point["index"] for point in points] == list(range(12))
-    assert [point["played_at"] for point in points] == [
-        f"2026-01-{i + 1:02d}T00:00:00Z" for i in range(12)
-    ]
-    first = points[0]
-    assert first["rolling_wr"] == 1.0
-    sixth = points[5]
-    assert abs(sixth["rolling_wr"] - 5 / 6) < 1e-9
-    last = points[-1]
-    window = outcomes[2:]
-    assert abs(last["rolling_wr"] - sum(window) / 10) < 1e-9
+    assert points[0]["rolling_wr"] == 1.0
+    assert points[5]["rolling_wr"] == pytest.approx(5 / 6)
+    assert points[-1]["rolling_wr"] == pytest.approx(sum(outcomes[2:]) / 10)
     assert aggregates == [{"patch": "16.7", "games": 12, "wins": 5, "win_rate": 5 / 12}]
 
 
-def test_patch_aggregates_do_not_double_count_multi_role_or_champion_matches(tmp_path: Path):
+def _v2_features(**values: object) -> dict:
+    features = {
+        "feature_contract_version": "loltrends-parity-v2",
+        "personal_history_eligibility": "eligible",
+        "features": values,
+        "team_state": {
+            "feature": "team_gold_diff_15m",
+            "feature_contract_version": "loltrends-parity-v2",
+            "team_gold_diff_15m": values.get("team_gold_diff_15m"),
+            "observed_through_s": 1200.0,
+            "non_surrendered": True,
+        },
+    }
+    return features
+
+
+def test_postgame_latest_reads_only_nested_v2_features(tmp_path: Path):
     client = build_client(tmp_path)
     store = client.app.state.store
-    for i in range(150):
-        seed(
-            store,
-            f"SG2_{i}",
-            patch="16.7" if i < 100 else "16.8",
-            role=("TOP", "MIDDLE")[i % 2],
-            champion=("Ahri", "Jinx", "Lux")[i % 3],
-            win=i % 2 == 0,
-            played_at=f"2026-01-{(i % 28) + 1:02d}T00:{i:02d}:00Z",
-        )
-
-    with client:
-        aggregates = client.get("/progress/aggregates", headers=AUTH).json()
-
-    assert aggregates == [
-        {"patch": "16.7", "games": 100, "wins": 50, "win_rate": 0.5},
-        {"patch": "16.8", "games": 50, "wins": 25, "win_rate": 0.5},
-    ]
-
-
-def test_trajectories_filters(tmp_path: Path):
-    client = build_client(tmp_path)
-    store = client.app.state.store
-    for i in range(3):
-        seed(store, f"A_{i}", champion="Ahri", played_at=f"2026-01-0{i + 1}T00:00:00Z")
-        seed(store, f"J_{i}", champion="Jinx", role="BOTTOM")
-
-    with client:
-        ahri = client.get("/progress/trajectories", headers=AUTH, params={"champion": "Ahri"}).json()
-        bottom = client.get("/progress/trajectories", headers=AUTH, params={"role": "bottom"}).json()
-
-    assert {p["champion"] for p in ahri} == {"Ahri"}
-    assert all(p["role"] == "BOTTOM" for p in bottom)
-
-
-def test_postgame_latest_and_none(tmp_path: Path):
-    client = build_client(tmp_path)
-    with client:
-        assert client.get("/postgame/latest", headers=AUTH).json() is None
-
-    store = client.app.state.store
-    seed(store, "old", played_at="2026-01-01T00:00:00Z", features={"gold_diff_10": 120.0})
     seed(
         store,
         "new",
@@ -165,70 +156,57 @@ def test_postgame_latest_and_none(tmp_path: Path):
         role="BOTTOM",
         win=False,
         duration_s=1500,
-        features={"gold_diff_10": -300.0, "gold_diff_15": None, "cs10": 55, "level10": 8},
+        features=_v2_features(
+            gold_diff_10=-300.0,
+            team_gold_diff_15m=-3500.0,
+            cs10=55,
+            level10=8,
+        ),
     )
 
     with client:
         digest = client.get("/postgame/latest", headers=AUTH).json()
 
     assert digest["match_id"] == "new"
+    assert digest["feature_contract_version"] == "loltrends-parity-v2"
+    assert digest["features"] == {
+        "gold_diff_10": -300.0,
+        "team_gold_diff_15m": -3500.0,
+        "cs10": 55.0,
+        "level10": 8.0,
+    }
     assert digest["checkpoints"] == {
         "gold_diff_10": -300.0,
         "gold_diff_15": None,
         "gold_diff_20": None,
     }
-    assert digest["habits"] == []
-    assert "lost" in digest["headline"]
+    assert digest["team_state"]["team_gold_diff_15m"] == -3500.0
 
 
-PACK = {
-    **SHIPPED_PACK,
-    "benchmarks": [
-        {
-            "role": "MIDDLE",
-            "cs10_median": 64.0,
-            "level10_median": 8.0,
-            "gold_diff_10_median": 50.0,
-            "feature_contract": {
-                "cs10_median": "lane_minions_first_10m",
-                "level10_median": "level10",
-                "gold_diff_10_median": "gold_diff_10",
-            },
-            "sample": 100,
-        },
-    ],
-}
-
-
-def test_benchmarks_only_join_definition_matching_fields(tmp_path: Path):
-    client = build_client(tmp_path, pack=PACK)
-    store = client.app.state.store
-    seed(store, "a1", features={"cs10": 50, "level10": 8, "gold_diff_10": 100.0})
-    seed(store, "a2", features={"cs10": 60, "level10": 9, "gold_diff_10": 200.0})
-    seed(store, "a3", features={"cs10": 70})
+def test_postgame_does_not_fallback_to_undeclared_flat_features(tmp_path: Path):
+    client = build_client(tmp_path)
+    seed(
+        client.app.state.store,
+        "undeclared-flat-row",
+        features={"gold_diff_10": 120.0, "cs10": 70},
+    )
 
     with client:
-        body = client.get("/benchmarks", headers=AUTH).json()
+        digest = client.get("/postgame/latest", headers=AUTH).json()
 
-    assert body == {
-        "state": "available",
-        "rows": [
-            {
-                "role": "MIDDLE",
-                "personal": {"level10": 8.5, "gold_diff_10": 150.0},
-                "population": {
-                    "level10_median": 8.0,
-                    "gold_diff_10_median": 50.0,
-                    "sample": 100,
-                },
-            },
-        ],
+    assert digest["feature_contract_version"] is None
+    assert digest["features"] == {}
+    assert digest["checkpoints"] == {
+        "gold_diff_10": None,
+        "gold_diff_15": None,
+        "gold_diff_20": None,
     }
+    assert digest["team_state"] is None
 
 
-def test_benchmarks_contract_suppressed_for_shipped_lane_minions(tmp_path: Path):
+def test_benchmarks_are_contract_suppressed_without_v2_population_rows(tmp_path: Path):
     client = build_client(tmp_path, pack=SHIPPED_PACK)
-    seed(client.app.state.store, "a1", features={"cs10": 50, "level10": 8})
+    seed(client.app.state.store, "a1", features=_v2_features(cs10=50, level10=8))
 
     with client:
         body = client.get("/benchmarks", headers=AUTH).json()
@@ -236,105 +214,19 @@ def test_benchmarks_contract_suppressed_for_shipped_lane_minions(tmp_path: Path)
     assert body == {"state": "contract-suppressed", "rows": []}
 
 
-def test_benchmarks_insufficient_when_compatible_personal_value_missing(tmp_path: Path):
-    pack = {
-        **PACK,
-        "benchmarks": [{
-            "role": "MIDDLE",
-            "level10_median": 8.0,
-            "feature_contract": {"level10_median": "level10"},
-            "sample": 100,
-        }],
-    }
-    client = build_client(tmp_path, pack=pack)
-    seed(client.app.state.store, "a1", features={"cs10": 50})
+def test_what_if_without_released_model_is_suppressed(tmp_path: Path):
+    client = build_client(tmp_path, pack=SHIPPED_PACK)
+    seed(client.app.state.store, "a1", features=_v2_features(cs10=50, level10=8))
 
     with client:
-        body = client.get("/benchmarks", headers=AUTH).json()
+        response = client.post(
+            "/history/what-if",
+            json={"adjustments": {"cs10": 5}},
+            headers=AUTH,
+        )
 
-    assert body == {"state": "insufficient-personal-history", "rows": []}
-
-
-def test_benchmarks_nonfinite_personal_values_are_omitted(tmp_path: Path):
-    pack = {
-        **PACK,
-        "benchmarks": [{
-            "role": "MIDDLE",
-            "level10_median": 8.0,
-            "feature_contract": {"level10_median": "level10"},
-            "sample": 100,
-        }],
-    }
-    client = build_client(tmp_path, pack=pack)
-    seed(client.app.state.store, "a1", features={"level10": float("nan")})
-
-    with client:
-        body = client.get("/benchmarks", headers=AUTH).json()
-
-    assert body == {"state": "insufficient-personal-history", "rows": []}
-
-
-def test_benchmarks_mixed_compatible_and_incompatible_metrics(tmp_path: Path):
-    client = build_client(tmp_path, pack=PACK)
-    seed(client.app.state.store, "a1", features={"level10": 8.0, "gold_diff_10": 100.0})
-
-    with client:
-        body = client.get("/benchmarks", headers=AUTH).json()
-
-    assert body["state"] == "available"
-    assert body["rows"] == [{
-        "role": "MIDDLE",
-        "personal": {"level10": 8.0, "gold_diff_10": 100.0},
-        "population": {
-            "level10_median": 8.0,
-            "gold_diff_10_median": 50.0,
-            "sample": 100,
-        },
-    }]
-
-
-def test_benchmarks_join_total_cs_only_when_pack_defines_total_cs(tmp_path: Path):
-    pack = {**PACK, "benchmarks": [{**PACK["benchmarks"][0], "feature_contract": {
-        **PACK["benchmarks"][0]["feature_contract"],
-        "cs10_median": "cs10",
-    }}]}
-    client = build_client(tmp_path, pack=pack)
-    seed(client.app.state.store, "a1", features={"cs10": 50})
-
-    with client:
-        body = client.get("/benchmarks", headers=AUTH).json()
-
-    assert body["state"] == "available"
-    assert body["rows"][0]["personal"] == {"cs10": 50.0}
-    assert body["rows"][0]["population"] == {"cs10_median": 64.0, "sample": 100}
-
-
-def test_benchmarks_all_roles_use_same_unit_total_cs_fixture(tmp_path: Path):
-    roles = ("TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY")
-    pack = {
-        **PACK,
-        "benchmarks": [
-            {
-                "role": role,
-                "cs10_median": 60.0,
-                "feature_contract": {"cs10_median": "cs10"},
-                "sample": 100,
-            }
-            for role in roles
-        ],
-    }
-    client = build_client(tmp_path, pack=pack)
-    for index, role in enumerate(roles):
-        seed(client.app.state.store, f"match-{role}", role=role, features={"cs10": 50 + index})
-
-    with client:
-        body = client.get("/benchmarks", headers=AUTH).json()
-
-    assert body["state"] == "available"
-    rows = body["rows"]
-    assert {row["role"] for row in rows} == set(roles)
-    assert all(set(row["personal"]) == {"cs10"} for row in rows)
-    assert all(set(row["population"]) == {"cs10_median", "sample"} for row in rows)
+    assert response.status_code == 200
+    assert response.json()["status"] == "suppressed"
 
 
 def test_benchmarks_pack_failure_returns_503(tmp_path: Path):

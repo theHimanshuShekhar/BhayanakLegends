@@ -46,7 +46,19 @@ function renderPanel() {
   );
 }
 
-const settings = { riot_id: "FixturePlayer03#BL03", region_route: "sea", has_key: false, auto_sync: true } as const;
+const ownerContext = {
+  owner_key: "fixture-owner",
+  generation: 1,
+  owner_state: "active" as const,
+  owner_error: null,
+};
+const settings = {
+  ...ownerContext,
+  riot_id: "FixturePlayer03#BL03",
+  region_route: "sea",
+  has_key: false,
+  auto_sync: true,
+} as const;
 const idle = {
   state: "idle" as const,
   mode: "era_first" as const,
@@ -56,6 +68,7 @@ const idle = {
   failed: 0,
   current_match_id: null,
   started_at: null,
+  ...ownerContext,
 };
 const running = {
   state: "running" as const,
@@ -66,6 +79,7 @@ const running = {
   failed: 0,
   current_match_id: "EUW1_1",
   started_at: "2026-08-24T10:00:00Z",
+  ...ownerContext,
 };
 
 beforeEach(() => {
@@ -218,7 +232,7 @@ describe("SyncPanel", () => {
     });
 
     const bar = screen.getByTestId("sync-progress-bar");
-    expect(bar).toHaveStyle({ width: "40%" });
+    await waitFor(() => expect(bar).toHaveStyle({ width: "40%" }));
     expect(screen.getByTestId("sync-current")).toHaveTextContent("EUW1_1");
     await act(async () => {
       sseHandler?.({
@@ -227,7 +241,7 @@ describe("SyncPanel", () => {
         data: { ...running, total_queued: 2500, downloaded: 1200 },
       });
     });
-    expect(screen.getByTestId("sync-counters")).toHaveTextContent("1,200 / 2,500 matches");
+    await waitFor(() => expect(screen.getByTestId("sync-counters")).toHaveTextContent("1,200 / 2,500 matches"));
 
     // while running, Start is disabled and Cancel is armed
     expect(screen.getByTestId("start-sync")).toBeDisabled();

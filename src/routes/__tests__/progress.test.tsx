@@ -1,10 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import { ProgressPage } from "../progress";
 import { api } from "../../api/client";
-import type { BenchmarkResponse, FindingsPack } from "../../api/types";
+import type { BenchmarkResponse, Settings } from "../../api/types";
+import { makePack as makeV2Pack } from "./fixtures";
 
 vi.mock("../../api/client", () => ({
   api: {
@@ -70,52 +71,56 @@ const benchmarkRows = [
 ];
 const benchmarks: BenchmarkResponse = { state: "available", rows: benchmarkRows };
 
-function makePack(overrides: Partial<FindingsPack> = {}): FindingsPack {
-  return {
-    provenance: {} as FindingsPack["provenance"],
-    schema_version: 1,
-    pack_version: "v1",
-    generated_at: "2026-08-01T00:00:00Z",
-    comeback_feature_contract: {
-      feature: "gold_diff_15",
-      feature_contract_version: "loltrends-parity-v1",
-    },
-    dataset: { matches: 26036, player_games: 260360, patches: ["14.17", "16.16"] },
+const evidenceMetadata = {
+  patch_range: { min: "14.17", max: "16.17" },
+  population_scope: "fixture v2 pooled population",
+  era_stability: "stable",
+  caveats: ["Observational association; fixture only."],
+  source_document: "fixture",
+  source_section: "findings",
+  source_ref: "fixture#findings",
+  provenance_key: "findings",
+} as const;
+
+function makePack(overrides: Record<string, unknown> = {}) {
+  return makeV2Pack({
     findings: [
       {
-        key: "lane_win_conversion_gap",
+        ...evidenceMetadata,
+        key: "lane_conversion",
         tier: "actionable",
-        title: "Lane leads are raw material",
+        release_status: "available",
+        title: "Lane conversion",
         statement: "Real cases turned +121g@10 lane leads into 42.7% win rates.",
-        value: 42.7,
-        unit: "%",
-        source_ref: "companion-app-content.md#24",
+        metric_kind: "percentage_points",
+        unit: "pp",
+        sample: 1000,
+        value: 0.427,
       },
     ],
-    habits: [
-      { key: "recall_safety", label: "Recall safely", effect_per_sd: 2.24 },
-      { key: "fast_first_dragon", label: "Fast first dragon", effect_per_sd: 0.83 },
-      { key: "spend_before_backing", label: "Spend gold before backing", effect_per_sd: 0.88 },
-      { key: "plates_by_14", label: "Turret plates by 14m", effect_per_sd: 1.08 },
-    ],
-    objectives: {},
-    comeback_odds: [],
-    ban_advisor: [],
-    trap_picks: [],
-    tier_list: [],
-    matchup_examples: [],
-    benchmarks: [],
-    checkpoints: [],
     ...overrides,
-  };
+  });
 }
+
+const activeSettings: Settings = {
+  owner_key: "fixture-owner",
+  generation: 1,
+  owner_state: "active",
+  owner_error: null,
+  riot_id: "Fixture#EUW",
+  region_route: "europe",
+  has_key: true,
+  auto_sync: false,
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(api.settings).mockResolvedValue(activeSettings);
   vi.mocked(api.trajectories).mockResolvedValue(points);
   vi.mocked(api.patchAggregates).mockResolvedValue(aggregates);
   vi.mocked(api.historySummary).mockResolvedValue(summary);
   vi.mocked(api.benchmarks).mockResolvedValue(benchmarks);
+  vi.mocked(api.postgameLatest).mockResolvedValue(null);
   vi.mocked(api.pack).mockResolvedValue(makePack());
 });
 
@@ -191,19 +196,12 @@ describe("ProgressPage", () => {
   it("renders the four pack habits with canonical multiplier units and neutral bars", async () => {
     renderPage(<ProgressPage />);
 
-    expect(await screen.findByTestId("habit-row-recall_safety")).toHaveTextContent(
-      "×2.24 effect per SD",
-    );
+    expect(await screen.findByTestId("habit-row-recall_safety")).toHaveTextContent("×2.32");
+    expect(screen.getByTestId("habit-row-recall_safety")).toHaveTextContent("odds ratio per standard deviation");
     expect(screen.getByTestId("habit-row-recall_safety")).not.toHaveTextContent(/WR per SD|% per SD/);
-    expect(screen.getByTestId("habit-row-fast_first_dragon")).toHaveTextContent(
-      "×0.83 effect per SD",
-    );
-    expect(screen.getByTestId("habit-row-spend_before_backing")).toHaveTextContent(
-      "×0.88 effect per SD",
-    );
-    expect(screen.getByTestId("habit-row-plates_by_14")).toHaveTextContent(
-      "×1.08 effect per SD",
-    );
+    expect(screen.getByTestId("habit-row-fast_first_dragon")).toHaveTextContent("×0.77");
+    expect(screen.getByTestId("habit-row-spend_before_backing")).toHaveTextContent("×0.80");
+    expect(screen.getByTestId("habit-row-plates_by_14")).toHaveTextContent("×1.03");
 
     for (const key of ["recall_safety", "fast_first_dragon", "spend_before_backing", "plates_by_14"]) {
       const bar = screen.getByTestId(`habit-bar-${key}`);
@@ -212,18 +210,18 @@ describe("ProgressPage", () => {
       expect(fill.style.width).toMatch(/^0(px)?$/);
       expect(bar.parentElement).not.toHaveTextContent(/trending|regressing/i);
     }
-    expect(screen.getByTestId("lever-adoption")).toHaveTextContent(
-      /timeline features are unavailable in the Findings Pack/i,
-    );
-    expect(screen.getByTestId("lever-adoption")).not.toHaveTextContent(/lands in the Findings Pack/i);
+    expect(screen.getByTestId("lever-adoption")).toHaveTextContent("Findings Pack v2");
+    expect(screen.getByTestId("lever-adoption")).toHaveTextContent(/population associations/i);
   });
 
   it("shows the unavailable what-if state without fabricated personal estimates", async () => {
     renderPage(<ProgressPage />);
 
     const panel = await screen.findByTestId("what-if-panel");
-    expect(screen.getByTestId("what-if-caption")).toHaveTextContent(
-      "Personal what-if estimates are unavailable because the Honest Model contract is absent.",
+    await waitFor(() =>
+      expect(screen.getByTestId("what-if-caption")).toHaveTextContent(
+        /personal what-if estimates are unavailable because onnx artifact.*not present/i,
+      ),
     );
     expect(panel).toHaveTextContent("Unavailable");
     expect(panel).not.toHaveTextContent(/ships/);
@@ -266,7 +264,7 @@ describe("ProgressPage", () => {
     await screen.findByTestId("lane-conversion");
 
     expect(screen.getAllByTestId("population-caveat")).toHaveLength(1);
-    expect(screen.getByText(/friend group's 26k games/)).toBeInTheDocument();
+    expect(screen.getByText(/shipped population corpus/)).toBeInTheDocument();
   });
 
   it("replaces the speculative deaths-by-minute roadmap copy with an unavailable reason", async () => {

@@ -78,7 +78,7 @@ export function PostGamePage() {
           <div className="postgame-support-column">
             <ObjectiveReadCard pack={packQuery.data} />
             <ComebackOddsCard digest={digest} pack={packQuery.data} />
-            <SurrenderReadCard />
+            <SurrenderReadCard pack={packQuery.data} />
           </div>
         </div>
       </section>

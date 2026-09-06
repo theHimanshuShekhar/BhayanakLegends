@@ -94,12 +94,15 @@ function exportedNames(source: string): string[] {
 const PRIMITIVE_SEAM = ["Dot", "EmptyState", "SectionHead", "Unavailable"] as const;
 const FORMATTER_SEAM = [
   "formatClock",
+  "formatCorrelation",
   "formatCount",
   "formatDuration",
   "formatEffectPerSd",
   "formatGold",
   "formatInitials",
+  "formatInterval",
   "formatItemQuantity",
+  "formatPatchScope",
   "formatPercentagePoints",
   "formatRate",
   "formatUnavailable",

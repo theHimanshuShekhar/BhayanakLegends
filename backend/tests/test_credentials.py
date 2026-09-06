@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from bhayanak_legends.credentials import (
+    CredentialError,
     CredentialStore,
     CredentialUnavailableError,
     InMemoryCredentialStore,
@@ -59,21 +60,17 @@ def test_real_windows_dpapi_roundtrip_and_ciphertext(tmp_path: Path):
     assert store.get_raw_setting("riot_key") is None
 
 
-def test_plaintext_row_migrates_once_on_successful_access(tmp_path: Path):
+@pytest.mark.parametrize("raw", ["unprotected-secret", b"unprotected-secret"])
+def test_unprotected_rows_are_rejected(tmp_path: Path, raw: str | bytes):
     store = Store(tmp_path / "app.db")
-    store.set_setting("riot_key", "legacy-secret")
+    store.set_raw_setting("riot_key", raw)
     dpapi = FakeDPAPI()
     credentials = CredentialStore(store, protector=dpapi)
 
-    assert credentials.load() == "legacy-secret"
-    assert dpapi.protect_calls == 1
-    migrated = store.get_raw_setting("riot_key")
-    assert isinstance(migrated, bytes)
-    assert b"legacy-secret" not in migrated
-
-    assert credentials.load() == "legacy-secret"
-    assert dpapi.protect_calls == 1
-
+    with pytest.raises(CredentialError, match="unsupported format"):
+        credentials.load()
+    assert dpapi.protect_calls == 0
+    assert dpapi.unprotect_calls == 0
 
 def test_non_windows_requires_explicit_insecure_opt_in(tmp_path: Path):
     store = Store(tmp_path / "app.db")

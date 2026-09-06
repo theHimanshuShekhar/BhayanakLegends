@@ -29,11 +29,11 @@ const ZOOM_200 = { width: 640, height: 410 };
 
 const ROUTES = [
   { path: "/live", nav: "live", h1: "Live Companion: In Game", ready: "bridge-status" },
-  { path: "/champ-select", nav: "champ-select", h1: "Live Companion: Champ Select", ready: "card-ban-advisor" },
+  { path: "/champ-select", nav: "champ-select", h1: "Live Companion: Champ Select", ready: "card-ban-context" },
   { path: "/postgame", nav: "postgame", h1: "Post-game Review", ready: "verdict-header" },
   { path: "/progress", nav: "progress", h1: "Trajectory", ready: null },
-  { path: "/champions", nav: "champions", h1: "Champion Evidence", ready: "role-MIDDLE" },
-  { path: "/history", nav: "history", h1: "Improvement Journal", ready: "summary-matches" },
+  { path: "/champions", nav: "champions", h1: "Champion Evidence", ready: "tier-list-card" },
+  { path: "/history", nav: "history", h1: "Improvement Journal", ready: "summary-stats" },
 ] as const;
 
 type Route = (typeof ROUTES)[number];
@@ -559,6 +559,16 @@ test.describe("cross-route UI integrity", () => {
       checkpoints: { gold_diff_10: 240, gold_diff_15: 610, gold_diff_20: 980 },
       habits: [],
       headline: "Clean early game",
+      feature_contract_version: "loltrends-parity-v2",
+      personal_history_eligibility: "eligible",
+      features: { team_gold_diff_15m: 610 },
+      team_state: {
+        feature: "team_gold_diff_15m",
+        feature_contract_version: "loltrends-parity-v2",
+        team_gold_diff_15m: 610,
+        observed_through_s: 1893,
+        non_surrendered: true,
+      },
     };
 
     // Loading: a delayed summary keeps the journal skeleton visible, then it settles away.
@@ -627,12 +637,20 @@ test.describe("cross-route UI integrity", () => {
     await page.setViewportSize(VIEWPORTS[0]);
 
     const savedSettings = {
+      owner_key: "replay#E2E",
+      generation: 1,
+      owner_state: "active",
+      owner_error: null,
       riot_id: "replay#E2E",
       region_route: "sea",
       has_key: true,
       auto_sync: false,
     };
     const idleStatus = {
+      owner_key: "replay#E2E",
+      generation: 1,
+      owner_state: "active",
+      owner_error: null,
       state: "idle",
       mode: "era_first",
       total_queued: 0,
@@ -648,6 +666,10 @@ test.describe("cross-route UI integrity", () => {
       route.fulfill({
         status: 200,
         json: {
+          owner_key: "replay#E2E",
+          generation: 1,
+          owner_state: "active",
+          owner_error: null,
           state: "running",
           mode: "era_first",
           total_queued: 1200,
@@ -708,6 +730,10 @@ test.describe("cross-route UI integrity", () => {
       route.fulfill({
         status: 200,
         json: {
+          owner_key: "replay#E2E",
+          generation: 1,
+          owner_state: "active",
+          owner_error: null,
           state: "running",
           mode: "era_first",
           total_queued: 0,
@@ -733,6 +759,10 @@ test.describe("cross-route UI integrity", () => {
       route.fulfill({
         status: 200,
         json: {
+          owner_key: "replay#E2E",
+          generation: 1,
+          owner_state: "active",
+          owner_error: null,
           state: "error",
           mode: "era_first",
           total_queued: 1200,

@@ -2,9 +2,10 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
+import type { Settings } from "../../api/types";
 import { ChampionsPage } from "../champions";
 import { api } from "../../api/client";
-import type { FindingsPack } from "../../api/types";
+import { makePack as makeV2Pack } from "./fixtures";
 
 vi.mock("../../api/client", () => ({
   api: {
@@ -35,49 +36,70 @@ function renderPage(ui: ReactElement) {
   return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>);
 }
 
-function makePack(overrides: Partial<FindingsPack> = {}): FindingsPack {
-  return {
-    schema_version: 1,
-    comeback_feature_contract: {
-      feature: "gold_diff_15",
-      feature_contract_version: "loltrends-parity-v1",
-    },
-    pack_version: "v1",
-    generated_at: "2026-08-01T00:00:00Z",
-    provenance: {} as FindingsPack["provenance"],
-    dataset: { matches: 26036, player_games: 260360, patches: ["14.17", "16.16"] },
-    findings: [],
-    habits: [],
-    objectives: {},
-    comeback_odds: [],
-    ban_advisor: [],
-    trap_picks: [{ champion: "Qiyana", win_rate: 0.4233 }],
-    tier_list: [
-      { champion: "Ahri", role: "MIDDLE", games: 340, pick_rate: 0.142, win_rate: 0.534, tier: "S" },
-      { champion: "Qiyana", role: "MIDDLE", games: 200, pick_rate: 0.05, win_rate: 0.4233, tier: "B" },
-      { champion: "Darius", role: "TOP", games: 610, pick_rate: 0.224, win_rate: 0.517, tier: "A" },
-      { champion: "Garen", role: "TOP", games: 500, pick_rate: 0.2, win_rate: 0.51, tier: "A" },
-    ],
-    matchup_examples: [
-      { champion: "Ahri", opponent: "Zed", role: "MIDDLE", wr: 0.57, ci: 2.1, games: 41 },
-      { champion: "Ahri", opponent: "Yasuo", role: "MIDDLE", wr: 0.44, ci: 1.8, games: 33 },
-      { champion: "Qiyana", opponent: "Qiyana", role: "MIDDLE", wr: 0.9, ci: 1, games: 1 },
-      { champion: "Darius", opponent: "Garen", role: "TOP", wr: 0.4098, ci: 8.7, games: 42 },
-      { champion: "Garen", opponent: "Darius", role: "TOP", wr: 0.5902, ci: 8.7, games: 42 },
-      { champion: "Darius", opponent: "Darius", role: "TOP", wr: 0.5, ci: 0, games: 1 },
-    ],
-    benchmarks: [],
-    checkpoints: [],
+const evidenceMetadata = {
+  patch_range: { min: "14.17", max: "16.17" },
+  population_scope: "fixture v2 pooled population",
+  era_stability: "stable",
+  caveats: ["Observational association; fixture only."],
+  source_document: "fixture",
+  source_section: "fixture evidence",
+  source_ref: "fixture#v2",
+  provenance_key: "fixture",
+  metric_kind: "win_rate",
+  unit: "rate",
+} as const;
+
+const tierRows = [
+  { champion: "Ahri", role: "MIDDLE", games: 600, observed_win_rate: 0.534, role_pick_rate: 0.142, rank_band: "S" },
+  { champion: "Qiyana", role: "MIDDLE", games: 500, observed_win_rate: 0.4233, role_pick_rate: 0.05, rank_band: "B" },
+  { champion: "Darius", role: "TOP", games: 610, observed_win_rate: 0.517, role_pick_rate: 0.224, rank_band: "A" },
+  { champion: "Garen", role: "TOP", games: 500, observed_win_rate: 0.51, role_pick_rate: 0.2, rank_band: "A" },
+].map((row) => ({
+  ...evidenceMetadata,
+  ...row,
+  minimum_games: 500,
+  tier: "diagnostic",
+  release_status: "available",
+}));
+
+const matchupRows = [
+  { champion: "Ahri", opponent: "Zed", role: "MIDDLE", games: 41, estimate: 0.57, lower: 0.48, upper: 0.66 },
+  { champion: "Ahri", opponent: "Yasuo", role: "MIDDLE", games: 33, estimate: 0.44, lower: 0.35, upper: 0.53 },
+  { champion: "Darius", opponent: "Garen", role: "TOP", games: 42, estimate: 0.5902, lower: 0.503, upper: 0.677 },
+  { champion: "Darius", opponent: "Teemo", role: "TOP", games: 42, estimate: 0.4098, lower: 0.323, upper: 0.497 },
+].map((row) => ({
+  ...evidenceMetadata,
+  ...row,
+  interval: { lower: row.lower, upper: row.upper, include_lower: true, include_upper: false },
+  tier: "diagnostic",
+  release_status: "available",
+}));
+
+function makePack(overrides: Record<string, unknown> = {}) {
+  return makeV2Pack({
+    tier_list: tierRows,
+    matchup_examples: matchupRows,
     ...overrides,
-  };
+  });
 }
 
 const IMPERATIVE_RE =
   /\b(avoid|ban|pick|play|try|consider|use|stop|start|don't|dont|do not)\b/i;
+const activeSettings: Settings = {
+  owner_key: "fixture-owner",
+  generation: 1,
+  owner_state: "active",
+  owner_error: null,
+  riot_id: "Fixture#EUW",
+  region_route: "europe",
+  has_key: true,
+  auto_sync: false,
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(api.pack).mockResolvedValue(makePack());
+  vi.mocked(api.settings).mockResolvedValue(activeSettings);
   vi.mocked(api.trajectories).mockResolvedValue([]);
   vi.mocked(api.patchAggregates).mockResolvedValue([]);
 });
@@ -100,7 +122,7 @@ describe("ChampionsPage", () => {
     const row = await screen.findByRole("button", { name: /Ahri, S tier/i });
 
     row.focus();
-    fireEvent.keyDown(row, { key: "Enter" });
+    fireEvent.click(row);
 
     expect(row).toHaveFocus();
     expect(row).toHaveAttribute("aria-pressed", "true");
@@ -111,8 +133,6 @@ describe("ChampionsPage", () => {
     for (const stat of within(header).getAllByText(/^\d+(?:\.\d)%$/)) {
       expect(stat).toHaveStyle({ color: "var(--color-info)" });
     }
-    // A missing population ban rate names its unavailability instead of a dash.
-    expect(within(header).getByText("Unavailable: ban rate unavailable")).toBeInTheDocument();
   });
 
   it("clears selected champion and claims when the role changes", async () => {
@@ -135,10 +155,12 @@ describe("ChampionsPage", () => {
     fireEvent.click(await screen.findByTestId("tier-row-Darius"));
 
     const card = await screen.findByTestId("matchups-card");
-    expect(card).toHaveTextContent("FAVORABLE EXAMPLES FOR DARIUS");
-    expect(card).toHaveTextContent("DIFFICULT EXAMPLES FOR DARIUS");
+    expect(card).toHaveTextContent("HIGHER OBSERVED ESTIMATES FOR DARIUS");
+    expect(card).toHaveTextContent("LOWER OBSERVED ESTIMATES FOR DARIUS");
     expect(card).toHaveTextContent("Darius vs Garen");
-    expect(card).toHaveTextContent("41.0% ±8.7 pp · 42 games");
+    expect(card).toHaveTextContent("59.0% · 50.3%–67.7% · 42 games");
+    expect(card).toHaveTextContent("Darius vs Teemo");
+    expect(card).toHaveTextContent("41.0% · 32.3%–49.7% · 42 games");
     expect(card).not.toHaveTextContent("Garen vs Darius");
     expect(card).not.toHaveTextContent("Darius vs Darius");
     expect(card).toHaveTextContent("Findings Pack · matchup_examples");

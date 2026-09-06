@@ -1,0 +1,574 @@
+{
+  "schema_version": 2,
+  "pack_version": "v2",
+  "generated_at": "2026-08-31T00:00:00Z",
+  "patch_range": {
+    "min": "14.17",
+    "max": "16.17"
+  },
+  "dataset": {
+    "patch_range": {
+      "min": "14.17",
+      "max": "16.17"
+    },
+    "population_scope": "Expanded-corpus Eligible Matches",
+    "era_stability": "stable",
+    "caveats": [
+      "Observational association; not a causal intervention."
+    ],
+    "source_document": "LoLTrends/docs/reports/2026-08-31-findings-report.md",
+    "source_section": "dataset metadata",
+    "source_ref": "LoLTrends/docs/reports/2026-08-31-findings-report.md#dataset",
+    "provenance_key": "dataset",
+    "raw_unique_matches": 125031,
+    "eligible_matches": 125031,
+    "participant_performances": 1250310,
+    "tracked_players": 0,
+    "patch_buckets": 2,
+    "median_game_minutes": 0.0,
+    "surrender_rate": 0.227,
+    "patches": [
+      "14.17",
+      "16.17"
+    ],
+    "eligibility": "Expanded-corpus Eligible Matches; exact team-state cohorts require Feature Store rows"
+  },
+  "feature_contracts": {
+    "population": "loltrends-population-v2",
+    "personal_history": "loltrends-parity-v2",
+    "models": {
+      "personal_what_if": "loltrends-cutoff-v2",
+      "live_wp": "live-wp-v2"
+    }
+  },
+  "provenance": {
+    "dataset": {
+      "source_document": "LoLTrends/docs/reports/2026-08-31-findings-report.md",
+      "source_section": "dataset metadata",
+      "source_ref": "LoLTrends/docs/reports/2026-08-31-findings-report.md#dataset",
+      "feature_store_manifest_sha256": "14bb2694bd0a6331ca8a3b23edbc8bdec050cdcfe4af1273cb1215606dc95389",
+      "generator_revision": "sha256:24230c6714ead119a947d5b05a4b69e028eceea99ef8c8787199d0bd0a830721",
+      "feature_contract_version": "loltrends-population-v2"
+    },
+    "findings": {
+      "source_document": "LoLTrends/docs/reports/2026-08-31-findings-report.md",
+      "source_section": "mastery, snowball, and ban evidence",
+      "source_ref": "LoLTrends/docs/reports/2026-08-31-findings-report.md#findings",
+      "feature_store_manifest_sha256": "14bb2694bd0a6331ca8a3b23edbc8bdec050cdcfe4af1273cb1215606dc95389",
+      "generator_revision": "sha256:24230c6714ead119a947d5b05a4b69e028eceea99ef8c8787199d0bd0a830721",
+      "feature_contract_version": "loltrends-parity-v2"
+    },
+    "habits": {
+      "source_document": "LoLTrends/docs/reports/2026-08-31-findings-report.md",
+      "source_section": "habit associations",
+      "source_ref": "LoLTrends/docs/reports/2026-08-31-findings-report.md#habits",
+      "feature_store_manifest_sha256": "14bb2694bd0a6331ca8a3b23edbc8bdec050cdcfe4af1273cb1215606dc95389",
+      "generator_revision": "sha256:24230c6714ead119a947d5b05a4b69e028eceea99ef8c8787199d0bd0a830721",
+      "feature_contract_version": "loltrends-parity-v2"
+    },
+    "objectives": {
+      "source_document": "LoLTrends/docs/reports/2026-08-31-findings-report.md",
+      "source_section": "objective evidence",
+      "source_ref": "LoLTrends/docs/reports/2026-08-31-findings-report.md#objectives",
+      "feature_store_manifest_sha256": "14bb2694bd0a6331ca8a3b23edbc8bdec050cdcfe4af1273cb1215606dc95389",
+      "generator_revision": "sha256:24230c6714ead119a947d5b05a4b69e028eceea99ef8c8787199d0bd0a830721",
+      "feature_contract_version": "loltrends-parity-v2"
+    },
+    "comeback_odds": {
+      "source_document": "LoLTrends/docs/reports/2026-08-31-findings-report.md",
+      "source_section": "15-minute team deficit cohorts",
+      "source_ref": "LoLTrends/docs/reports/2026-08-31-findings-report.md#comeback_odds",
+      "feature_store_manifest_sha256": "14bb2694bd0a6331ca8a3b23edbc8bdec050cdcfe4af1273cb1215606dc95389",
+      "generator_revision": "sha256:24230c6714ead119a947d5b05a4b69e028eceea99ef8c8787199d0bd0a830721",
+      "feature_contract_version": "loltrends-parity-v2"
+    },
+    "ban_context": {
+      "source_document": "LoLTrends/docs/reports/2026-08-31-findings-report.md",
+      "source_section": "ban/win descriptive context",
+      "source_ref": "LoLTrends/docs/reports/2026-08-31-findings-report.md#ban_context",
+      "feature_store_manifest_sha256": "14bb2694bd0a6331ca8a3b23edbc8bdec050cdcfe4af1273cb1215606dc95389",
+      "generator_revision": "sha256:24230c6714ead119a947d5b05a4b69e028eceea99ef8c8787199d0bd0a830721",
+      "feature_contract_version": "loltrends-parity-v2"
+    },
+    "tier_list": {
+      "source_document": "LoLTrends/docs/reports/2026-08-31-findings-report.md",
+      "source_section": "pooled role tiers",
+      "source_ref": "LoLTrends/docs/reports/2026-08-31-findings-report.md#tier_list",
+      "feature_store_manifest_sha256": "14bb2694bd0a6331ca8a3b23edbc8bdec050cdcfe4af1273cb1215606dc95389",
+      "generator_revision": "sha256:24230c6714ead119a947d5b05a4b69e028eceea99ef8c8787199d0bd0a830721",
+      "feature_contract_version": "loltrends-parity-v2"
+    },
+    "matchup_examples": {
+      "source_document": "LoLTrends/docs/reports/2026-08-31-findings-report.md",
+      "source_section": "shrunk matchup examples",
+      "source_ref": "LoLTrends/docs/reports/2026-08-31-findings-report.md#matchup_examples",
+      "feature_store_manifest_sha256": "14bb2694bd0a6331ca8a3b23edbc8bdec050cdcfe4af1273cb1215606dc95389",
+      "generator_revision": "sha256:24230c6714ead119a947d5b05a4b69e028eceea99ef8c8787199d0bd0a830721",
+      "feature_contract_version": "loltrends-parity-v2"
+    },
+    "checkpoints": {
+      "source_document": "LoLTrends/docs/reports/2026-08-31-findings-report.md",
+      "source_section": "Personal History checkpoint benchmarks",
+      "source_ref": "LoLTrends/docs/reports/2026-08-31-findings-report.md#checkpoints",
+      "feature_store_manifest_sha256": "14bb2694bd0a6331ca8a3b23edbc8bdec050cdcfe4af1273cb1215606dc95389",
+      "generator_revision": "sha256:24230c6714ead119a947d5b05a4b69e028eceea99ef8c8787199d0bd0a830721",
+      "feature_contract_version": "loltrends-parity-v2"
+    },
+    "route_archetypes": {
+      "source_document": "LoLTrends/docs/reports/2026-08-31-findings-report.md",
+      "source_section": "route archetype diagnostic context",
+      "source_ref": "LoLTrends/docs/reports/2026-08-31-findings-report.md#route_archetypes",
+      "feature_store_manifest_sha256": "14bb2694bd0a6331ca8a3b23edbc8bdec050cdcfe4af1273cb1215606dc95389",
+      "generator_revision": "sha256:24230c6714ead119a947d5b05a4b69e028eceea99ef8c8787199d0bd0a830721",
+      "feature_contract_version": "loltrends-parity-v2"
+    },
+    "build_evidence": {
+      "source_document": "LoLTrends/docs/reports/2026-08-31-findings-report.md",
+      "source_section": "build evidence release gate",
+      "source_ref": "LoLTrends/docs/reports/2026-08-31-findings-report.md#build_evidence",
+      "feature_store_manifest_sha256": "14bb2694bd0a6331ca8a3b23edbc8bdec050cdcfe4af1273cb1215606dc95389",
+      "generator_revision": "sha256:24230c6714ead119a947d5b05a4b69e028eceea99ef8c8787199d0bd0a830721",
+      "feature_contract_version": "loltrends-parity-v2"
+    }
+  },
+  "findings": [
+    {
+      "patch_range": {
+        "min": "14.17",
+        "max": "16.17"
+      },
+      "population_scope": "Expanded Eligible Matches, pooled patches 14.17–16.17",
+      "era_stability": "stable",
+      "caveats": [
+        "Observational association; not a causal intervention."
+      ],
+      "source_document": "LoLTrends/docs/reports/2026-08-31-findings-report.md",
+      "source_section": "mastery, snowball, and ban evidence",
+      "source_ref": "LoLTrends/docs/reports/2026-08-31-findings-report.md#findings",
+      "provenance_key": "findings",
+      "key": "ban_waste_correlation",
+      "tier": "diagnostic",
+      "release_status": "available",
+      "title": "Ban rate and win rate move weakly together",
+      "statement": "The pooled ban-rate/win-rate relationship is +0.06 in the expanded corpus; it describes selection context rather than a guaranteed ban strategy.",
+      "metric_kind": "correlation",
+      "unit": "correlation",
+      "sample": 125031,
+      "value": 0.06
+    },
+    {
+      "patch_range": {
+        "min": "14.17",
+        "max": "16.17"
+      },
+      "population_scope": "Expanded Eligible Matches, pooled patches 14.17–16.17",
+      "era_stability": "stable",
+      "caveats": [
+        "Observational association; not a causal intervention."
+      ],
+      "source_document": "LoLTrends/docs/reports/2026-08-31-findings-report.md",
+      "source_section": "mastery, snowball, and ban evidence",
+      "source_ref": "LoLTrends/docs/reports/2026-08-31-findings-report.md#findings",
+      "provenance_key": "findings",
+      "key": "mastery_premium",
+      "tier": "actionable",
+      "release_status": "available",
+      "title": "Familiar champions carry the clearest signal",
+      "statement": "Your top-three champion pool carried a +1.94 percentage-point population premium in the expanded corpus; this is an observational association, not a causal guarantee.",
+      "metric_kind": "percentage_points",
+      "unit": "pp",
+      "sample": 125031,
+      "value": 1.94
+    },
+    {
+      "patch_range": {
+        "min": "14.17",
+        "max": "16.17"
+      },
+      "population_scope": "Expanded Eligible Matches, pooled patches 14.17–16.17",
+      "era_stability": "stable",
+      "caveats": [
+        "Observational association; not a causal intervention."
+      ],
+      "source_document": "LoLTrends/docs/reports/2026-08-31-findings-report.md",
+      "source_section": "mastery, snowball, and ban evidence",
+      "source_ref": "LoLTrends/docs/reports/2026-08-31-findings-report.md#findings",
+      "provenance_key": "findings",
+      "key": "surrender_advisor",
+      "tier": "diagnostic",
+      "release_status": "withheld",
+      "title": "Surrender Advisor withheld",
+      "statement": "The Surrender Advisor is withheld because its surrendered-state sanity gap was 22.7 percentage points against the 5-point release tolerance.",
+      "metric_kind": "status",
+      "unit": "status",
+      "sample": 125031,
+      "release_reason": "surrendered-state sanity gap 22.7pp exceeds the 5pp release tolerance"
+    },
+    {
+      "patch_range": {
+        "min": "14.17",
+        "max": "16.17"
+      },
+      "population_scope": "Expanded Eligible Matches, pooled patches 14.17–16.17",
+      "era_stability": "stable",
+      "caveats": [
+        "Observational association; not a causal intervention."
+      ],
+      "source_document": "LoLTrends/docs/reports/2026-08-31-findings-report.md",
+      "source_section": "mastery, snowball, and ban evidence",
+      "source_ref": "LoLTrends/docs/reports/2026-08-31-findings-report.md#findings",
+      "provenance_key": "findings",
+      "key": "team_snowball_gradient",
+      "tier": "diagnostic",
+      "release_status": "available",
+      "title": "Team state spreads the 10-minute gradient",
+      "statement": "The expanded corpus ranges from a 16.9% win rate with zero positions ahead at 10 minutes to 83.1% with five; this is descriptive team-state evidence.",
+      "metric_kind": "win_rate",
+      "unit": "rate",
+      "sample": 125031,
+      "value": {
+        "zero_positions_ahead": 0.169,
+        "five_positions_ahead": 0.831
+      }
+    }
+  ],
+  "habits": [
+    {
+      "patch_range": {
+        "min": "14.17",
+        "max": "16.17"
+      },
+      "population_scope": "Expanded Eligible Matches, pooled patches 14.17–16.17",
+      "era_stability": "stable",
+      "caveats": [
+        "Observational association; not a causal intervention."
+      ],
+      "source_document": "LoLTrends/docs/reports/2026-08-31-findings-report.md",
+      "source_section": "habit associations",
+      "source_ref": "LoLTrends/docs/reports/2026-08-31-findings-report.md#habits",
+      "provenance_key": "habits",
+      "key": "fast_first_dragon",
+      "label": "Earlier first dragon",
+      "metric_kind": "odds_ratio_per_standard_deviation",
+      "unit": "odds ratio per standard deviation",
+      "effect": 0.77,
+      "feature": "first_dragon_by_20m_s",
+      "eligibility": "Eligible, non-surrendered matches with exact v2 feature observation",
+      "tier": "actionable",
+      "release_status": "available",
+      "sample": 125031
+    },
+    {
+      "patch_range": {
+        "min": "14.17",
+        "max": "16.17"
+      },
+      "population_scope": "Expanded Eligible Matches, pooled patches 14.17–16.17",
+      "era_stability": "sensitive",
+      "caveats": [
+        "Observational association; not a causal intervention."
+      ],
+      "source_document": "LoLTrends/docs/reports/2026-08-31-findings-report.md",
+      "source_section": "habit associations",
+      "source_ref": "LoLTrends/docs/reports/2026-08-31-findings-report.md#habits",
+      "provenance_key": "habits",
+      "key": "plates_by_14",
+      "label": "Turret plates by 14m",
+      "metric_kind": "odds_ratio_per_standard_deviation",
+      "unit": "odds ratio per standard deviation",
+      "effect": 1.03,
+      "feature": "plates_taken_by_14m",
+      "eligibility": "Eligible, non-surrendered matches with exact v2 feature observation",
+      "tier": "diagnostic",
+      "release_status": "available",
+      "sample": 125031
+    },
+    {
+      "patch_range": {
+        "min": "14.17",
+        "max": "16.17"
+      },
+      "population_scope": "Expanded Eligible Matches, pooled patches 14.17–16.17",
+      "era_stability": "stable",
+      "caveats": [
+        "Observational association; not a causal intervention."
+      ],
+      "source_document": "LoLTrends/docs/reports/2026-08-31-findings-report.md",
+      "source_section": "habit associations",
+      "source_ref": "LoLTrends/docs/reports/2026-08-31-findings-report.md#habits",
+      "provenance_key": "habits",
+      "key": "recall_safety",
+      "label": "Recall safely",
+      "metric_kind": "odds_ratio_per_standard_deviation",
+      "unit": "odds ratio per standard deviation",
+      "effect": 2.32,
+      "feature": "unseen_recall_share_by_15m",
+      "eligibility": "Eligible, non-surrendered matches with exact v2 feature observation",
+      "tier": "actionable",
+      "release_status": "available",
+      "sample": 125031
+    },
+    {
+      "patch_range": {
+        "min": "14.17",
+        "max": "16.17"
+      },
+      "population_scope": "Expanded Eligible Matches, pooled patches 14.17–16.17",
+      "era_stability": "stable",
+      "caveats": [
+        "Observational association; not a causal intervention."
+      ],
+      "source_document": "LoLTrends/docs/reports/2026-08-31-findings-report.md",
+      "source_section": "habit associations",
+      "source_ref": "LoLTrends/docs/reports/2026-08-31-findings-report.md#habits",
+      "provenance_key": "habits",
+      "key": "spend_before_backing",
+      "label": "Spend gold before backing",
+      "metric_kind": "odds_ratio_per_standard_deviation",
+      "unit": "odds ratio per standard deviation",
+      "effect": 0.8,
+      "feature": "avg_banked_gold_at_recall_by_15m",
+      "eligibility": "Eligible, non-surrendered matches with exact v2 feature observation",
+      "tier": "actionable",
+      "release_status": "available",
+      "sample": 125031
+    }
+  ],
+  "objectives": [
+    {
+      "patch_range": {
+        "min": "14.17",
+        "max": "16.17"
+      },
+      "population_scope": "Expanded Eligible Matches, pooled patches 14.17–16.17",
+      "era_stability": "stable",
+      "caveats": [
+        "Observational association; not a causal intervention."
+      ],
+      "source_document": "LoLTrends/docs/reports/2026-08-31-findings-report.md",
+      "source_section": "objective evidence",
+      "source_ref": "LoLTrends/docs/reports/2026-08-31-findings-report.md#objectives",
+      "provenance_key": "objectives",
+      "objective": "baron",
+      "metric_kind": "before_time_rate",
+      "window": {
+        "kind": "before_time",
+        "end_seconds": 1500,
+        "include_start": true,
+        "include_end": false,
+        "rule": "first baron event before 1500 seconds"
+      },
+      "rate": 0.814,
+      "sample": 125031,
+      "tier": "diagnostic",
+      "release_status": "available"
+    },
+    {
+      "patch_range": {
+        "min": "14.17",
+        "max": "16.17"
+      },
+      "population_scope": "Expanded Eligible Matches, pooled patches 14.17–16.17",
+      "era_stability": "stable",
+      "caveats": [
+        "Observational association; not a causal intervention."
+      ],
+      "source_document": "LoLTrends/docs/reports/2026-08-31-findings-report.md",
+      "source_section": "objective evidence",
+      "source_ref": "LoLTrends/docs/reports/2026-08-31-findings-report.md#objectives",
+      "provenance_key": "objectives",
+      "objective": "dragon",
+      "metric_kind": "before_time_rate",
+      "window": {
+        "kind": "before_time",
+        "end_seconds": 1200,
+        "include_start": true,
+        "include_end": false,
+        "rule": "first dragon event before 1200 seconds"
+      },
+      "rate": 0.603,
+      "sample": 125031,
+      "tier": "diagnostic",
+      "release_status": "available"
+    },
+    {
+      "patch_range": {
+        "min": "14.17",
+        "max": "16.17"
+      },
+      "population_scope": "Expanded Eligible Matches, pooled patches 14.17–16.17",
+      "era_stability": "stable",
+      "caveats": [
+        "Observational association; not a causal intervention."
+      ],
+      "source_document": "LoLTrends/docs/reports/2026-08-31-findings-report.md",
+      "source_section": "objective evidence",
+      "source_ref": "LoLTrends/docs/reports/2026-08-31-findings-report.md#objectives",
+      "provenance_key": "objectives",
+      "objective": "herald",
+      "metric_kind": "before_time_rate",
+      "window": {
+        "kind": "before_time",
+        "end_seconds": 1200,
+        "include_start": true,
+        "include_end": false,
+        "rule": "first herald event before 1200 seconds"
+      },
+      "rate": 0.666,
+      "sample": 125031,
+      "tier": "diagnostic",
+      "release_status": "available"
+    }
+  ],
+  "comeback_odds": [
+    {
+      "patch_range": {
+        "min": "14.17",
+        "max": "16.17"
+      },
+      "population_scope": "Expanded Eligible Matches, pooled patches 14.17–16.17",
+      "era_stability": "stable",
+      "caveats": [
+        "Observational association; not a causal intervention."
+      ],
+      "source_document": "LoLTrends/docs/reports/2026-08-31-findings-report.md",
+      "source_section": "15-minute team deficit cohorts",
+      "source_ref": "LoLTrends/docs/reports/2026-08-31-findings-report.md#comeback_odds",
+      "provenance_key": "comeback_odds",
+      "feature": "team_gold_diff_15m",
+      "feature_contract_version": "loltrends-parity-v2",
+      "checkpoint_seconds": 900,
+      "unit": "gold",
+      "lower_bound": 2000,
+      "upper_bound": 3000,
+      "include_lower": true,
+      "include_upper": false,
+      "rate": null,
+      "sample": 0,
+      "eligibility": "withheld: exact team-state Feature Store exposures unavailable",
+      "tier": "diagnostic",
+      "release_status": "withheld",
+      "release_reason": "exact non-surrendered team-state rows are required; no personal-gold fallback is permitted"
+    },
+    {
+      "patch_range": {
+        "min": "14.17",
+        "max": "16.17"
+      },
+      "population_scope": "Expanded Eligible Matches, pooled patches 14.17–16.17",
+      "era_stability": "stable",
+      "caveats": [
+        "Observational association; not a causal intervention."
+      ],
+      "source_document": "LoLTrends/docs/reports/2026-08-31-findings-report.md",
+      "source_section": "15-minute team deficit cohorts",
+      "source_ref": "LoLTrends/docs/reports/2026-08-31-findings-report.md#comeback_odds",
+      "provenance_key": "comeback_odds",
+      "feature": "team_gold_diff_15m",
+      "feature_contract_version": "loltrends-parity-v2",
+      "checkpoint_seconds": 900,
+      "unit": "gold",
+      "lower_bound": 3000,
+      "upper_bound": 5000,
+      "include_lower": true,
+      "include_upper": false,
+      "rate": null,
+      "sample": 0,
+      "eligibility": "withheld: exact team-state Feature Store exposures unavailable",
+      "tier": "diagnostic",
+      "release_status": "withheld",
+      "release_reason": "exact non-surrendered team-state rows are required; no personal-gold fallback is permitted"
+    },
+    {
+      "patch_range": {
+        "min": "14.17",
+        "max": "16.17"
+      },
+      "population_scope": "Expanded Eligible Matches, pooled patches 14.17–16.17",
+      "era_stability": "stable",
+      "caveats": [
+        "Observational association; not a causal intervention."
+      ],
+      "source_document": "LoLTrends/docs/reports/2026-08-31-findings-report.md",
+      "source_section": "15-minute team deficit cohorts",
+      "source_ref": "LoLTrends/docs/reports/2026-08-31-findings-report.md#comeback_odds",
+      "provenance_key": "comeback_odds",
+      "feature": "team_gold_diff_15m",
+      "feature_contract_version": "loltrends-parity-v2",
+      "checkpoint_seconds": 900,
+      "unit": "gold",
+      "lower_bound": 5000,
+      "upper_bound": null,
+      "include_lower": true,
+      "include_upper": false,
+      "rate": null,
+      "sample": 0,
+      "eligibility": "withheld: exact team-state Feature Store exposures unavailable",
+      "tier": "diagnostic",
+      "release_status": "withheld",
+      "release_reason": "exact non-surrendered team-state rows are required; no personal-gold fallback is permitted"
+    }
+  ],
+  "ban_context": [
+    {
+      "patch_range": {
+        "min": "14.17",
+        "max": "16.17"
+      },
+      "population_scope": "Expanded Eligible Matches, pooled patches 14.17–16.17",
+      "era_stability": "stable",
+      "caveats": [
+        "Observational association; not a causal intervention."
+      ],
+      "source_document": "LoLTrends/docs/reports/2026-08-31-findings-report.md",
+      "source_section": "ban/win descriptive context",
+      "source_ref": "LoLTrends/docs/reports/2026-08-31-findings-report.md#ban_context",
+      "provenance_key": "ban_context",
+      "key": "pooled_ban_win_correlation",
+      "champion": null,
+      "metric_kind": "ban_rate_win_rate_correlation",
+      "value": 0.06,
+      "sample": 125031,
+      "tier": "diagnostic",
+      "release_status": "available"
+    }
+  ],
+  "tier_list": [],
+  "matchup_examples": [],
+  "checkpoints": [],
+  "route_archetypes": [],
+  "build_evidence": {
+    "patch_range": {
+      "min": "14.17",
+      "max": "16.17"
+    },
+    "population_scope": "Expanded Eligible Matches, pooled patches 14.17–16.17",
+    "era_stability": "stable",
+    "caveats": [
+      "Build ranking is withheld until champion, role, patch, and opportunity controls exist."
+    ],
+    "source_document": "LoLTrends/docs/reports/2026-08-31-findings-report.md",
+    "source_section": "build evidence release gate",
+    "source_ref": "LoLTrends/docs/reports/2026-08-31-findings-report.md#build_evidence",
+    "provenance_key": "build_evidence",
+    "release_status": "withheld",
+    "release_reason": "controlled champion/role/patch/purchase-opportunity analysis is unavailable"
+  },
+  "models": {
+    "personal_what_if": {
+      "model_id": "personal-what-if",
+      "release_status": "withheld",
+      "release_reason": "ONNX artifact and complete grouped/temporal validation are not present in this build"
+    },
+    "live_wp": {
+      "model_id": "live-wp",
+      "release_status": "withheld",
+      "release_reason": "Live-compatible ONNX artifact and parity gates are not present in this build"
+    },
+    "surrender_advisor": {
+      "model_id": "surrender-advisor",
+      "release_status": "withheld",
+      "release_reason": "surrendered-state sanity gap 22.7pp exceeds the 5pp release tolerance"
+    }
+  }
+}

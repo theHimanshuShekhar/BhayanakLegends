@@ -9,6 +9,7 @@ import { api } from "../../api/client";
 let sseHandler: ((msg: SseMessage) => void) | undefined;
 
 vi.mock("../../api/client", () => ({
+  classifyApiError: () => "unknown",
   api: {
     health: vi.fn(),
     pack: vi.fn(),
@@ -49,9 +50,32 @@ const summary = {
   win_rate: 0.54,
 };
 
-const settings = { riot_id: null, region_route: "europe" as const, has_key: true, auto_sync: false };
+const ownerContext = {
+  owner_key: null,
+  generation: 0,
+  owner_state: "unassigned" as const,
+  owner_error: null,
+};
+const settings = {
+  ...ownerContext,
+  riot_id: null,
+  region_route: "europe" as const,
+  has_key: true,
+  auto_sync: false,
+};
+const activeSettings = {
+  ...settings,
+  owner_key: "fixture-owner",
+  generation: 1,
+  owner_state: "active" as const,
+  riot_id: "Initial#0001",
+};
 
 const savedSettings = {
+  ...settings,
+  owner_key: "fixture-owner",
+  generation: 1,
+  owner_state: "active" as const,
   riot_id: "Player#1234",
   region_route: "europe" as const,
   has_key: true,
@@ -67,6 +91,10 @@ const running = {
   failed: 0,
   current_match_id: null,
   started_at: "2026-08-24T10:00:00Z",
+  owner_key: "fixture-owner",
+  generation: 1,
+  owner_state: "active" as const,
+  owner_error: null,
 };
 
 beforeEach(() => {
@@ -84,6 +112,7 @@ beforeEach(() => {
 
 describe("HistoryPage", () => {
   it("renders the summary stat row and by-role table", async () => {
+    vi.mocked(api.settings).mockResolvedValue(activeSettings);
     renderPage(<HistoryPage />);
 
     expect(await screen.findByTestId("summary-matches")).toHaveTextContent("128");
@@ -134,7 +163,7 @@ describe("HistoryPage", () => {
     expect(startBtn).toBeDisabled();
     expect(startBtn).toHaveAttribute("aria-describedby", "start-disabled-reason");
     expect(screen.getByTestId("start-disabled-reason")).toHaveTextContent(
-      "Enter a valid Riot ID before starting Backfill.",
+      "Assign a Riot account before starting Backfill.",
     );
     expect(screen.getByTestId("input-riot-key")).toHaveAttribute(
       "placeholder",
@@ -155,6 +184,7 @@ describe("HistoryPage", () => {
   });
 
   it("starts a sync only after an explicit identity is saved", async () => {
+    vi.mocked(api.settings).mockResolvedValue(activeSettings);
     vi.mocked(api.startSync).mockResolvedValue(running);
     vi.mocked(api.updateSettings).mockResolvedValue(savedSettings);
     renderPage(<HistoryPage />);
@@ -192,6 +222,7 @@ describe("HistoryPage", () => {
 
 
   it("updates the progress bar from SSE sync.progress events", async () => {
+    vi.mocked(api.settings).mockResolvedValue(activeSettings);
     vi.mocked(api.startSync).mockResolvedValue(running);
     vi.mocked(api.updateSettings).mockResolvedValue(savedSettings);
     renderPage(<HistoryPage />);
@@ -212,12 +243,13 @@ describe("HistoryPage", () => {
         data: { ...running, downloaded: 12, failed: 1, current_match_id: "EUW1_999" },
       });
     });
-
     const bar = screen.getByTestId("sync-progress-bar");
-    expect(bar).toHaveStyle({ width: "30%" }); // 12 / 40
-    expect(screen.getByTestId("sync-counters")).toHaveTextContent("12 / 40 matches");
-    expect(screen.getByTestId("sync-counters")).toHaveTextContent("1 failed");
-    expect(screen.getByTestId("sync-current")).toHaveTextContent("EUW1_999");
+    await waitFor(() => {
+      expect(bar).toHaveStyle({ width: "30%" }); // 12 / 40
+      expect(screen.getByTestId("sync-counters")).toHaveTextContent("12 / 40 matches");
+      expect(screen.getByTestId("sync-counters")).toHaveTextContent("1 failed");
+      expect(screen.getByTestId("sync-current")).toHaveTextContent("EUW1_999");
+    });
 
     // terminal event flips the bar to its done color
     await act(async () => {
@@ -227,6 +259,6 @@ describe("HistoryPage", () => {
         data: { ...running, state: "idle", downloaded: 40 },
       });
     });
-    expect(bar.className).toContain("bg-teal");
+    await waitFor(() => expect(bar.className).toContain("bg-teal"));
   });
 });

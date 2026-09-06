@@ -46,7 +46,7 @@ def make_project(tmp_path: Path) -> Path:
     (root / "pack").mkdir()
     (root / "src-tauri/binaries").mkdir(parents=True)
     (root / "backend/src/bhayanak_legends/sidecar.py").write_text("print('sidecar')\n")
-    (root / "pack/findings-pack.v1.json").write_text("{}\n")
+    (root / "pack/findings-pack.v2.json").write_text("{}\n")
     return root
 
 

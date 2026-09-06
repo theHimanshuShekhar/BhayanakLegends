@@ -1,5 +1,7 @@
 import asyncio
 import json
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -51,8 +53,8 @@ def test_invalid_findings_pack_returns_bounded_503_and_degraded_health(
     client, monkeypatch
 ):
     invalid_pack = {
-        "schema_version": 1,
-        "pack_version": "v1",
+        "schema_version": 2,
+        "pack_version": "v2",
         "raw_secret": "do-not-leak",
     }
     monkeypatch.setattr(client.app.state.pack, "load", lambda: invalid_pack)
@@ -98,7 +100,7 @@ def test_pack_endpoint_returns_bounded_503_for_missing_or_malformed_pack(
     pack_dir = tmp_path / "pack"
     pack_dir.mkdir()
     if pack_body is not None:
-        (pack_dir / "findings-pack.v1.json").write_text(pack_body)
+        (pack_dir / "findings-pack.v2.json").write_text(pack_body)
     config = SidecarConfig(
         port=23110,
         token=AUTH["X-BL-Token"],
@@ -309,6 +311,49 @@ def test_settings_roundtrip(client):
     assert body["has_key"] is True
     assert "riot_key" not in body
 
+
+def test_settings_save_resolves_first_and_changed_owner(client):
+    service = client.app.state.sync_service
+    resolved_ids: list[str] = []
+
+    class FakeResolverClient:
+        async def account_by_riot_id(self, riot_id: str) -> dict[str, str]:
+            resolved_ids.append(riot_id)
+            return {"puuid": f"puuid:{riot_id}"}
+
+        async def aclose(self) -> None:
+            return None
+
+    service._client_factory = lambda _key, _route: FakeResolverClient()
+    first = client.put(
+        "/settings",
+        headers=AUTH,
+        json={"riot_id": "FirstPlayer#A001", "riot_key": "RGAPI-test"},
+    )
+    assert first.status_code == 200
+    first_owner = service.store.owner_key_for_puuid("puuid:FirstPlayer#A001")
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        if service.store.capture_owner_scope()["owner_key"] == first_owner:
+            break
+        time.sleep(0.01)
+    assert service.store.capture_owner_scope()["owner_key"] == first_owner
+
+    changed = client.put(
+        "/settings",
+        headers=AUTH,
+        json={"riot_id": "SecondPlayer#A002"},
+    )
+    assert changed.status_code == 200
+    second_owner = service.store.owner_key_for_puuid("puuid:SecondPlayer#A002")
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        if service.store.capture_owner_scope()["owner_key"] == second_owner:
+            break
+        time.sleep(0.01)
+    assert service.store.capture_owner_scope()["owner_key"] == second_owner
+    assert resolved_ids == ["FirstPlayer#A001", "SecondPlayer#A002"]
+
 def test_settings_key_delete(client):
     saved = client.put("/settings", headers=AUTH, json={"riot_key": "RGAPI-test"})
     assert saved.status_code == 200
@@ -338,6 +383,10 @@ def test_settings_omitted_fields_preserve_and_nullable_fields_clear(client):
         "region_route": "europe",
         "has_key": True,
         "auto_sync": False,
+        "owner_key": None,
+        "generation": 1,
+        "owner_state": "resolving",
+        "owner_error": None,
     }
 
     cleared = client.put(
@@ -349,6 +398,10 @@ def test_settings_omitted_fields_preserve_and_nullable_fields_clear(client):
         "region_route": "europe",
         "has_key": False,
         "auto_sync": False,
+        "owner_key": None,
+        "generation": 2,
+        "owner_state": "unassigned",
+        "owner_error": None,
     }
 
 
@@ -367,21 +420,6 @@ def test_sync_start_rejects_missing_or_invalid_identity(client):
     assert "riot id" in rejected.json()["detail"].lower()
 
 
-def test_changing_identity_or_region_clears_cached_puuid(client):
-    store = client.app.state.store
-    store.set_setting("puuid", "stale-puuid")
-    changed_id = client.put(
-        "/settings", headers=AUTH, json={"riot_id": "Player#1234"}
-    )
-    assert changed_id.status_code == 200
-    assert store.get_setting("puuid") is None
-
-    store.set_setting("puuid", "stale-puuid")
-    changed_region = client.put(
-        "/settings", headers=AUTH, json={"region_route": "americas"}
-    )
-    assert changed_region.status_code == 200
-    assert store.get_setting("puuid") is None
 
 def test_sync_status_idle_stub(client):
     res = client.get("/sync/status", headers=AUTH)
@@ -486,13 +524,13 @@ async def test_event_stream_delivers_envelopes():
 async def test_event_stream_filters_private_pack_update_diagnostics():
     hub = Hub()
     queue = hub.subscribe()
-    gen = event_stream(hub, queue, "test", "v1")
+    gen = event_stream(hub, queue, "test", "v2")
     await gen.__anext__()
 
     await hub.publish(
         "pack.updated",
         {
-            "schema_version": 1,
+            "schema_version": 2,
             "pack_version": "v2",
             "reason": "/tmp/private/candidate: invalid pack body",
         },
@@ -500,7 +538,7 @@ async def test_event_stream_filters_private_pack_update_diagnostics():
     frame = await asyncio.wait_for(gen.__anext__(), timeout=2)
     envelope = json.loads(frame.removeprefix("data: "))
 
-    assert envelope["data"] == {"schema_version": 1, "pack_version": "v2"}
+    assert envelope["data"] == {"schema_version": 2, "pack_version": "v2"}
     assert "private" not in frame
     assert "candidate" not in frame
 
