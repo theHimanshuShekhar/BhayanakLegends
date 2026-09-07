@@ -55,7 +55,7 @@ function Get-OwnedSidecars([array]$BaselineSidecars) {
 
 function Stop-OwnedSidecars {
   param(
-    [Parameter(Mandatory = $true)][array]$BaselineSidecars,
+    [Parameter(Mandatory = $true)][AllowEmptyCollection()][array]$BaselineSidecars,
     [int]$TimeoutSeconds = 30
   )
   $attempted = [System.Collections.Generic.HashSet[int]]::new()
