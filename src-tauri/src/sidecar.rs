@@ -129,6 +129,8 @@ pub(crate) struct SidecarStateInner {
 struct ProcessContainment {
     #[cfg(windows)]
     job: *mut std::ffi::c_void,
+    #[cfg(windows)]
+    pid: u32,
 }
 
 impl ProcessContainment {
@@ -147,8 +149,15 @@ impl ProcessContainment {
     fn terminate(&self) {
         #[cfg(windows)]
         unsafe {
+            eprintln!(
+                "sidecar containment termination requested for pid {}",
+                self.pid
+            );
             let result = windows_containment::terminate(self.job);
-            eprintln!("sidecar containment termination returned {result}");
+            eprintln!(
+                "sidecar containment termination returned {result} for pid {}",
+                self.pid
+            );
         }
     }
 }
@@ -265,7 +274,8 @@ mod windows_containment {
                 CloseHandle(job);
                 return Err("sidecar containment attachment failed".into());
             }
-            Ok(ProcessContainment { job })
+            eprintln!("sidecar containment attached for pid {pid}");
+            Ok(ProcessContainment { job, pid })
         }
     }
 
@@ -807,6 +817,12 @@ impl SidecarProcessAdapter for ProductionSidecarAdapter {
 
     fn reap(&mut self, child: &mut Self::Handle) -> Result<(), String> {
         child.proc.reap();
+        #[cfg(windows)]
+        eprintln!(
+            "sidecar root reap returned for pid {}",
+            child.containment.pid
+        );
+        #[cfg(not(windows))]
         eprintln!("sidecar root reap returned");
         Ok(())
     }
