@@ -37,6 +37,7 @@ $state = [ordered]@{
   phases            = @()
   owned_sidecars    = @()
   errors            = @()
+  owned_sidecar_details = @()
 }
 
 function Save-State {
@@ -106,7 +107,24 @@ function Close-App([System.Diagnostics.Process]$App, [array]$BaselineSidecars) {
     }
   }
   Start-Sleep -Seconds 1
-  $newSidecars = @(Get-Sidecars | Where-Object { $BaselineSidecars -notcontains $_ })
+  $details = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+    Where-Object {
+      $_.Name -like "bhayanak-legends-sidecar*" -and
+      $BaselineSidecars -notcontains $_.ProcessId
+    } |
+    ForEach-Object {
+      [ordered]@{
+        pid              = [int]$_.ProcessId
+        parent_pid       = [int]$_.ParentProcessId
+        creation_time    = "$($_.CreationDate)"
+        executable_path  = "$($_.ExecutablePath)"
+        command_line     = "$($_.CommandLine)"
+      }
+    })
+  $state.owned_sidecar_details += $details
+  Write-Output "owned sidecar details before natural waits:"
+  $details | ConvertTo-Json -Compress -Depth 3 | Write-Output
+  $newSidecars = @($details | ForEach-Object { $_.pid })
   $state.owned_sidecars += $newSidecars
   $survivors = @()
   foreach ($sidecar in $newSidecars) {
