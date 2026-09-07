@@ -285,7 +285,7 @@ async function assertPackContract(page, sidecarInfo) {
 
 async function runUpdateAvailablePhase(page) {
   try {
-    await waitUpdaterText(page, new RegExp(`^Version ${escapeRegExp(expectedVersion)} is available\\.$`), 30_000);
+    await waitUpdaterText(page, new RegExp(`^Version ${escapeRegExp(expectedVersion)} is available\\.(?:\\r?\\nInstall update)?$`), 30_000);
   } catch (error) {
     const rawCheck = await page.evaluate(async () => {
       try {
@@ -353,7 +353,7 @@ async function runInvalidPhase(page) {
   const sidecarInfo = await assertSidecarConnected(page);
   const packProof = await assertPackContract(page, sidecarInfo);
 
-  await waitUpdaterText(page, new RegExp(`^Version ${escapeRegExp(expectedVersion)} is available\\.$`), 30_000);
+  await waitUpdaterText(page, new RegExp(`^Version ${escapeRegExp(expectedVersion)} is available\\.(?:\\r?\\nInstall update)?$`), 30_000);
   await page.getByRole("button", { name: "Install update" }).click();
 
   const failureText = await waitUpdaterText(page, /signature could not be verified/i, 120_000);
