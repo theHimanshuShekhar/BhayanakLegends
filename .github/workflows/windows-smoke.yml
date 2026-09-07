@@ -112,11 +112,12 @@ jobs:
           $endpoint = "http://127.0.0.1:$env:SMOKE_FIXTURE_PORT/latest.json"
           python tools/patch_updater_endpoint.py src-tauri/tauri.conf.json `
             --endpoint $endpoint `
-            --browser-args "--remote-debugging-port=$env:SMOKE_DEBUG_PORT" `
+            --browser-args="--remote-debugging-port=$env:SMOKE_DEBUG_PORT" `
             --public-key-file "$env:SMOKE_PUBLIC_KEY_PATH" `
             --version "$env:SMOKE_VALID_VERSION" `
             --allow-insecure-transport `
             --backup "$env:RUNNER_TEMP\tauri.conf.json.smoke-backup"
+          if ($LASTEXITCODE -ne 0) { throw "updater smoke configuration patch failed" }
           Remove-Item "src-tauri/target/release/bundle/nsis" -Recurse -Force -ErrorAction SilentlyContinue
           $env:TAURI_SIGNING_PRIVATE_KEY = Get-Content $env:SMOKE_KEY_PATH -Raw
           $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $env:SMOKE_KEY_PASSWORD
@@ -200,12 +201,13 @@ jobs:
         run: |
           python tools/patch_updater_endpoint.py src-tauri/tauri.conf.json `
             --endpoint "$env:FIXTURE_ENDPOINT" `
-            --browser-args "--remote-debugging-port=$env:SMOKE_DEBUG_PORT" `
+            --browser-args="--remote-debugging-port=$env:SMOKE_DEBUG_PORT" `
             --public-key-file "$env:SMOKE_PUBLIC_KEY_PATH" `
             --version "$env:SMOKE_LOWER_VERSION" `
             --allow-insecure-transport `
             --reuse-backup `
             --backup "$env:RUNNER_TEMP\tauri.conf.json.smoke-backup"
+          if ($LASTEXITCODE -ne 0) { throw "updater smoke configuration patch failed" }
           Remove-Item "src-tauri/target/release/bundle/nsis" -Recurse -Force -ErrorAction SilentlyContinue
           $env:TAURI_SIGNING_PRIVATE_KEY = Get-Content $env:SMOKE_KEY_PATH -Raw
           $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $env:SMOKE_KEY_PASSWORD
