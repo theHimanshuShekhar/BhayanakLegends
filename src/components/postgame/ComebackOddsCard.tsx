@@ -25,6 +25,7 @@ export type BucketMatch = {
 const CANONICAL_FEATURE = "team_gold_diff_15m";
 const CANONICAL_VERSION = "loltrends-parity-v2";
 const CHECKPOINT_SECONDS = 900;
+const MIN_SAMPLE = 200;
 const EXPECTED_BOUNDS = [
   { lower: 2000, upper: 3000 },
   { lower: 3000, upper: 5000 },
@@ -116,7 +117,7 @@ function validBand(row: PackV2ComebackBand, index: number): boolean {
   const available = row.release_status === "available" || row.release_status === "approximate";
   const withheld = row.release_status === "withheld" || row.release_status === "superseded";
   const valueValid = available
-    ? finite(row.rate) && row.rate >= 0 && row.rate <= 1 && row.sample > 0
+    ? finite(row.rate) && row.rate >= 0 && row.rate <= 1 && row.sample >= MIN_SAMPLE
     : withheld && row.rate === null && row.sample === 0;
   return (
     row.feature === CANONICAL_FEATURE &&

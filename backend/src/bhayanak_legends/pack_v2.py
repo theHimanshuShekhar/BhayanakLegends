@@ -32,6 +32,7 @@ FindingMetricKindV2 = Literal[
     "status",
 ]
 HabitMetricKindV2 = Literal[
+    "odds_ratio",
     "odds_ratio_per_standard_deviation",
     "percentage_points",
     "win_rate",
@@ -51,33 +52,34 @@ _MASTERY_PREMIUM_PP = 1.94
 _BAN_CORRELATION_KEY = "ban_win_rate_correlation"
 _BAN_CORRELATION_VALUE = 0.062353
 _HABIT_SPECS: dict[str, tuple[str, float, FindingTierV2, EraStabilityV2]] = {
-    "recall_safety": (
-        "unseen_recall_share_by_15m",
-        2.32,
+    "safe_recall_share": (
+        "unseen_recall_share_by_20m",
+        1.077413,
         "actionable",
-        "stable",
+        "sensitive",
     ),
-    "fast_first_dragon": (
+    "first_dragon_timing": (
         "first_dragon_by_20m_s",
-        0.77,
+        0.730246,
         "actionable",
         "stable",
     ),
-    "spend_before_backing": (
-        "avg_banked_gold_at_recall_by_15m",
-        0.80,
+    "banked_gold_at_recall": (
+        "avg_banked_gold_at_recall_by_20m",
+        1.282502,
         "actionable",
-        "stable",
+        "insufficient",
     ),
-    "plates_by_14": (
+    "plates_by_14m": (
         "plates_taken_by_14m",
-        1.03,
-        "diagnostic",
+        1.024972,
+        "a-lite",
         "sensitive",
     ),
 }
-_HABIT_METRIC = "odds_ratio_per_standard_deviation"
-_HABIT_UNIT = "odds ratio per standard deviation"
+_HABIT_ERAS = ("14.x", "15.x", "16.x")
+_HABIT_METRIC = "odds_ratio"
+_HABIT_UNIT = "odds_ratio_per_standard_deviation"
 _OBJECTIVE_METRIC_ORDER = (
     "possession_rate",
     "before_time_rate",
@@ -88,6 +90,7 @@ _OBJECTIVE_METRIC_ORDER = (
 _ROLE_ORDER = {role: index for index, role in enumerate(("TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"))}
 _RANK_ORDER = {band: index for index, band in enumerate(("S", "A", "B", "C"))}
 _MATCHUP_MINIMUM_GAMES = 1
+_COMEBACK_MIN_SAMPLE = 200
 
 
 _SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -228,23 +231,93 @@ class PackV2Finding(PackV2EvidenceMetadata):
         return self
 
 
+class PackV2HabitEffectInterval(PackV2Model):
+    lower: FiniteFloat = Field(gt=0)
+    upper: FiniteFloat = Field(gt=0)
+
+    @model_validator(mode="after")
+    def ordered_and_positive(self) -> "PackV2HabitEffectInterval":
+        if self.upper < self.lower:
+            raise ValueError("habit effect interval must be ordered")
+        return self
+
+
+class PackV2HabitEraResult(PackV2Model):
+    status: Literal["available", "insufficient_data"]
+    sample: StrictInt = Field(ge=0)
+    effect: FiniteFloat | None = Field(default=None, gt=0)
+    effect_interval: PackV2HabitEffectInterval | None = None
+    coefficient: FiniteFloat | None = None
+    p_value: FiniteFloat | None = Field(default=None, ge=0, le=1)
+    significant: bool | None = None
+
+    @model_validator(mode="after")
+    def validate_status(self) -> "PackV2HabitEraResult":
+        details = (
+            self.effect,
+            self.effect_interval,
+            self.coefficient,
+            self.p_value,
+            self.significant,
+        )
+        if self.status == "available":
+            if self.sample <= 0 or any(value is None for value in details):
+                raise ValueError("available habit era result requires complete effect details")
+            assert self.effect is not None
+            assert self.effect_interval is not None
+            if not self.effect_interval.lower <= self.effect <= self.effect_interval.upper:
+                raise ValueError("habit era effect must lie inside its interval")
+        elif any(value is not None for value in details):
+            raise ValueError("insufficient habit era result must not carry effect details")
+        return self
+
+
 class PackV2Habit(PackV2EvidenceMetadata):
     key: str = Field(min_length=1)
     label: str = Field(min_length=1)
     metric_kind: HabitMetricKindV2
     unit: str = Field(min_length=1)
-    effect: FiniteFloat
+    effect: FiniteFloat | None = Field(default=None, gt=0)
+    effect_interval: PackV2HabitEffectInterval | None = None
+    coefficient: FiniteFloat | None = None
+    p_value: FiniteFloat | None = Field(default=None, ge=0, le=1)
+    significant: bool | None = None
+    era_results: dict[str, PackV2HabitEraResult] | None = None
     feature: str = Field(min_length=1)
     eligibility: str = Field(min_length=1)
+    strength: Literal["weak"] | None = None
+    review_context_only: bool | None = None
     tier: FindingTierV2
     release_status: ReleaseStatusV2
-    sample: StrictInt = Field(gt=0)
+    sample: StrictInt = Field(ge=0)
     release_reason: str | None = None
 
     @model_validator(mode="after")
     def release_reason_for_unavailable(self) -> "PackV2Habit":
-        if self.release_status in {"withheld", "superseded"} and not self.release_reason:
-            raise ValueError("withheld or superseded habit requires release_reason")
+        details = (
+            self.effect,
+            self.effect_interval,
+            self.coefficient,
+            self.p_value,
+            self.significant,
+            self.era_results,
+        )
+        if self.release_status in {"withheld", "superseded"}:
+            if not self.release_reason or not self.release_reason.strip():
+                raise ValueError("withheld or superseded habit requires release_reason")
+            if any(value is not None for value in details):
+                raise ValueError("withheld or superseded habit cannot carry effect details")
+        else:
+            if self.release_reason is not None and not self.release_reason.strip():
+                raise ValueError("release_reason must be nonempty when supplied")
+            if self.sample <= 0 or any(value is None for value in details):
+                raise ValueError("released habit requires complete effect details")
+            if self.era_results is None or set(self.era_results) != set(_HABIT_ERAS):
+                raise ValueError("released habit must include every era result")
+            assert self.effect is not None
+            assert self.effect_interval is not None
+            if not self.effect_interval.lower <= self.effect <= self.effect_interval.upper:
+                raise ValueError("habit effect must lie inside its interval")
         return self
 
 
@@ -779,6 +852,11 @@ def _validate_comeback_bands(pack: FindingsPackV2) -> None:
         raise ValueError("comeback feature contract does not match team_gold_diff_15m contract")
     if any("team_gold_diff_15m" != row.feature for row in pack.comeback_odds):
         raise ValueError("v2 comeback bands must use team_gold_diff_15m")
+    for row in pack.comeback_odds:
+        if row.release_status not in {"available", "withheld"}:
+            raise ValueError("comeback bands must be available or withheld")
+        if row.release_status == "available" and row.sample < _COMEBACK_MIN_SAMPLE:
+            raise ValueError("released comeback bands must meet the minimum sample floor")
 
 
 def _validate_finding_semantics(pack: FindingsPackV2) -> None:
@@ -817,10 +895,20 @@ def _validate_habits(pack: FindingsPackV2) -> None:
             raise ValueError(f"habit {row.key!r} has the wrong evidence tier")
         if row.era_stability != era_stability:
             raise ValueError(f"habit {row.key!r} has the wrong era-stability declaration")
-        if row.release_status in {"available", "approximate"} and not math.isclose(
-            row.effect, effect, rel_tol=0, abs_tol=1e-9
+        if row.release_status in {"available", "approximate"}:
+            if row.effect is None or not math.isclose(row.effect, effect, rel_tol=0, abs_tol=1e-9):
+                raise ValueError(f"habit {row.key!r} does not match the current release effect")
+            if row.key == "plates_by_14m" and (
+                row.strength != "weak" or row.review_context_only is not True
+            ):
+                raise ValueError("plates habit must remain weak era-sensitive review context")
+        elif row.strength is not None or row.review_context_only is not None:
+            raise ValueError("habit review metadata is only valid for released plates evidence")
+        if row.key != "plates_by_14m" and (
+            row.strength is not None or row.review_context_only is not None
         ):
-            raise ValueError(f"habit {row.key!r} does not match the current release effect")
+            raise ValueError("habit review metadata is only valid for plates_by_14m")
+
 
 
 def _validate_objectives(pack: FindingsPackV2) -> None:
@@ -959,6 +1047,8 @@ __all__ = [
     "PackV2FeatureContracts",
     "PackV2Finding",
     "PackV2Habit",
+    "PackV2HabitEffectInterval",
+    "PackV2HabitEraResult",
     "PackV2Interval",
     "PackV2Matchup",
     "PackV2ModelCard",

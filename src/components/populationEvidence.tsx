@@ -122,33 +122,33 @@ const HABIT_SPECS: Record<
   string,
   { feature: string; effect: number; tier: EvidenceTier; era: EvidenceEraStability }
 > = {
-  recall_safety: {
-    feature: "unseen_recall_share_by_15m",
-    effect: 2.32,
+  safe_recall_share: {
+    feature: "unseen_recall_share_by_20m",
+    effect: 1.077413,
     tier: "actionable",
-    era: "stable",
+    era: "sensitive",
   },
-  fast_first_dragon: {
+  first_dragon_timing: {
     feature: "first_dragon_by_20m_s",
-    effect: 0.77,
+    effect: 0.730246,
     tier: "actionable",
     era: "stable",
   },
-  spend_before_backing: {
-    feature: "avg_banked_gold_at_recall_by_15m",
-    effect: 0.8,
+  banked_gold_at_recall: {
+    feature: "avg_banked_gold_at_recall_by_20m",
+    effect: 1.282502,
     tier: "actionable",
-    era: "stable",
+    era: "insufficient",
   },
-  plates_by_14: {
+  plates_by_14m: {
     feature: "plates_taken_by_14m",
-    effect: 1.03,
-    tier: "diagnostic",
+    effect: 1.024972,
+    tier: "a-lite",
     era: "sensitive",
   },
 };
-const HABIT_METRIC = "odds_ratio_per_standard_deviation";
-const HABIT_UNIT = "odds ratio per standard deviation";
+const HABIT_METRIC = "odds_ratio";
+const HABIT_UNIT = "odds_ratio_per_standard_deviation";
 
 function record(value: unknown): AnyRecord | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)

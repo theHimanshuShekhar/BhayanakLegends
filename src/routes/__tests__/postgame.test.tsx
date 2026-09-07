@@ -146,12 +146,12 @@ describe("PostGamePage", () => {
     expect(observations).toHaveTextContent("8:32");
     expect(observations).toHaveTextContent("Plates taken by 14 minutes");
     expect(observations).toHaveTextContent("2 plates");
-    expect(observations).toHaveTextContent(/Timing association context unavailable/i);
-    expect(observations).toHaveTextContent(/Diagnostic · era-sensitive population context unavailable/i);
+    expect(observations).toHaveTextContent(/Timing association only/i);
+    expect(observations).toHaveTextContent(/Diagnostic · era-sensitive/i);
     expect(observations).not.toHaveTextContent(/fight more|take dragon|must/i);
   });
 
-  it("shows v2 objective rates and withholds comeback bands when exact cohorts are unavailable", async () => {
+  it("suppresses a deficit below the minimum when exact cohorts are available", async () => {
     vi.mocked(api.postgameLatest).mockResolvedValue(digest);
     renderPage();
 
@@ -166,9 +166,23 @@ describe("PostGamePage", () => {
   });
 
   it("reports a matching v2 comeback band as withheld instead of inventing a rate", async () => {
-    const match = matchComebackBucket(makePack(), digestAt(-2500));
+    const withheldPack = makePack({
+      comeback_odds: makePack().comeback_odds.map((row, index) =>
+        index === 0
+          ? {
+              ...row,
+              release_status: "withheld",
+              rate: null,
+              sample: 0,
+              release_reason: "Exact team-state exposures are unavailable.",
+            }
+          : row,
+      ),
+    });
+    const match = matchComebackBucket(withheldPack, digestAt(-2500));
     expect(match).toEqual({ match: null, reason: "withheld" });
 
+    vi.mocked(api.pack).mockResolvedValue(withheldPack);
     vi.mocked(api.postgameLatest).mockResolvedValue(digestAt(-2500));
     renderPage();
     const card = await screen.findByTestId("comeback-card");

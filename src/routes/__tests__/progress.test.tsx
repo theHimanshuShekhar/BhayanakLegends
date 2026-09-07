@@ -194,20 +194,37 @@ describe("ProgressPage", () => {
 
 
   it("withholds lever adoption when canonical habit evidence is absent", async () => {
+    const pack = makePack();
+    vi.mocked(api.pack).mockResolvedValue({ ...pack, habits: [] });
     renderPage(<ProgressPage />);
 
     expect(await screen.findByTestId("habit-evidence-unavailable")).toHaveTextContent(
       "compatible v2 habit evidence unavailable",
     );
-    expect(screen.queryByTestId("habit-row-recall_safety")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("habit-row-fast_first_dragon")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("habit-row-spend_before_backing")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("habit-row-plates_by_14")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("habit-row-safe_recall_share")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("habit-row-first_dragon_timing")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("habit-row-banked_gold_at_recall")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("habit-row-plates_by_14m")).not.toBeInTheDocument();
     expect(screen.getByTestId("lever-adoption")).toHaveTextContent("Findings Pack v2");
     expect(screen.getByTestId("lever-adoption")).toHaveTextContent(/population associations/i);
   });
 
+
   it("shows the unavailable what-if state without fabricated personal estimates", async () => {
+    const pack = makePack();
+    vi.mocked(api.pack).mockResolvedValue({
+      ...pack,
+      models: {
+        ...(pack.models ?? {}),
+        personal_what_if: {
+          model_id: "personal-what-if-v2",
+          release_status: "withheld",
+          artifact: null,
+          model_card: null,
+          release_reason: "ONNX artifact and complete grouped/temporal validation are not present in this build",
+        },
+      },
+    });
     renderPage(<ProgressPage />);
 
     const panel = await screen.findByTestId("what-if-panel");

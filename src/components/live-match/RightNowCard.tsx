@@ -3,7 +3,9 @@ import { formatEffectPerSd, formatPercentagePoints, formatRate } from "../format
 import { SectionHead } from "../ui";
 
 function effectLabel(metricKind: string, effect: number): string {
-  if (metricKind === "odds_ratio_per_standard_deviation") return formatEffectPerSd(effect);
+  if (metricKind === "odds_ratio" || metricKind === "odds_ratio_per_standard_deviation") {
+    return formatEffectPerSd(effect);
+  }
   if (metricKind === "win_rate") return formatRate(effect);
   return formatPercentagePoints(effect);
 }

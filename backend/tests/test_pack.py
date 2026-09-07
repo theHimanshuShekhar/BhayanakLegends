@@ -145,14 +145,14 @@ def test_v2_semantics_reject_noncanonical_tier_and_matchup_rows():
         FindingsPackV2.model_validate(broken)
 
 
-def test_v2_semantics_bound_route_outcomes_and_withheld_comeback_rows():
+def test_v2_semantics_bound_route_outcomes_and_comeback_sample_floor():
     broken = copy.deepcopy(PACK)
     broken["route_archetypes"][0]["observed_outcome"] = 1.01
     with pytest.raises(PydanticValidationError):
         FindingsPackV2.model_validate(broken)
 
     broken = copy.deepcopy(PACK)
-    broken["comeback_odds"][0]["rate"] = 0.2
+    broken["comeback_odds"][0]["sample"] = 199
     with pytest.raises(PydanticValidationError):
         FindingsPackV2.model_validate(broken)
 

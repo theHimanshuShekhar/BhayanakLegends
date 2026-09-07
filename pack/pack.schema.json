@@ -905,14 +905,61 @@
           "title": "Caveats",
           "type": "array"
         },
+        "coefficient": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Coefficient"
+        },
         "effect": {
-          "title": "Effect",
-          "type": "number"
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effect"
+        },
+        "effect_interval": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PackV2HabitEffectInterval"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "eligibility": {
           "minLength": 1,
           "title": "Eligibility",
           "type": "string"
+        },
+        "era_results": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/PackV2HabitEraResult"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Era Results"
         },
         "era_stability": {
           "enum": [
@@ -941,12 +988,27 @@
         },
         "metric_kind": {
           "enum": [
+            "odds_ratio",
             "odds_ratio_per_standard_deviation",
             "percentage_points",
             "win_rate"
           ],
           "title": "Metric Kind",
           "type": "string"
+        },
+        "p_value": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "P Value"
         },
         "patch_range": {
           "$ref": "#/$defs/PackV2PatchRange"
@@ -983,10 +1045,34 @@
           "title": "Release Status",
           "type": "string"
         },
+        "review_context_only": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Review Context Only"
+        },
         "sample": {
-          "exclusiveMinimum": 0,
+          "minimum": 0,
           "title": "Sample",
           "type": "integer"
+        },
+        "significant": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Significant"
         },
         "source_document": {
           "minLength": 1,
@@ -1002,6 +1088,19 @@
           "minLength": 1,
           "title": "Source Section",
           "type": "string"
+        },
+        "strength": {
+          "anyOf": [
+            {
+              "const": "weak",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Strength"
         },
         "tier": {
           "enum": [
@@ -1031,7 +1130,6 @@
         "label",
         "metric_kind",
         "unit",
-        "effect",
         "feature",
         "eligibility",
         "tier",
@@ -1039,6 +1137,113 @@
         "sample"
       ],
       "title": "PackV2Habit",
+      "type": "object"
+    },
+    "PackV2HabitEffectInterval": {
+      "additionalProperties": false,
+      "properties": {
+        "lower": {
+          "exclusiveMinimum": 0,
+          "title": "Lower",
+          "type": "number"
+        },
+        "upper": {
+          "exclusiveMinimum": 0,
+          "title": "Upper",
+          "type": "number"
+        }
+      },
+      "required": [
+        "lower",
+        "upper"
+      ],
+      "title": "PackV2HabitEffectInterval",
+      "type": "object"
+    },
+    "PackV2HabitEraResult": {
+      "additionalProperties": false,
+      "properties": {
+        "coefficient": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Coefficient"
+        },
+        "effect": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effect"
+        },
+        "effect_interval": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PackV2HabitEffectInterval"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "p_value": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "P Value"
+        },
+        "sample": {
+          "minimum": 0,
+          "title": "Sample",
+          "type": "integer"
+        },
+        "significant": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Significant"
+        },
+        "status": {
+          "enum": [
+            "available",
+            "insufficient_data"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "sample"
+      ],
+      "title": "PackV2HabitEraResult",
       "type": "object"
     },
     "PackV2Interval": {

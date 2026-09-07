@@ -109,17 +109,40 @@ export interface PackV2Finding extends PackV2EvidenceMetadata {
   release_reason?: string | null;
 }
 
+export interface PackV2HabitEffectInterval {
+  lower: number;
+  upper: number;
+}
+
+export interface PackV2HabitEraResult {
+  status: "available" | "insufficient_data";
+  sample: number;
+  effect?: number;
+  effect_interval?: PackV2HabitEffectInterval;
+  coefficient?: number;
+  p_value?: number;
+  significant?: boolean;
+}
+
 export interface PackV2Habit extends PackV2EvidenceMetadata {
   key: string;
   label: string;
   metric_kind:
+    | "odds_ratio"
     | "odds_ratio_per_standard_deviation"
     | "percentage_points"
     | "win_rate";
   unit: string;
   effect: number;
+  effect_interval?: PackV2HabitEffectInterval;
+  coefficient?: number;
+  p_value?: number;
+  significant?: boolean;
+  era_results?: Record<string, PackV2HabitEraResult>;
   feature: string;
   eligibility: string;
+  strength?: "weak";
+  review_context_only?: boolean;
   tier: PackV2Tier;
   release_status: PackV2ReleaseStatus;
   sample: number;
