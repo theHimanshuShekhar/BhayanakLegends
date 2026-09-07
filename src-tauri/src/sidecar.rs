@@ -94,6 +94,8 @@ pub(crate) struct SidecarStateInner {
 struct ProcessContainment {
     #[cfg(windows)]
     job: *mut std::ffi::c_void,
+    #[cfg(windows)]
+    pid: u32,
 }
 
 impl ProcessContainment {
@@ -108,18 +110,26 @@ impl ProcessContainment {
             Ok(Self {})
         }
     }
+
+    fn terminate(&self) {
+        #[cfg(windows)]
+        windows_containment::terminate(self.pid);
+    }
 }
 
 #[cfg(windows)]
 mod windows_containment {
     use super::ProcessContainment;
     use std::ffi::c_void;
+    use std::os::windows::process::CommandExt;
+    use std::process::{Command, Stdio};
     use std::ptr::null_mut;
 
     type Handle = *mut c_void;
     const PROCESS_TERMINATE: u32 = 0x0001;
     const PROCESS_SET_QUOTA: u32 = 0x0100;
     const JOB_OBJECT_EXTENDED_LIMIT_INFORMATION: u32 = 9;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
     const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: u32 = 0x2000;
 
     #[repr(C)]
@@ -221,8 +231,25 @@ mod windows_containment {
                 CloseHandle(job);
                 return Err("sidecar containment attachment failed".into());
             }
-            Ok(ProcessContainment { job })
+            Ok(ProcessContainment { job, pid })
         }
+    }
+
+    pub(super) fn terminate(pid: u32) {
+        // PyInstaller one-file bootloaders can spawn their same-executable
+        // child before the parent process is attached to this job. Target the
+        // owned root by PID so taskkill walks only that process tree.
+        let pid = pid.to_string();
+        // A nonzero status can mean the root exited during shutdown; the
+        // job's kill-on-close setting remains the fallback for attached
+        // descendants.
+        let _ = Command::new("taskkill.exe")
+            .args(["/PID", pid.as_str(), "/T", "/F"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
     }
 
     pub(super) unsafe fn close(handle: Handle) -> i32 {
@@ -752,6 +779,7 @@ impl SidecarProcessAdapter for ProductionSidecarAdapter {
     }
 
     fn terminate(&mut self, child: &mut Self::Handle) -> Result<(), String> {
+        child.containment.terminate();
         child.proc.terminate();
         Ok(())
     }
