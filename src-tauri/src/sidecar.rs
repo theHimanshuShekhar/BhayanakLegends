@@ -18,7 +18,9 @@ const MAX_LAUNCHES: u8 = 3;
 // seconds on a hosted Windows runner. Keep startup bounded while allowing the
 // packaged sidecar to finish its readiness handshake.
 const READINESS_TIMEOUT: Duration = Duration::from_secs(60);
-const HEALTH_TIMEOUT: Duration = Duration::from_secs(5);
+// Health can be the first request after a cold packaged startup; unlike
+// readiness, it needs a wider bounded window for the server to answer.
+const HEALTH_TIMEOUT: Duration = Duration::from_secs(30);
 const STARTUP_RETRY_BACKOFF: Duration = Duration::from_millis(100);
 pub(crate) struct SidecarState(
     pub(crate) Mutex<SidecarStateInner>,
@@ -1241,8 +1243,9 @@ mod tests {
     }
 
     #[test]
-    fn readiness_timeout_is_bounded() {
+    fn startup_timeouts_are_bounded() {
         assert_eq!(READINESS_TIMEOUT, Duration::from_secs(60));
+        assert_eq!(HEALTH_TIMEOUT, Duration::from_secs(30));
         let (_tx, rx) = mpsc::channel();
         let mut spawned = Spawned {
             proc: Proc::Plugin(None),
