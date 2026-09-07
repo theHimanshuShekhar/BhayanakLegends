@@ -163,7 +163,7 @@ jobs:
           $stderr = Join-Path $env:SMOKE_DIAGNOSTICS "updater-fixture.err.log"
           $previousTrackingId = $env:RUNNER_TRACKING_ID
           try {
-            Remove-Item Env:RUNNER_TRACKING_ID -ErrorAction SilentlyContinue
+            $env:RUNNER_TRACKING_ID = ""
             $fixture = Start-Process -FilePath uv -ArgumentList @(
               "run",
               "--project", "backend",
