@@ -21,6 +21,7 @@ const READINESS_TIMEOUT: Duration = Duration::from_secs(60);
 // Health can be the first request after a cold packaged startup; unlike
 // readiness, it needs a wider bounded window for the server to answer.
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(30);
+const HEALTH_READ_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const STARTUP_RETRY_BACKOFF: Duration = Duration::from_millis(100);
 pub(crate) struct SidecarState(
     pub(crate) Mutex<SidecarStateInner>,
@@ -977,9 +978,9 @@ fn wait_for_health_until(
         if shutdown.is_requested() {
             return Err("sidecar shutdown requested".into());
         }
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        match health_request(port, token, remaining.min(Duration::from_millis(500))) {
+        match health_request_until(port, token, deadline, shutdown) {
             Ok(status) => return Ok(status),
+            Err(error) if error == "sidecar shutdown requested" => return Err(error),
             Err(error) => {
                 last_error = error;
                 let sleep_until = Instant::now() + Duration::from_millis(50);
@@ -996,27 +997,72 @@ fn wait_for_health_until(
 }
 
 fn health_request(port: u16, token: &str, timeout: Duration) -> Result<SidecarHealth, String> {
+    let shutdown = ShutdownToken::default();
+    health_request_until(port, token, Instant::now() + timeout, &shutdown)
+}
+
+fn health_request_until(
+    port: u16,
+    token: &str,
+    deadline: Instant,
+    shutdown: &ShutdownToken,
+) -> Result<SidecarHealth, String> {
+    if shutdown.is_requested() {
+        return Err("sidecar shutdown requested".into());
+    }
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        return Err("sidecar health request timed out".into());
+    }
     let address = SocketAddr::from(([127, 0, 0, 1], port));
-    let mut stream = TcpStream::connect_timeout(&address, timeout)
+    let mut stream = TcpStream::connect_timeout(&address, remaining)
         .map_err(|e| format!("sidecar health connection failed: {e}"))?;
     stream
-        .set_read_timeout(Some(timeout))
+        .set_write_timeout(Some(HEALTH_READ_POLL_INTERVAL.min(remaining)))
         .map_err(|e| format!("sidecar health timeout setup failed: {e}"))?;
     write!(
         stream,
         "GET /health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nX-BL-Token: {token}\r\nConnection: close\r\n\r\n"
     )
     .map_err(|e| format!("sidecar health request failed: {e}"))?;
-    let response = read_health_response(&mut stream)
-        .map_err(|e| format!("sidecar health response failed: {e}"))?;
+    let response = match read_health_response(&mut stream, deadline, shutdown) {
+        Ok(response) => response,
+        Err(error) if error == "sidecar shutdown requested" => return Err(error),
+        Err(error) => return Err(format!("sidecar health response failed: {error}")),
+    };
     parse_health_response(&response)
 }
 
-fn read_health_response(stream: &mut TcpStream) -> Result<Vec<u8>, String> {
+fn read_health_response(
+    stream: &mut TcpStream,
+    deadline: Instant,
+    shutdown: &ShutdownToken,
+) -> Result<Vec<u8>, String> {
     let mut response = Vec::new();
     let mut chunk = [0_u8; 4096];
     loop {
-        let size = stream.read(&mut chunk).map_err(|e| e.to_string())?;
+        if shutdown.is_requested() {
+            return Err("sidecar shutdown requested".into());
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err("sidecar health response timed out".into());
+        }
+        stream
+            .set_read_timeout(Some(HEALTH_READ_POLL_INTERVAL.min(remaining)))
+            .map_err(|e| format!("sidecar health timeout setup failed: {e}"))?;
+        let size = match stream.read(&mut chunk) {
+            Ok(size) => size,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+                ) =>
+            {
+                continue;
+            }
+            Err(error) => return Err(error.to_string()),
+        };
         if size == 0 {
             break;
         }
@@ -1351,6 +1397,49 @@ mod tests {
         });
 
         let result = health_request(port, "unit-test-token", Duration::from_millis(500));
+        release_tx.send(()).unwrap();
+        server.join().unwrap();
+
+        assert_eq!(result.unwrap(), SidecarHealth::Ok);
+    }
+    #[test]
+    fn health_wait_allows_slow_response_within_aggregate_deadline() {
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (release_tx, release_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            loop {
+                let mut chunk = [0_u8; 256];
+                let size = stream.read(&mut chunk).unwrap();
+                if size == 0 {
+                    break;
+                }
+                request.extend_from_slice(&chunk[..size]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            thread::sleep(Duration::from_millis(750));
+            let body = r#"{"status":"ok"}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{body}",
+                body.len()
+            )
+            .unwrap();
+            release_rx.recv().unwrap();
+        });
+
+        let result = wait_for_health_until(
+            port,
+            "unit-test-token",
+            Instant::now() + Duration::from_secs(2),
+            &ShutdownToken::default(),
+        );
         release_tx.send(()).unwrap();
         server.join().unwrap();
 
