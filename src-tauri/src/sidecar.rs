@@ -23,6 +23,7 @@ const READINESS_TIMEOUT: Duration = Duration::from_secs(60);
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(30);
 const HEALTH_READ_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const STARTUP_RETRY_BACKOFF: Duration = Duration::from_millis(100);
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
 pub(crate) struct SidecarState(
     pub(crate) Mutex<SidecarStateInner>,
     pub(crate) Arc<LifecycleSignal>,
@@ -56,6 +57,7 @@ impl ShutdownToken {
 pub(crate) struct LifecycleSignal {
     wake: (Mutex<()>, std::sync::Condvar),
     shutdown: ShutdownToken,
+    shutdown_complete: (Mutex<bool>, std::sync::Condvar),
 }
 
 impl LifecycleSignal {
@@ -63,6 +65,7 @@ impl LifecycleSignal {
         Self {
             wake: (Mutex::new(()), std::sync::Condvar::new()),
             shutdown: ShutdownToken::default(),
+            shutdown_complete: (Mutex::new(false), std::sync::Condvar::new()),
         }
     }
 
@@ -82,6 +85,38 @@ impl LifecycleSignal {
     pub(crate) fn request_shutdown(&self) {
         self.shutdown.request();
         self.notify();
+    }
+
+    fn mark_shutdown_complete(&self) {
+        let mut complete = self
+            .shutdown_complete
+            .0
+            .lock()
+            .expect("shutdown completion lock poisoned");
+        *complete = true;
+        self.shutdown_complete.1.notify_all();
+    }
+
+    fn wait_for_shutdown(&self) -> bool {
+        let complete = self
+            .shutdown_complete
+            .0
+            .lock()
+            .expect("shutdown completion lock poisoned");
+        let (complete, _) = self
+            .shutdown_complete
+            .1
+            .wait_timeout_while(complete, SHUTDOWN_TIMEOUT, |complete| !*complete)
+            .expect("shutdown completion lock poisoned");
+        *complete
+    }
+}
+
+struct ShutdownCompletionGuard(Arc<LifecycleSignal>);
+
+impl Drop for ShutdownCompletionGuard {
+    fn drop(&mut self) {
+        self.0.mark_shutdown_complete();
     }
 }
 pub(crate) struct SidecarStateInner {
@@ -1171,7 +1206,9 @@ fn publish_sidecar_state(
 }
 
 fn run_sidecar_supervisor(app: tauri::AppHandle) {
-    let shutdown = app.state::<SidecarState>().1.shutdown();
+    let lifecycle = app.state::<SidecarState>().1.clone();
+    let _completion = ShutdownCompletionGuard(lifecycle.clone());
+    let shutdown = lifecycle.shutdown();
     let mut supervisor = Supervisor::with_shutdown(ProductionSidecarAdapter, shutdown);
     loop {
         if supervisor.shutdown.is_requested() {
@@ -1269,6 +1306,7 @@ pub(crate) fn request_shutdown(app: &tauri::AppHandle) {
         });
         state.1.notify();
     };
+    state.1.wait_for_shutdown();
 }
 
 pub(crate) fn start_supervisor(app: tauri::AppHandle) {
@@ -1487,6 +1525,8 @@ mod tests {
         descendants_terminated: usize,
         reaped: usize,
         exits: Vec<bool>,
+        terminate_started: Option<mpsc::Sender<()>>,
+        terminate_release: Option<mpsc::Receiver<()>>,
     }
 
     struct FixtureChild {
@@ -1540,6 +1580,14 @@ mod tests {
             assert!(child.id > 0);
             self.terminated += 1;
             self.descendants_terminated += 2;
+            if let Some(started) = self.terminate_started.take() {
+                started.send(()).unwrap();
+                self.terminate_release
+                    .take()
+                    .expect("terminate release gate missing")
+                    .recv()
+                    .unwrap();
+            }
             Ok(())
         }
 
@@ -1643,6 +1691,60 @@ mod tests {
         assert_eq!(supervisor.state(), SidecarLifecycle::Stopping);
         assert_eq!(supervisor.adapter().terminated, 1);
         assert_eq!(supervisor.adapter().descendants_terminated, 2);
+        assert_eq!(supervisor.adapter().reaped, 1);
+    }
+
+    #[test]
+    fn shutdown_waits_for_supervisor_termination_and_reap() {
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let signal = Arc::new(LifecycleSignal::new());
+        let adapter = FixtureAdapter {
+            readiness: Some(43217),
+            health: Some(SidecarHealth::Ok),
+            terminate_started: Some(started_tx),
+            terminate_release: Some(release_rx),
+            ..FixtureAdapter::default()
+        };
+        let mut supervisor = Supervisor::with_shutdown(adapter, signal.shutdown());
+        supervisor.launch("token-a".into()).unwrap();
+
+        let worker_signal = signal.clone();
+        let worker = thread::spawn(move || {
+            let _completion = ShutdownCompletionGuard(worker_signal.clone());
+            while !worker_signal.shutdown().is_requested() {
+                worker_signal.wait();
+            }
+            supervisor.stop().unwrap();
+            supervisor
+        });
+
+        signal.request_shutdown();
+        started_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("supervisor did not enter termination");
+
+        let (done_tx, done_rx) = mpsc::channel();
+        let waiter_signal = signal.clone();
+        let waiter = thread::spawn(move || {
+            done_tx.send(waiter_signal.wait_for_shutdown()).unwrap();
+        });
+        assert!(
+            done_rx
+                .recv_timeout(Duration::from_millis(50))
+                .is_err(),
+            "shutdown returned before sidecar cleanup completed"
+        );
+
+        release_tx.send(()).unwrap();
+        assert!(
+            done_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("shutdown completion was not signalled")
+        );
+        let supervisor = worker.join().unwrap();
+        waiter.join().unwrap();
+        assert_eq!(supervisor.adapter().terminated, 1);
         assert_eq!(supervisor.adapter().reaped, 1);
     }
     #[test]
