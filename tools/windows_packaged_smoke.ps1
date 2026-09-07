@@ -49,6 +49,33 @@ function Get-Sidecars {
       ForEach-Object { [int]$_.ProcessId })
 }
 
+function Get-OwnedSidecars([array]$BaselineSidecars) {
+  @(Get-Sidecars | Where-Object { $BaselineSidecars -notcontains $_ })
+}
+
+function Stop-OwnedSidecars {
+  param(
+    [Parameter(Mandatory = $true)][array]$BaselineSidecars,
+    [int]$TimeoutSeconds = 30
+  )
+  $attempted = [System.Collections.Generic.HashSet[int]]::new()
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  do {
+    $owned = @(Get-OwnedSidecars -BaselineSidecars $BaselineSidecars)
+    foreach ($sidecar in $owned) {
+      [void]$attempted.Add([int]$sidecar)
+      & taskkill.exe /PID ([string]$sidecar) /T /F *> $null
+    }
+    $survivors = @(Get-OwnedSidecars -BaselineSidecars $BaselineSidecars)
+    if ($survivors.Count -eq 0) { break }
+    Start-Sleep -Milliseconds 250
+  } while ((Get-Date) -lt $deadline)
+  [pscustomobject]@{
+    attempted = @($attempted | ForEach-Object { [int]$_ })
+    survivors = @(Get-OwnedSidecars -BaselineSidecars $BaselineSidecars)
+  }
+}
+
 function Wait-Exit([int]$ProcessId, [int]$TimeoutSeconds = 20) {
   $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
   do {
@@ -311,14 +338,18 @@ try {
   if (-not (Wait-Exit -ProcessId $app1.Id -TimeoutSeconds 60)) {
     throw "packaged app did not exit to hand off to the signed-update installer"
   }
-  # Best-effort hygiene: a hard process::exit(0) skips Drop-based cleanup, so
-  # sweep any sidecar this instance owned before the next phase starts. This
-  # does not assert the invariant (Close-App does that on every graceful-exit
-  # phase below); it only prevents a leaked process from lingering.
-  $strandedSidecars = @(Get-Sidecars | Where-Object { $baseline -notcontains $_ })
-  if ($strandedSidecars.Count -gt 0) {
-    $state.owned_sidecars += $strandedSidecars
-    $strandedSidecars | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+  # The updater plugin exits before Drop cleanup; terminate the full sidecar
+  # process trees before starting the relaunched app.
+  $cleanup = Stop-OwnedSidecars -BaselineSidecars $baseline
+  foreach ($sidecar in @($cleanup.attempted)) {
+    if ($state.owned_sidecars -notcontains $sidecar) {
+      $state.owned_sidecars += [int]$sidecar
+    }
+  }
+  $survivors = @($cleanup.survivors)
+  if ($survivors.Count -gt 0) {
+    $state.errors += "owned sidecars survived updater handoff: $($survivors -join ', ')"
+    throw "owned sidecar process survived updater handoff: $($survivors -join ', ')"
   }
   # The plugin writes the downloaded setup .exe to a temp file named
   # "<app_name>-<version>-installer.exe" (app.package_info().name + version),
