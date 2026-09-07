@@ -24,6 +24,39 @@ SCHEMA = json.loads((PACK_DIR / "pack.schema.json").read_text(encoding="utf-8"))
 PACK = json.loads((PACK_DIR / "findings-pack.v2.json").read_text(encoding="utf-8"))
 
 
+def test_pack_checkout_attributes_pin_text_and_binary_assets():
+    text_assets = (
+        "pack/findings-pack.v2.json",
+        "pack/pack.schema.json",
+        "pack/models/live-wp-v2.model-card.json",
+        "pack/models/personal-what-if-v2.model-card.json",
+    )
+    binary_assets = (
+        "pack/models/live-wp-v2.onnx",
+        "pack/models/personal-what-if-v2.onnx",
+        "pack/findings-pack.v2.zip",
+    )
+    paths = text_assets + binary_assets
+    result = subprocess.run(
+        ["git", "check-attr", "text", "eol", "--", *paths],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    attributes = {}
+    for line in result.stdout.splitlines():
+        path, name, value = line.split(": ", 2)
+        attributes[(path, name)] = value
+
+    for path in text_assets:
+        assert attributes[(path, "text")] == "set"
+        assert attributes[(path, "eol")] == "lf"
+        assert b"\r\n" not in (REPO_ROOT / path).read_bytes()
+    for path in binary_assets:
+        assert attributes[(path, "text")] == "unset"
+
+
 @pytest.fixture(scope="module")
 def generator():
     spec = importlib.util.spec_from_file_location(

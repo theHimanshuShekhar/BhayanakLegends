@@ -22,6 +22,26 @@ jobs:
         with:
           ref: ${{ github.sha }}
 
+      - name: Reassert byte-pinned Findings Pack checkout
+        shell: bash
+        run: |
+          for path in \
+            pack/findings-pack.v2.json \
+            pack/pack.schema.json \
+            pack/models/live-wp-v2.model-card.json \
+            pack/models/live-wp-v2.onnx \
+            pack/models/personal-what-if-v2.model-card.json \
+            pack/models/personal-what-if-v2.onnx
+          do
+            git cat-file blob "HEAD:$path" > "$path"
+            expected="$(git rev-parse "HEAD:$path")"
+            actual="$(git hash-object --no-filters -- "$path")"
+            if [ "$actual" != "$expected" ]; then
+              echo "checked-out pack file differs from tracked blob: $path"
+              exit 1
+            fi
+          done
+
       - name: Install pnpm
         uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
         with:

@@ -1,0 +1,7 @@
+# Findings Pack source JSON is byte-pinned and must stay LF on every checkout.
+/pack/*.json text eol=lf
+/pack/models/*.json text eol=lf
+
+# Model binaries and release archives are opaque bytes; never normalize them.
+/pack/**/*.onnx binary -text
+/pack/**/*.zip binary -text
