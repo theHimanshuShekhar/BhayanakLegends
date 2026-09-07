@@ -147,7 +147,7 @@ jobs:
           "SMOKE_VALID_ARTIFACT=$validArtifact" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "SMOKE_VALID_SIGNATURE=$validSignature" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Start loopback updater fixture with valid and mismatched artifacts
+      - name: Build and run packaged updater smoke against loopback fixture
         shell: pwsh
         run: |
           $invalidArtifact = Join-Path $env:SMOKE_ARTIFACTS "invalid.nsis.zip"
@@ -161,55 +161,53 @@ jobs:
           $stdout = Join-Path $env:SMOKE_DIAGNOSTICS "updater-fixture.log"
           $flipFile = Join-Path $env:RUNNER_TEMP "bl-smoke-invalid-phase"
           $stderr = Join-Path $env:SMOKE_DIAGNOSTICS "updater-fixture.err.log"
-          $previousTrackingId = $env:RUNNER_TRACKING_ID
-          try {
-            $env:RUNNER_TRACKING_ID = ""
-            $fixture = Start-Process -FilePath uv -ArgumentList @(
-              "run",
-              "--project", "backend",
-              "--locked",
-              "python",
-              "tools/windows_updater_fixture.py",
-              "--state-file", $stateFile,
-              "--port", $env:SMOKE_FIXTURE_PORT,
-              "--current-version", $env:SMOKE_LOWER_VERSION,
-              "--valid-version", $env:SMOKE_VALID_VERSION,
-              "--valid-artifact", $env:SMOKE_VALID_ARTIFACT,
-              "--valid-signature", $env:SMOKE_VALID_SIGNATURE,
-              "--invalid-version", $env:SMOKE_INVALID_VERSION,
-              "--invalid-artifact", $invalidArtifact,
-              "--invalid-signature", $invalidSignature,
-              "--flip-file", $flipFile,
-              "--pack-dir", $env:SMOKE_PACK_DIR
-            ) -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-          }
-          finally {
-            if ($null -eq $previousTrackingId) {
-              Remove-Item Env:RUNNER_TRACKING_ID -ErrorAction SilentlyContinue
-            } else {
-              $env:RUNNER_TRACKING_ID = $previousTrackingId
-            }
-          }
-          "FIXTURE_PID=$($fixture.Id)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $fixture = Start-Process -FilePath uv -ArgumentList @(
+            "run",
+            "--project", "backend",
+            "--locked",
+            "python",
+            "tools/windows_updater_fixture.py",
+            "--state-file", $stateFile,
+            "--port", $env:SMOKE_FIXTURE_PORT,
+            "--current-version", $env:SMOKE_LOWER_VERSION,
+            "--valid-version", $env:SMOKE_VALID_VERSION,
+            "--valid-artifact", $env:SMOKE_VALID_ARTIFACT,
+            "--valid-signature", $env:SMOKE_VALID_SIGNATURE,
+            "--invalid-version", $env:SMOKE_INVALID_VERSION,
+            "--invalid-artifact", $invalidArtifact,
+            "--invalid-signature", $invalidSignature,
+            "--flip-file", $flipFile,
+            "--pack-dir", $env:SMOKE_PACK_DIR
+          ) -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          $fixturePid = "$($fixture.Id)"
+          "FIXTURE_PID=$fixturePid" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $env:FIXTURE_PID = $fixturePid
           "SMOKE_FLIP_FILE=$flipFile" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $env:SMOKE_FLIP_FILE = $flipFile
           "SMOKE_FIXTURE_STATE=$stateFile" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $env:SMOKE_FIXTURE_STATE = $stateFile
           for ($attempt = 0; $attempt -lt 60 -and -not (Test-Path $stateFile); $attempt++) {
             Start-Sleep -Milliseconds 250
           }
           if (-not (Test-Path $stateFile)) { throw "updater fixture did not start" }
           $fixtureInfo = Get-Content $stateFile | ConvertFrom-Json
-          "FIXTURE_ENDPOINT=http://127.0.0.1:$($fixtureInfo.port)/latest.json" |
+          $fixtureEndpoint = "http://127.0.0.1:$($fixtureInfo.port)/latest.json"
+          $manifestUrl = "http://127.0.0.1:$($fixtureInfo.port)/findings-pack-manifest.json"
+          $manifestPublicKey = "$($fixtureInfo.manifest_public_key)"
+          $packVersion = "$($fixtureInfo.pack_version)"
+          "FIXTURE_ENDPOINT=$fixtureEndpoint" |
             Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "BHAYANAK_PACK_RELEASE_MANIFEST_URL=http://127.0.0.1:$($fixtureInfo.port)/findings-pack-manifest.json" |
+          $env:FIXTURE_ENDPOINT = $fixtureEndpoint
+          "BHAYANAK_PACK_RELEASE_MANIFEST_URL=$manifestUrl" |
             Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "BHAYANAK_PACK_RELEASE_MANIFEST_PUBLIC_KEY=$($fixtureInfo.manifest_public_key)" |
+          $env:BHAYANAK_PACK_RELEASE_MANIFEST_URL = $manifestUrl
+          "BHAYANAK_PACK_RELEASE_MANIFEST_PUBLIC_KEY=$manifestPublicKey" |
             Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "SMOKE_PACK_VERSION=$($fixtureInfo.pack_version)" |
+          $env:BHAYANAK_PACK_RELEASE_MANIFEST_PUBLIC_KEY = $manifestPublicKey
+          "SMOKE_PACK_VERSION=$packVersion" |
             Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $env:SMOKE_PACK_VERSION = $packVersion
 
-      - name: Point updater at local fixture and build lower-version NSIS app
-        shell: pwsh
-        run: |
           python tools/patch_updater_endpoint.py src-tauri/tauri.conf.json `
             --endpoint "$env:FIXTURE_ENDPOINT" `
             --browser-args="--remote-debugging-port=$env:SMOKE_DEBUG_PORT" `
@@ -229,10 +227,8 @@ jobs:
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
           if (-not $installer) { throw "lower-version Tauri NSIS installer was not produced" }
           "SMOKE_INSTALLER=$($installer.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $env:SMOKE_INSTALLER = $installer.FullName
 
-      - name: Verify updater fixture survived the build
-        shell: pwsh
-        run: |
           $fixtureProcess = Get-Process -Id ([int]$env:FIXTURE_PID) -ErrorAction SilentlyContinue
           if (-not $fixtureProcess -or $fixtureProcess.HasExited) {
             throw "updater fixture process is no longer running"
@@ -245,14 +241,15 @@ jobs:
           if ($response.StatusCode -ne 200) {
             throw "updater fixture loopback GET returned HTTP $($response.StatusCode)"
           }
-          $payload = $response.Content | ConvertFrom-Json
+          try {
+            $payload = $response.Content | ConvertFrom-Json
+          } catch {
+            throw "updater fixture loopback GET returned invalid JSON: $($_.Exception.Message)"
+          }
           if ($payload.version -ne $env:SMOKE_VALID_VERSION) {
             throw "updater fixture returned unexpected valid version: $($payload.version)"
           }
 
-      - name: Launch and assert signed update, relaunch, and rejection
-        shell: pwsh
-        run: |
           pwsh -File tools/windows_packaged_smoke.ps1 `
             -InstallerPath "$env:SMOKE_INSTALLER" `
             -InstallRoot "$env:RUNNER_TEMP\bl-packaged-install" `
