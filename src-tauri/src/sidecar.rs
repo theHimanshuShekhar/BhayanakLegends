@@ -14,7 +14,10 @@ use tauri_plugin_shell::process::CommandChild;
 use uuid::Uuid;
 
 const MAX_LAUNCHES: u8 = 3;
-const READINESS_TIMEOUT: Duration = Duration::from_secs(5);
+// PyInstaller one-file extraction plus Findings Pack validation can exceed ten
+// seconds on a hosted Windows runner. Keep startup bounded while allowing the
+// packaged sidecar to finish its readiness handshake.
+const READINESS_TIMEOUT: Duration = Duration::from_secs(60);
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(5);
 const STARTUP_RETRY_BACKOFF: Duration = Duration::from_millis(100);
 pub(crate) struct SidecarState(
@@ -1239,6 +1242,7 @@ mod tests {
 
     #[test]
     fn readiness_timeout_is_bounded() {
+        assert_eq!(READINESS_TIMEOUT, Duration::from_secs(60));
         let (_tx, rx) = mpsc::channel();
         let mut spawned = Spawned {
             proc: Proc::Plugin(None),

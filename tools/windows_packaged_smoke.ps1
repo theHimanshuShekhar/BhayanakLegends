@@ -253,7 +253,9 @@ try {
   $env:BHAYANAK_TOKEN = "installed-sidecar-probe-" + ([guid]::NewGuid().ToString("N"))
   $installedProbe = Start-Process -FilePath $installedSidecar.FullName -PassThru `
     -RedirectStandardOutput $installedProbeStdout -RedirectStandardError $installedProbeStderr
-  $installedProbeDeadline = (Get-Date).AddSeconds(12)
+  # Keep this diagnostic probe aligned with the packaged sidecar's bounded
+  # sixty-second readiness budget, with a small extraction margin.
+  $installedProbeDeadline = (Get-Date).AddSeconds(65)
   do {
     Start-Sleep -Milliseconds 250
     $installedProbe.Refresh()
