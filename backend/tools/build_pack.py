@@ -35,7 +35,7 @@ from bhayanak_legends.pack_v2 import FindingsPackV2, validate_pack_v2_semantics
 SCHEMA_FILENAME = "pack.schema.json"
 PACK_FILENAME = "findings-pack.v2.json"
 REPO_ROOT = Path(__file__).resolve().parents[2]
-BOOTSTRAP_ARTIFACT = REPO_ROOT / "pack" / PACK_FILENAME
+BOOTSTRAP_SOURCE = REPO_ROOT / "pack"
 
 
 class ArtifactContractError(ValueError):
@@ -225,12 +225,12 @@ def main() -> None:
     source.add_argument(
         "--bootstrap",
         action="store_true",
-        help="copy the checked-in diagnostic seed without deriving population values",
+        help="copy the checked-in diagnostic seed directory and declared model assets",
     )
     parser.add_argument("--out", type=Path, default=REPO_ROOT / "pack")
     args = parser.parse_args()
 
-    input_path = BOOTSTRAP_ARTIFACT if args.bootstrap else args.artifact
+    input_path = BOOTSTRAP_SOURCE if args.bootstrap else args.artifact
     assert input_path is not None
     try:
         pack = copy_pack(input_path, args.out)

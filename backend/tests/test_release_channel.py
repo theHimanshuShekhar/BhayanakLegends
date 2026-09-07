@@ -23,42 +23,46 @@ from bhayanak_legends.release_channel import (
     _extract_candidate,
     _manifest,
 )
+from pack_fixture_helpers import (
+    canonical_model_assets,
+    minimal_pack,
+    model_manifest_pins,
+    write_canonical_pack,
+)
 
 TEST_PRIVATE_KEY = Ed25519PrivateKey.generate()
 TEST_PUBLIC_KEY = TEST_PRIVATE_KEY.public_key().public_bytes_raw()
 
 ROOT = Path(__file__).resolve().parents[2]
-PACK = ROOT / "pack" / "findings-pack.v2.json"
 SCHEMA = ROOT / "pack" / "pack.schema.json"
 
-
 def _asset(tmp_path: Path, *, pack_version: str = "v3", schema_version: int = 2) -> bytes:
-    pack = json.loads(PACK.read_text())
+    del tmp_path
+    pack = minimal_pack()
     pack["pack_version"] = pack_version
     pack["schema_version"] = schema_version
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w") as archive:
         archive.writestr("findings-pack.v2.json", json.dumps(pack))
-        archive.writestr("pack.schema.json", SCHEMA.read_text())
-        archive.writestr("models/honest-model.bin", b"model-v2")
+        archive.writestr("pack.schema.json", SCHEMA.read_bytes())
+        for relative, data in canonical_model_assets(pack).items():
+            archive.writestr(relative, data)
     return output.getvalue()
+
+
 def _channel(tmp_path: Path, asset: bytes, *, manifest: dict | None = None) -> ReleaseChannel:
     pack_dir = tmp_path / "pack"
     pack_dir.mkdir(exist_ok=True)
     (pack_dir / "pack.schema.json").write_bytes(SCHEMA.read_bytes())
+    canonical = minimal_pack()
     manifest = {
         "pack_version": "v3",
         "schema_version": 2,
-        "feature_contract_version": "loltrends-population-v2",
+        "feature_contract_version": canonical["feature_contracts"]["population"],
         "download_url": "asset.zip",
         "sha256": hashlib.sha256(asset).hexdigest(),
         "size": len(asset),
-        "required_model_artifacts": [
-            {
-                "path": "models/honest-model.bin",
-                "sha256": hashlib.sha256(b"model-v2").hexdigest(),
-            }
-        ],
+        "required_model_artifacts": model_manifest_pins(canonical),
         **(manifest or {}),
     }
     raw_manifest = json.dumps(manifest).encode()
@@ -88,9 +92,7 @@ def _channel(tmp_path: Path, asset: bytes, *, manifest: dict | None = None) -> R
 @pytest.fixture
 def current_pack(tmp_path: Path) -> Path:
     pack_dir = tmp_path / "pack"
-    pack_dir.mkdir()
-    (pack_dir / "findings-pack.v2.json").write_bytes(PACK.read_bytes())
-    (pack_dir / "pack.schema.json").write_bytes(SCHEMA.read_bytes())
+    write_canonical_pack(pack_dir, minimal_pack())
     return pack_dir
 
 
@@ -111,8 +113,9 @@ async def test_valid_update_activates_and_preserves_artifact_hash(tmp_path: Path
     assert result.activated
     assert result.pack_version == "v3"
     assert json.loads((tmp_path / "pack" / "findings-pack.v2.json").read_text())["pack_version"] == "v3"
-    assert (tmp_path / "pack" / "models" / "honest-model.bin").read_bytes() == b"model-v2"
 
+    for relative, expected in canonical_model_assets().items():
+        assert (tmp_path / "pack" / relative).read_bytes() == expected
 
 @pytest.mark.asyncio
 async def test_bad_schema_is_rejected(tmp_path: Path) -> None:
@@ -189,27 +192,31 @@ async def test_activation_transaction_can_roll_back_after_reload_failure(tmp_pat
     asset = _asset(tmp_path)
     channel = _channel(tmp_path, asset)
     pack_dir = tmp_path / "pack"
-    old_pack = PACK.read_bytes()
+    old_pack = json.dumps(minimal_pack(), separators=(",", ":")).encode()
     old_artifact = b"previous-model"
+    primary_model_path = model_manifest_pins(minimal_pack())[0]["path"]
     (pack_dir / "findings-pack.v2.json").write_bytes(old_pack)
-    (pack_dir / "models").mkdir()
-    (pack_dir / "models" / "honest-model.bin").write_bytes(old_artifact)
+    (pack_dir / primary_model_path).parent.mkdir(parents=True, exist_ok=True)
+    (pack_dir / primary_model_path).write_bytes(old_artifact)
 
     result = await channel.check_and_activate("v2", defer_finalize=True)
 
     assert result.activated
     assert result.activation is not None
-    assert (pack_dir / "models" / "honest-model.bin").read_bytes() == b"model-v2"
+    assert (
+        (pack_dir / primary_model_path).read_bytes()
+        == canonical_model_assets()[primary_model_path]
+    )
     result.activation.rollback()
     assert (pack_dir / "findings-pack.v2.json").read_bytes() == old_pack
-    assert (pack_dir / "models" / "honest-model.bin").read_bytes() == old_artifact
+    assert (pack_dir / primary_model_path).read_bytes() == old_artifact
 
 
 def _manifest_base(asset: bytes) -> dict:
     return {
         "pack_version": "v3",
         "schema_version": 2,
-        "feature_contract_version": "loltrends-population-v2",
+        "feature_contract_version": minimal_pack()["feature_contracts"]["population"],
         "download_url": "asset.zip",
         "sha256": hashlib.sha256(asset).hexdigest(),
         "size": len(asset),
@@ -218,17 +225,20 @@ def _manifest_base(asset: bytes) -> dict:
 
 def _asset_padded_to(tmp_path: Path, target: int) -> bytes:
     """A stored (uncompressed) zip padded to exactly ``target`` bytes."""
-    pack = json.loads(PACK.read_text())
+    del tmp_path
+    pack = minimal_pack()
     pack["pack_version"] = "v3"
+    assets = canonical_model_assets(pack)
     pad = target
     for _ in range(16):
         output = io.BytesIO()
         with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_STORED) as archive:
             archive.writestr("findings-pack.v2.json", json.dumps(pack))
-            archive.writestr("pack.schema.json", SCHEMA.read_text())
-            archive.writestr("models/honest-model.bin", b"model-v2")
+            archive.writestr("pack.schema.json", SCHEMA.read_bytes())
+            for relative, data in assets.items():
+                archive.writestr(relative, data)
             if pad > 0:
-                archive.writestr("models/padding.bin", b"\0" * pad)
+                archive.writestr("padding.bin", b"\0" * pad)
         size = output.getbuffer().nbytes
         if size == target:
             return output.getvalue()
@@ -239,15 +249,18 @@ def _asset_padded_to(tmp_path: Path, target: int) -> bytes:
 
 
 def _asset_with_file_entries(count: int) -> bytes:
-    pack = json.loads(PACK.read_text())
+    pack = minimal_pack()
     pack["pack_version"] = "v3"
+    assets = canonical_model_assets(pack)
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_STORED) as archive:
         archive.writestr("findings-pack.v2.json", json.dumps(pack))
-        archive.writestr("pack.schema.json", SCHEMA.read_text())
-        archive.writestr("models/honest-model.bin", b"model-v2")
-        for index in range(count - 3):
-            archive.writestr(f"models/pad-{index:05}.bin", b"x")
+        archive.writestr("pack.schema.json", SCHEMA.read_bytes())
+        for relative, data in assets.items():
+            archive.writestr(relative, data)
+        base_members = 2 + len(assets)
+        for index in range(count - base_members):
+            archive.writestr(f"pad-{index:05}.bin", b"x")
     return output.getvalue()
 
 
@@ -344,10 +357,10 @@ async def test_streaming_without_content_length_stops_at_first_byte_over_cap(
 ) -> None:
     asset = _asset_padded_to(tmp_path, COMPRESSED_ASSET_MAX_BYTES)
     pack_dir = tmp_path / "pack"
-    pack_dir.mkdir()
-    (pack_dir / "findings-pack.v2.json").write_bytes(PACK.read_bytes())
-    (pack_dir / "models").mkdir()
-    (pack_dir / "models" / "honest-model.bin").write_bytes(b"model-previous")
+    write_canonical_pack(pack_dir, minimal_pack())
+    previous_pack = (pack_dir / "findings-pack.v2.json").read_bytes()
+    primary_model_path = model_manifest_pins(minimal_pack())[0]["path"]
+    (pack_dir / primary_model_path).write_bytes(b"model-previous")
 
     async def one_mib_chunks():
         payload = asset + b"\0"  # exactly one byte over the declared cap
@@ -373,8 +386,8 @@ async def test_streaming_without_content_length_stops_at_first_byte_over_cap(
     result = await channel.check_and_activate("v2")
     assert not result.activated
     assert "exceeds" in (result.reason or "")
-    assert (pack_dir / "findings-pack.v2.json").read_bytes() == PACK.read_bytes()
-    assert (pack_dir / "models" / "honest-model.bin").read_bytes() == b"model-previous"
+    assert (pack_dir / "findings-pack.v2.json").read_bytes() == previous_pack
+    assert (pack_dir / primary_model_path).read_bytes() == b"model-previous"
     _assert_no_leftovers(tmp_path)
 
 
@@ -478,17 +491,17 @@ def test_zip_over_expanded_limit_is_rejected_before_extraction(tmp_path: Path) -
 
 
 @pytest.mark.asyncio
-async def test_plain_json_asset_activates_end_to_end(tmp_path: Path) -> None:
-    pack = json.loads(PACK.read_text())
+async def test_plain_json_asset_with_available_models_is_rejected(tmp_path: Path) -> None:
+    pack = minimal_pack()
     pack["pack_version"] = "v3"
     asset = json.dumps(pack).encode()
-    # A bare JSON asset ships no model artifacts; none may be required.
     manifest = _manifest_base(asset)
     manifest["required_model_artifacts"] = []
     channel = _channel(tmp_path, asset, manifest=manifest)
     result = await channel.check_and_activate("v2")
-    assert result.activated
-    assert json.loads((tmp_path / "pack" / "findings-pack.v2.json").read_text())["pack_version"] == "v3"
+    assert not result.activated
+    assert "model artifact" in (result.reason or "")
+    assert not (tmp_path / "pack" / "findings-pack.v2.json").exists()
     _assert_no_leftovers(tmp_path)
 
 
@@ -524,15 +537,18 @@ def test_archive_traversal_members_are_rejected(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_corrupt_zip_member_is_rejected_gracefully(tmp_path: Path) -> None:
-    pack = json.loads(PACK.read_text())
+    pack = minimal_pack()
     pack["pack_version"] = "v3"
+    assets = canonical_model_assets(pack)
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_STORED) as archive:
         archive.writestr("findings-pack.v2.json", json.dumps(pack))
-        archive.writestr("pack.schema.json", SCHEMA.read_text())
-        archive.writestr("models/honest-model.bin", b"model-v2")
+        archive.writestr("pack.schema.json", SCHEMA.read_bytes())
+        for relative, data in assets.items():
+            archive.writestr(relative, data)
     raw = bytearray(output.getvalue())
-    raw[raw.index(b"model-v2")] ^= 0xFF  # break the member's CRC-32
+    model_bytes = next(data for path, data in assets.items() if path.endswith(".onnx"))
+    raw[raw.index(model_bytes)] ^= 0xFF  # break the member's CRC-32
     asset = bytes(raw)
     channel = _channel(tmp_path, asset)
     result = await channel.check_and_activate("v2")
@@ -545,11 +561,12 @@ async def test_corrupt_zip_member_is_rejected_gracefully(tmp_path: Path) -> None
 @pytest.mark.asyncio
 async def test_wrong_artifact_hash_is_rejected(tmp_path: Path) -> None:
     asset = _asset(tmp_path)
+    pins = model_manifest_pins(minimal_pack())
+    wrong_pin = dict(pins[0])
+    wrong_pin["sha256"] = "0" * 64
     manifest = {
         **_manifest_base(asset),
-        "required_model_artifacts": [
-            {"path": "models/honest-model.bin", "sha256": "0" * 64},
-        ],
+        "required_model_artifacts": [*pins, wrong_pin],
     }
     channel = _channel(tmp_path, asset, manifest=manifest)
     result = await channel.check_and_activate("v2")

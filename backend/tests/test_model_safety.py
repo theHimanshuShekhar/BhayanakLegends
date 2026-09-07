@@ -18,11 +18,17 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from bhayanak_legends.inference import InferenceRuntime
 from bhayanak_legends.pack import PackError, PackStore, validate_pack_directory
 from bhayanak_legends.pack_v2 import PackV2ModelCard
+from pack_fixture_helpers import (
+    canonical_model_assets,
+    declared_model_assets,
+    minimal_pack,
+    model_manifest_pins,
+    write_assets,
+)
 from bhayanak_legends.release_channel import ReleaseChannel
 
 ROOT = Path(__file__).resolve().parents[2]
 PACK_DIR = ROOT / "pack"
-PACK_PATH = PACK_DIR / "findings-pack.v2.json"
 SCHEMA_PATH = PACK_DIR / "pack.schema.json"
 
 def _onnx_bytes(*, output: str = "probability", operator: str = "Identity") -> bytes:
@@ -94,7 +100,11 @@ def _card() -> dict:
 
 def _fixture_pack(tmp_path: Path, *, artifact: bytes | None = None) -> tuple[Path, dict, bytes, dict]:
     artifact = artifact or _onnx_bytes()
-    pack = json.loads(PACK_PATH.read_text(encoding="utf-8"))
+    pack = minimal_pack()
+    canonical_assets = canonical_model_assets(
+        pack,
+        exclude_model_keys={"personal_what_if"},
+    )
     raw_card = _card()
 
     card = PackV2ModelCard.model_validate(raw_card).model_dump(mode="json")
@@ -120,8 +130,14 @@ def _fixture_pack(tmp_path: Path, *, artifact: bytes | None = None) -> tuple[Pat
         json.dumps(pack, separators=(",", ":")), encoding="utf-8"
     )
     shutil.copy2(SCHEMA_PATH, root / "pack.schema.json")
-    (root / "models" / "fixture.onnx").write_bytes(artifact)
-    (root / "models" / "fixture.card.json").write_bytes(card_bytes)
+    write_assets(root, canonical_assets)
+    write_assets(
+        root,
+        {
+            "models/fixture.onnx": artifact,
+            "models/fixture.card.json": card_bytes,
+        },
+    )
     return root, pack, artifact, card
 
 
@@ -213,37 +229,28 @@ def test_available_surrender_advisor_is_rejected_by_pack_contract(tmp_path: Path
 
 @pytest.mark.asyncio
 async def test_release_manifest_pins_available_model_card_and_artifact(tmp_path: Path) -> None:
-    root, pack, artifact, _card_payload = _fixture_pack(tmp_path)
+    root, pack, _artifact, _card_payload = _fixture_pack(tmp_path)
     release_pack = copy.deepcopy(pack)
     release_pack["pack_version"] = "v3"
-    card_bytes = (root / "models" / "fixture.card.json").read_bytes()
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w") as archive:
         archive.writestr("findings-pack.v2.json", json.dumps(release_pack))
         archive.writestr("pack.schema.json", SCHEMA_PATH.read_bytes())
-        archive.writestr("models/fixture.onnx", artifact)
-        archive.writestr("models/fixture.card.json", card_bytes)
+        for relative, data in declared_model_assets(pack, root).items():
+            archive.writestr(relative, data)
     asset = output.getvalue()
-    required = {
-        "path": "models/fixture.onnx",
-        "sha256": hashlib.sha256(artifact).hexdigest(),
-        "size": len(artifact),
-        "model_card_path": "models/fixture.card.json",
-        "model_card_sha256": hashlib.sha256(card_bytes).hexdigest(),
-        "model_card_size": len(card_bytes),
-    }
+    contracts = release_pack["feature_contracts"]
     manifest = {
         "pack_version": "v3",
         "schema_version": 2,
         "feature_contract_versions": {
-            "population": "loltrends-population-v2",
-            "personal_what_if": "fixture-contract",
-            "live_wp": "live-wp-v2",
+            "population": contracts["population"],
+            **contracts["models"],
         },
         "download_url": "asset.zip",
         "sha256": hashlib.sha256(asset).hexdigest(),
         "size": len(asset),
-        "required_model_artifacts": [required],
+        "required_model_artifacts": model_manifest_pins(release_pack),
     }
     private_key = Ed25519PrivateKey.generate()
     raw_manifest = json.dumps(manifest).encode()
@@ -270,6 +277,8 @@ async def test_release_manifest_pins_available_model_card_and_artifact(tmp_path:
     result = await channel.check_and_activate("v2")
     assert result.activated
     assert json.loads((root / "findings-pack.v2.json").read_text())["pack_version"] == "v3"
+    for relative, data in declared_model_assets(release_pack, root).items():
+        assert (root / relative).read_bytes() == data
 
     await client.aclose()
 

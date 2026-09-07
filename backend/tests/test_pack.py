@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -15,6 +16,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from bhayanak_legends.pack import PackError, PackStore
 from bhayanak_legends.pack_v2 import FindingsPackV2
+from pack_fixture_helpers import canonical_model_assets
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PACK_DIR = REPO_ROOT / "pack"
@@ -143,14 +145,14 @@ def test_v2_semantics_reject_noncanonical_tier_and_matchup_rows():
         FindingsPackV2.model_validate(broken)
 
 
-def test_v2_semantics_bound_route_outcomes_and_withheld_comeback_rows():
+def test_v2_semantics_bound_route_outcomes_and_comeback_sample_floor():
     broken = copy.deepcopy(PACK)
     broken["route_archetypes"][0]["observed_outcome"] = 1.01
     with pytest.raises(PydanticValidationError):
         FindingsPackV2.model_validate(broken)
 
     broken = copy.deepcopy(PACK)
-    broken["comeback_odds"][0]["rate"] = 0.2
+    broken["comeback_odds"][0]["sample"] = 199
     with pytest.raises(PydanticValidationError):
         FindingsPackV2.model_validate(broken)
 
@@ -201,6 +203,8 @@ def test_bootstrap_copies_checked_in_diagnostic_seed(tmp_path: Path):
         (output_dir / "pack.schema.json").read_text(encoding="utf-8")
     )
     assert generated_schema == SCHEMA
+    for relative, expected in canonical_model_assets(PACK).items():
+        assert (output_dir / relative).read_bytes() == expected
     seed = json.loads((output_dir / "findings-pack.v2.json").read_text(encoding="utf-8"))
     assert seed["dataset"]["tracked_players"] > 0
     assert seed["dataset"]["patch_buckets"] == len(seed["dataset"]["patches"])
@@ -209,10 +213,35 @@ def test_bootstrap_copies_checked_in_diagnostic_seed(tmp_path: Path):
     FindingsPackV2.model_validate(seed)
 
 
-def test_generator_copies_explicit_artifact_without_recomputation(tmp_path: Path):
+def test_generator_rejects_bare_json_with_available_models(tmp_path: Path):
     artifact = tmp_path / "findings-pack.v2.json"
     artifact_bytes = (PACK_DIR / "findings-pack.v2.json").read_bytes()
     artifact.write_bytes(artifact_bytes)
+    output_dir = tmp_path / "output"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(REPO_ROOT / "backend" / "tools" / "build_pack.py"),
+            "--artifact",
+            str(artifact),
+            "--out",
+            str(output_dir),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "artifact bundle is incomplete" in result.stderr
+    assert not output_dir.exists()
+
+
+def test_generator_copies_explicit_directory_without_recomputation(tmp_path: Path):
+    artifact_dir = tmp_path / "artifact"
+    shutil.copytree(PACK_DIR, artifact_dir)
+    artifact_bytes = (artifact_dir / "findings-pack.v2.json").read_bytes()
     output_dir = tmp_path / "output"
 
     subprocess.run(
@@ -220,7 +249,7 @@ def test_generator_copies_explicit_artifact_without_recomputation(tmp_path: Path
             sys.executable,
             str(REPO_ROOT / "backend" / "tools" / "build_pack.py"),
             "--artifact",
-            str(artifact),
+            str(artifact_dir),
             "--out",
             str(output_dir),
         ],
@@ -230,6 +259,8 @@ def test_generator_copies_explicit_artifact_without_recomputation(tmp_path: Path
     )
 
     assert (output_dir / "findings-pack.v2.json").read_bytes() == artifact_bytes
+    for relative, expected in canonical_model_assets(PACK).items():
+        assert (output_dir / relative).read_bytes() == expected
     FindingsPackV2.model_validate(
         json.loads((output_dir / "findings-pack.v2.json").read_text(encoding="utf-8"))
     )

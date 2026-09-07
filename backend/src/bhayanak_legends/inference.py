@@ -298,6 +298,33 @@ class InferenceRuntime:
                 rejected_fields=sorted(set(baseline) ^ expected),
                 reason="Personal History baseline does not match the model feature contract",
             )
+        feature_by_name = {feature.name: feature for feature in card.features}
+        invalid_adjustments: list[str] = []
+        out_of_domain: list[str] = []
+        for name, value in adjustments.items():
+            feature = feature_by_name[name]
+            if not self._finite(value):
+                invalid_adjustments.append(name)
+                continue
+            numeric = float(value)
+            if numeric < feature.bounds.min or numeric > feature.bounds.max:
+                out_of_domain.append(name)
+        if invalid_adjustments:
+            return WhatIfResponse(
+                status="rejected",
+                model_version=card.model_version,
+                pack_version=pack.pack_version,
+                rejected_fields=sorted(invalid_adjustments),
+                reason="adjustments must be finite numbers",
+            )
+        if out_of_domain:
+            return WhatIfResponse(
+                status="out-of-domain",
+                model_version=card.model_version,
+                pack_version=pack.pack_version,
+                rejected_fields=sorted(out_of_domain),
+                reason="adjustments are outside their declared model domains",
+            )
         changed = dict(baseline)
         changed.update(adjustments)
         baseline_result = self.predict("personal_what_if", baseline, patch=patch)

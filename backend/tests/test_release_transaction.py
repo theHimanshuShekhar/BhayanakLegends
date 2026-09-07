@@ -29,24 +29,25 @@ from bhayanak_legends.app import APP_VERSION, _run_release_channel_check, create
 from bhayanak_legends.config import SidecarConfig
 from bhayanak_legends.credentials import InMemoryCredentialStore
 from bhayanak_legends.release_channel import ReleaseChannel
+from pack_fixture_helpers import canonical_model_assets, minimal_pack, model_manifest_pins
 from bhayanak_legends.routers_events import event_stream
 
 TEST_PRIVATE_KEY = Ed25519PrivateKey.generate()
 TEST_PUBLIC_KEY = TEST_PRIVATE_KEY.public_key().public_bytes_raw()
 
-ROOT = Path(__file__).resolve().parents[2]
-PACK = ROOT / "pack" / "findings-pack.v2.json"
 
 TOKEN = "test-token-123456789012345678901234"
 AUTH = {"X-BL-Token": TOKEN, "Host": "127.0.0.1:23110"}
 
 
 def _asset(*, extra_artifact: bool = False) -> bytes:
-    pack = json.loads(PACK.read_text())
+    pack = minimal_pack()
     pack["pack_version"] = "v3"
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_STORED) as archive:
         archive.writestr("findings-pack.v2.json", json.dumps(pack))
+        for relative, data in canonical_model_assets(pack).items():
+            archive.writestr(relative, data)
         archive.writestr("payload/honest-model.bin", b"model-v3")
         if extra_artifact:
             archive.writestr("payload/added-in-v3.bin", b"brand-new")
@@ -69,19 +70,15 @@ def _app_and_channel(
     active = app.state.pack.pack_dir
     assert active == tmp_path / "data" / "findings-pack" / "active"
 
+    canonical = minimal_pack()
     manifest = {
         "pack_version": "v3",
         "schema_version": 2,
-        "feature_contract_version": "loltrends-population-v2",
+        "feature_contract_version": canonical["feature_contracts"]["population"],
         "download_url": "asset.zip",
         "sha256": hashlib.sha256(asset).hexdigest(),
         "size": len(asset),
-        "required_model_artifacts": [
-            {
-                "path": "payload/honest-model.bin",
-                "sha256": hashlib.sha256(b"model-v3").hexdigest(),
-            }
-        ],
+        "required_model_artifacts": model_manifest_pins(canonical),
         **(manifest_extra or {}),
     }
     raw_manifest = json.dumps(manifest).encode()

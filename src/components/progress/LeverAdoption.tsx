@@ -38,7 +38,7 @@ export function LeverAdoption({ pack }: { pack: FindingsPackV2 | undefined }) {
               (habit.release_status === "available" || habit.release_status === "approximate") &&
               Number.isFinite(habit.effect) &&
               habit.sample > 0;
-            const weakPlate = habit.key === "plates_by_14";
+            const weakPlate = habit.key === "plates_by_14m";
             return (
               <li
                 key={habit.key}
