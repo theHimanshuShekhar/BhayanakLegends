@@ -676,15 +676,14 @@ impl SidecarProcessAdapter for ProductionSidecarAdapter {
             // spawned directly: tauri_plugin_shell's Windows sidecar spawn does
             // not deliver custom environment variables, which stranded the
             // sidecar without its BHAYANAK_TOKEN.
-            let exe =
-                std::env::current_exe().map_err(|e| format!("sidecar spawn failed: {e}"))?;
+            let exe = std::env::current_exe().map_err(|e| format!("sidecar spawn failed: {e}"))?;
             let install_dir = exe
                 .parent()
                 .ok_or_else(|| "sidecar spawn failed: no install directory".to_string())?;
-            let mut command = Command::new(
-                install_dir
-                    .join(format!("bhayanak-legends-sidecar{}", std::env::consts::EXE_SUFFIX)),
-            );
+            let mut command = Command::new(install_dir.join(format!(
+                "bhayanak-legends-sidecar{}",
+                std::env::consts::EXE_SUFFIX
+            )));
             command.env("BHAYANAK_TOKEN", token);
             command
         };
@@ -1008,11 +1007,45 @@ fn health_request(port: u16, token: &str, timeout: Duration) -> Result<SidecarHe
         "GET /health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nX-BL-Token: {token}\r\nConnection: close\r\n\r\n"
     )
     .map_err(|e| format!("sidecar health request failed: {e}"))?;
-    let mut response = Vec::new();
-    stream
-        .read_to_end(&mut response)
+    let response = read_health_response(&mut stream)
         .map_err(|e| format!("sidecar health response failed: {e}"))?;
     parse_health_response(&response)
+}
+
+fn read_health_response(stream: &mut TcpStream) -> Result<Vec<u8>, String> {
+    let mut response = Vec::new();
+    let mut chunk = [0_u8; 4096];
+    loop {
+        let size = stream.read(&mut chunk).map_err(|e| e.to_string())?;
+        if size == 0 {
+            break;
+        }
+        response.extend_from_slice(&chunk[..size]);
+
+        let Some(separator) = response.windows(4).position(|window| window == b"\r\n\r\n") else {
+            continue;
+        };
+        let headers = std::str::from_utf8(&response[..separator])
+            .map_err(|_| "malformed sidecar health headers".to_string())?;
+        let Some(content_length) = response_content_length(headers) else {
+            continue;
+        };
+        let body_start = separator + 4;
+        if content_length <= response.len().saturating_sub(body_start) {
+            break;
+        }
+    }
+    Ok(response)
+}
+
+fn response_content_length(headers: &str) -> Option<usize> {
+    headers.lines().find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        name.trim()
+            .eq_ignore_ascii_case("content-length")
+            .then(|| value.trim().parse().ok())
+            .flatten()
+    })
 }
 
 fn parse_health_response(response: &[u8]) -> Result<SidecarHealth, String> {
@@ -1294,6 +1327,34 @@ mod tests {
             SidecarHealth::Degraded
         );
         server.join().unwrap();
+    }
+
+    #[test]
+    fn health_request_returns_after_declared_body_without_connection_close() {
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (release_tx, release_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 1024];
+            stream.read(&mut request).unwrap();
+            let body = r#"{"status":"ok"}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{body}",
+                body.len()
+            )
+            .unwrap();
+            release_rx.recv().unwrap();
+        });
+
+        let result = health_request(port, "unit-test-token", Duration::from_millis(500));
+        release_tx.send(()).unwrap();
+        server.join().unwrap();
+
+        assert_eq!(result.unwrap(), SidecarHealth::Ok);
     }
 
     #[derive(Default)]
