@@ -140,7 +140,11 @@ jobs:
           $stdout = Join-Path $env:SMOKE_DIAGNOSTICS "updater-fixture.log"
           $flipFile = Join-Path $env:RUNNER_TEMP "bl-smoke-invalid-phase"
           $stderr = Join-Path $env:SMOKE_DIAGNOSTICS "updater-fixture.err.log"
-          $fixture = Start-Process -FilePath python -ArgumentList @(
+          $fixture = Start-Process -FilePath uv -ArgumentList @(
+            "run",
+            "--project", "backend",
+            "--locked",
+            "python",
             "tools/windows_updater_fixture.py",
             "--state-file", $stateFile,
             "--port", $env:SMOKE_FIXTURE_PORT,
