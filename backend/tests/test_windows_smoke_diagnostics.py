@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -31,7 +31,7 @@ def _write_requests(path: Path, rows: list[dict[str, object]]) -> None:
     path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
 
 
-def test_fixture_checker_requires_both_real_artifact_phases_and_path_only_logs(
+def test_fixture_checker_requires_both_updater_phases_and_path_only_logs(
     tmp_path: Path,
 ) -> None:
     requests = tmp_path / "requests.jsonl"
@@ -40,12 +40,17 @@ def test_fixture_checker_requires_both_real_artifact_phases_and_path_only_logs(
     _write_requests(
         requests,
         [
+            {"method": "GET", "path": "/latest.json"},
             {"method": "GET", "path": "/findings-pack-manifest.json"},
             {"method": "GET", "path": "/findings-pack-manifest.json.sig"},
-            {"method": "GET", "path": "/findings-pack.zip"},
             {"method": "GET", "path": "/latest.json"},
+            {"method": "GET", "path": "/findings-pack-manifest.json"},
+            {"method": "GET", "path": "/findings-pack-manifest.json.sig"},
             {"method": "GET", "path": "/artifacts/valid/valid.nsis.zip"},
             {"method": "GET", "path": "/latest.json"},
+            {"method": "GET", "path": "/latest.json"},
+            {"method": "GET", "path": "/findings-pack-manifest.json"},
+            {"method": "GET", "path": "/findings-pack-manifest.json.sig"},
             {"method": "GET", "path": "/artifacts/invalid/invalid.nsis.zip"},
         ],
     )
@@ -64,6 +69,22 @@ def test_fixture_checker_requires_both_real_artifact_phases_and_path_only_logs(
     "rows",
     [
         [
+            {"method": "GET", "path": "/artifacts/valid/valid.nsis.zip"},
+            {"method": "GET", "path": "/latest.json"},
+            {"method": "GET", "path": "/artifacts/invalid/invalid.nsis.zip"},
+        ],
+        [
+            {"method": "GET", "path": "/latest.json"},
+            {"method": "GET", "path": "/artifacts/valid/valid.nsis.zip"},
+            {"method": "GET", "path": "/artifacts/invalid/invalid.nsis.zip"},
+        ],
+        [
+            {"method": "GET", "path": "/latest.json"},
+            {"method": "GET", "path": "/artifacts/valid/valid.nsis.zip"},
+            {"method": "GET", "path": "/artifacts/invalid/invalid.nsis.zip"},
+            {"method": "GET", "path": "/latest.json"},
+        ],
+        [
             {"method": "GET", "path": "/latest.json"},
             {"method": "GET", "path": "/latest.json"},
             {"method": "GET", "path": "/artifacts/valid/valid.nsis.zip"},
@@ -78,6 +99,13 @@ def test_fixture_checker_requires_both_real_artifact_phases_and_path_only_logs(
             {"method": "GET", "path": "http://example.invalid/latest.json"},
             {"method": "GET", "path": "/latest.json"},
             {"method": "GET", "path": "/artifacts/valid/valid.nsis.zip"},
+            {"method": "GET", "path": "/artifacts/invalid/invalid.nsis.zip"},
+        ],
+        [
+            {"method": "GET", "path": "/latest.json"},
+            {"method": "GET", "path": "/latest.json"},
+            {"method": "GET", "path": "/artifacts/valid/other.nsis.zip"},
+            {"method": "GET", "path": "/latest.json"},
             {"method": "GET", "path": "/artifacts/invalid/invalid.nsis.zip"},
         ],
         [

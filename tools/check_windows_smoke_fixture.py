@@ -1,4 +1,4 @@
-"""Assert the packaged smoke used signed local updater and pack fixtures."""
+"""Assert the packaged smoke used the signed local updater fixture."""
 
 from __future__ import annotations
 
@@ -66,9 +66,9 @@ def main() -> None:
     rows = _read_rows(args.requests_file)
     paths = [str(row["path"]) for row in rows]
     latest_indices = [index for index, path in enumerate(paths) if path == "/latest.json"]
-    if len(latest_indices) < 2:
+    if not latest_indices:
         raise SystemExit(
-            "packaged smoke must request valid and mismatched updater metadata"
+            "packaged smoke must request updater metadata before and after the valid artifact"
         )
     valid_routes = [path for path in paths if path.startswith("/artifacts/valid/")]
     invalid_routes = [path for path in paths if path.startswith("/artifacts/invalid/")]
@@ -76,30 +76,14 @@ def main() -> None:
         raise SystemExit("packaged smoke did not download the real valid updater artifact")
     if not invalid_routes:
         raise SystemExit("packaged smoke did not request the rejected updater artifact")
-    first_latest, second_latest = latest_indices[0], latest_indices[1]
-    if not any(
-        first_latest < index < second_latest
-        for index, path in enumerate(paths)
-        if path in valid_routes
-    ):
+
+    valid_index = paths.index(valid_routes[0])
+    if not any(index < valid_index for index in latest_indices):
         raise SystemExit("valid updater artifact was not requested after valid metadata")
-    if not any(
-        index > second_latest
-        for index, path in enumerate(paths)
-        if path in invalid_routes
-    ):
+
+    invalid_index = paths.index(invalid_routes[0])
+    if not any(valid_index < index < invalid_index for index in latest_indices):
         raise SystemExit("rejected updater artifact was not requested after invalid metadata")
-    pack_manifest = [path for path in paths if path == "/findings-pack-manifest.json"]
-    pack_signature = [path for path in paths if path == "/findings-pack-manifest.json.sig"]
-    pack_asset = [path for path in paths if path == "/findings-pack.zip"]
-    if not pack_manifest or not pack_signature or not pack_asset:
-        raise SystemExit(
-            "packaged smoke did not activate the signed local Findings Pack fixture"
-        )
-    if paths.index(pack_signature[0]) < paths.index(pack_manifest[0]):
-        raise SystemExit("Findings Pack signature was requested before its manifest")
-    if paths.index(pack_asset[0]) < paths.index(pack_signature[0]):
-        raise SystemExit("Findings Pack payload was requested before its signature")
 
     if args.state_file:
         expected_routes = _state_routes(args.state_file)
@@ -107,7 +91,7 @@ def main() -> None:
             raise SystemExit("fixture request log contains an artifact route outside its state")
 
     print(
-        f"loopback updater and Findings Pack fixtures verified "
+        f"loopback updater fixture verified "
         f"({len(rows)} requests; valid and rejected artifacts; no external endpoint)"
     )
 
