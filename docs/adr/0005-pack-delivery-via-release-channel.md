@@ -51,8 +51,13 @@ their hashes and sizes, and app compatibility. The sidecar accepts only schema
 2 and this v2 pack filename.
 
 The sidecar downloads a candidate to a temporary sibling location, validates
-the complete archive before the single pack-file commit, and atomically replaces
-the active pack. Network failure, authentication failure, truncation,
-corruption, incompatibility, or an interrupted replace leaves the previously
-active pack untouched and usable. An existing active pack always wins over a
-changed bundled seed after an application upgrade.
+the complete archive, then hands it to the PackStore's immutable-generation
+transaction. A generation pointer is atomically replaced only after every
+candidate file is complete. PackStore's re-entrant activation/read lock keeps
+in-flight inference, runtime reload/session clearing, pointer replacement, and
+old-generation cleanup in one non-overlapping transaction.
+Network failure, authentication failure, truncation, corruption,
+incompatibility, or an interrupted pointer replace leaves the previously active
+pack untouched and usable. On restart the pointer and generation are recovered
+before the bundled seed is considered. An existing active pack always wins over
+a changed bundled seed after an application upgrade.

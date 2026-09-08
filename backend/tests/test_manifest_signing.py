@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 from pathlib import Path
 
 import httpx
@@ -165,3 +166,30 @@ async def test_loopback_redirect_cannot_escape_loopback(tmp_path: Path) -> None:
     assert not result.activated
     assert "origin" in (result.reason or "")
     assert len(requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_transport_failure_reason_redacts_url_credentials_and_queries(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError(
+            "request failed for https://user:secret@release.test/manifest.json?sig=secret",
+            request=request,
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    channel = ReleaseChannel(
+        tmp_path / "pack",
+        client=client,
+        manifest_public_key=TEST_PUBLIC_KEY,
+    )
+    with caplog.at_level(logging.WARNING, logger="bhayanak_legends.release_channel"):
+        result = await channel.check_and_activate()
+    await client.aclose()
+
+    assert not result.activated
+    assert result.reason == "release transport failed"
+    assert "secret" not in result.reason
+    assert "secret" not in caplog.text

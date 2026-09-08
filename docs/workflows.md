@@ -100,10 +100,12 @@ owner-provisioned `FINDINGS_PACK_MANIFEST_SIGNING_KEY`; the key is not bundled.
 `findings-pack.v2.zip`, `findings-pack-manifest.json`, and
 `findings-pack-manifest.json.sig` to the same tag. Installed clients use only
 the public `releases/latest/download/findings-pack-manifest.json` locator;
-they carry no GitHub token. The sidecar resolves `latest` to one immutable tag,
+they carry no GitHub token. The sidecar resolves `latest` through a bounded
+same-repository `github.com` tag redirect, pins the logical tag URL, and
 fetches the tagged manifest/signature/payload (allowing only GitHub's bounded
-CDN transfer redirect), authenticates the raw manifest before parsing it, and
-validates the complete candidate before its atomic activation transaction.
+CDN transfer redirect). It authenticates the raw manifest before parsing it and
+validates the complete candidate before PackStore atomically swaps its
+generation pointer.
 
 ## Windows release shell map
 

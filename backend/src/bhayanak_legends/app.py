@@ -107,6 +107,7 @@ def _startup_release_channel_check(app: FastAPI) -> None:
         manifest_url=manifest_url,
         app_version=app.state.app_version,
         allow_loopback_http=_allow_loopback_http(manifest_url),
+        pack_store=app.state.pack,
     )
     app.state.release_channel = channel
     app.state.release_channel_task = asyncio.create_task(

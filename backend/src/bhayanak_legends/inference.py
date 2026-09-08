@@ -194,6 +194,22 @@ class InferenceRuntime:
         patch: str | None = None,
         observed_game_time_s: float | None = None,
     ) -> LiveInference:
+        with self._pack_store.read_transaction():
+            return self._predict_unlocked(
+                model_key,
+                values,
+                patch=patch,
+                observed_game_time_s=observed_game_time_s,
+            )
+
+    def _predict_unlocked(
+        self,
+        model_key: str,
+        values: Mapping[str, object],
+        *,
+        patch: str | None = None,
+        observed_game_time_s: float | None = None,
+    ) -> LiveInference:
         pack, declaration, reason = self._declaration(model_key)
         if pack is None or declaration is None:
             return LiveInference(status="suppressed", reason=reason)
@@ -259,6 +275,16 @@ class InferenceRuntime:
         )
 
     def what_if(
+        self,
+        adjustments: Mapping[str, object],
+        baseline: Mapping[str, object],
+        *,
+        patch: str | None = None,
+    ) -> WhatIfResponse:
+        with self._pack_store.read_transaction():
+            return self._what_if_unlocked(adjustments, baseline, patch=patch)
+
+    def _what_if_unlocked(
         self,
         adjustments: Mapping[str, object],
         baseline: Mapping[str, object],
@@ -356,6 +382,20 @@ class InferenceRuntime:
         observed_game_time_s: float | None = None,
         feature_provider=None,
     ) -> LiveInference:
+        with self._pack_store.read_transaction():
+            return self._predict_live_snapshot_unlocked(
+                snapshot,
+                observed_game_time_s=observed_game_time_s,
+                feature_provider=feature_provider,
+            )
+
+    def _predict_live_snapshot_unlocked(
+        self,
+        snapshot: Mapping[str, object] | None,
+        *,
+        observed_game_time_s: float | None = None,
+        feature_provider=None,
+    ) -> LiveInference:
         """Evaluate one exact, typed Live WP vector from an injected adapter."""
         if feature_provider is None or not isinstance(snapshot, Mapping):
             return LiveInference(
@@ -423,6 +463,20 @@ class InferenceRuntime:
         *,
         patch: str | None = None,
     ) -> WhatIfResponse:
+        with self._pack_store.read_transaction():
+            return self._what_if_from_personal_features_unlocked(
+                adjustments,
+                features,
+                patch=patch,
+            )
+
+    def _what_if_from_personal_features_unlocked(
+        self,
+        adjustments: Mapping[str, object],
+        features: Mapping[str, object],
+        *,
+        patch: str | None = None,
+    ) -> WhatIfResponse:
         """Build a model-card-ordered baseline from one v2 personal row."""
         pack, declaration, reason = self._declaration("personal_what_if")
         if pack is None or declaration is None:
@@ -442,4 +496,5 @@ class InferenceRuntime:
         return self.what_if(adjustments, baseline, patch=patch)
 
     def clear(self) -> None:
-        self._sessions.clear()
+        with self._pack_store.read_transaction():
+            self._sessions.clear()

@@ -7,6 +7,7 @@ import hashlib
 import io
 import json
 import shutil
+import threading
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -276,9 +277,12 @@ async def test_release_manifest_pins_available_model_card_and_artifact(tmp_path:
     )
     result = await channel.check_and_activate("v2")
     assert result.activated
-    assert json.loads((root / "findings-pack.v2.json").read_text())["pack_version"] == "v3"
+    active = channel.pack_dir
+    assert active != root
+    assert json.loads((root / "findings-pack.v2.json").read_text())["pack_version"] == "v2"
+    assert json.loads((active / "findings-pack.v2.json").read_text())["pack_version"] == "v3"
     for relative, data in declared_model_assets(release_pack, root).items():
-        assert (root / relative).read_bytes() == data
+        assert (active / relative).read_bytes() == data
 
     await client.aclose()
 
@@ -296,6 +300,99 @@ def test_corrupt_active_model_recovers_last_known_good_pack(tmp_path: Path) -> N
     assert InferenceRuntime(restarted).predict(
         "personal_what_if", {"x": 0.25}
     ).status == "available"
+
+
+def test_restart_does_not_promote_orphan_generation_without_committed_pointer(
+    tmp_path: Path,
+) -> None:
+    root, pack, _artifact, _card_payload = _fixture_pack(tmp_path)
+    orphan = root.parent / ".active-generation-orphan"
+    shutil.copytree(root, orphan)
+    orphan_pack = {**pack, "pack_version": "v9"}
+    (orphan / "findings-pack.v2.json").write_text(
+        json.dumps(orphan_pack),
+        encoding="utf-8",
+    )
+
+    restarted = PackStore(root)
+    restarted.initialize()
+
+    assert restarted.version() == "v2"
+    assert restarted.pack_dir == root
+    assert not orphan.exists()
+
+
+def test_activation_waits_for_outer_what_if_read_transaction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _pack, _artifact, _card_payload = _fixture_pack(tmp_path)
+    store = PackStore(root)
+    store.initialize()
+    runtime = InferenceRuntime(store)
+
+    candidate = tmp_path / "candidate"
+    shutil.copytree(root, candidate)
+    candidate_pack = json.loads((candidate / "findings-pack.v2.json").read_text())
+    candidate_pack["pack_version"] = "v3"
+    (candidate / "findings-pack.v2.json").write_text(
+        json.dumps(candidate_pack),
+        encoding="utf-8",
+    )
+
+    first_prediction = threading.Event()
+    allow_second_prediction = threading.Event()
+    second_prediction = threading.Event()
+    activation_started = threading.Event()
+    activation_done = threading.Event()
+    calls = 0
+    original_predict = runtime._predict_unlocked
+
+    def coordinated_predict(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            first_prediction.set()
+            if not allow_second_prediction.wait(timeout=2):
+                raise RuntimeError("second prediction was not released")
+        elif calls == 2:
+            second_prediction.set()
+        return original_predict(*args, **kwargs)
+
+    monkeypatch.setattr(runtime, "_predict_unlocked", coordinated_predict)
+    results = []
+
+    def run_what_if() -> None:
+        results.append(
+            runtime.what_if(
+                {"x": 0.5},
+                {"x": 0.25},
+                patch="16.17",
+            )
+        )
+
+    def activate() -> None:
+        activation_started.set()
+        transaction = store.activate_candidate(candidate)
+        transaction.finalize()
+        activation_done.set()
+
+    inference_thread = threading.Thread(target=run_what_if)
+    activation_thread = threading.Thread(target=activate)
+    inference_thread.start()
+    assert first_prediction.wait(timeout=2)
+    activation_thread.start()
+    assert activation_started.wait(timeout=2)
+    assert not activation_done.wait(timeout=0.05)
+    allow_second_prediction.set()
+    assert second_prediction.wait(timeout=2)
+    assert not activation_done.is_set()
+    inference_thread.join(timeout=2)
+    activation_thread.join(timeout=2)
+
+    assert not inference_thread.is_alive()
+    assert not activation_thread.is_alive()
+    assert results and results[0].status == "available"
+    assert activation_done.is_set()
 
 def test_surrender_runtime_gate_runs_before_session_loading(tmp_path: Path, monkeypatch) -> None:
     root, _pack, _artifact, _card_payload = _fixture_pack(tmp_path)

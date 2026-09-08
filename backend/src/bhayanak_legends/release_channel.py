@@ -1,9 +1,9 @@
 """Findings Pack release channel.
 
-The release channel is deliberately independent from the GitHub client.  A public
+The release channel is deliberately independent from the GitHub client. A public
 manifest describes a pack asset and its compatibility; the client downloads into
-a temporary directory, validates every declared input, then replaces only the
-pack payload as one final filesystem operation.
+a temporary directory, validates every declared input, then hands the complete
+candidate to PackStore for atomic generation activation.
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ import logging
 import os
 import posixpath
 import re
-import shutil
 import tempfile
 import urllib.parse
 import zipfile
@@ -32,7 +31,7 @@ from .manifest_signing import (
     ManifestSignatureError,
     verify_manifest_signature,
 )
-from .pack import PackError, validate_pack_directory
+from .pack import PackActivationTransaction, PackError, PackStore, validate_pack_directory
 from .pack_v2 import EXECUTABLE_MODEL_KEYS, FindingsPackV2
 
 MANIFEST_MAX_BYTES = 256 * 1024
@@ -43,7 +42,6 @@ SIGNATURE_MAX_BYTES = 16 * 1024
 MAX_REDIRECTS = 8
 
 GITHUB_HOST = "github.com"
-GITHUB_API_HOST = "api.github.com"
 GITHUB_CDN_HOST = "release-assets.githubusercontent.com"
 _GITHUB_LATEST_RE = re.compile(
     r"^(?P<repo>/[^/]+/[^/]+)/releases/latest/download/(?P<asset>[^/]+)$"
@@ -51,8 +49,12 @@ _GITHUB_LATEST_RE = re.compile(
 _GITHUB_TAGGED_RE = re.compile(
     r"^(?P<repo>/[^/]+/[^/]+)/releases/download/(?P<tag>[^/]+)/(?P<asset>[^/]+)$"
 )
+_GITHUB_LATEST_TAG_RE = re.compile(
+    r"^(?P<repo>/[^/]+/[^/]+)/releases/tag/(?P<tag>[^/]+)$"
+)
 
 log = logging.getLogger(__name__)
+
 DEFAULT_MANIFEST_URL = (
     "https://github.com/theHimanshuShekhar/BhayanakLegends/"
     "releases/latest/download/findings-pack-manifest.json"
@@ -92,7 +94,7 @@ class ReleaseResult:
     pack_version: str | None
     schema_version: int | None = None
     reason: str | None = None
-    activation: ActivationTransaction | None = None
+    activation: PackActivationTransaction | None = None
 
 
 @dataclass(frozen=True)
@@ -145,6 +147,28 @@ def _effective_port(parsed: urllib.parse.ParseResult) -> int | None:
 def _origin(url: str) -> tuple[str, str, int | None]:
     parsed = urllib.parse.urlparse(url)
     return (parsed.scheme.lower(), (parsed.hostname or "").lower(), _effective_port(parsed))
+
+_URL_IN_DIAGNOSTIC_RE = re.compile(r"https?://[^\s<>'\"]+")
+
+
+def _sanitize_diagnostic(exc: BaseException) -> str:
+    """Keep transport diagnostics free of signed queries and credentials."""
+    if isinstance(exc, httpx.HTTPError):
+        return "release transport failed"
+    message = str(exc)
+
+    def replace(match: re.Match[str]) -> str:
+        value = match.group(0).rstrip(".,);")
+        try:
+            parsed = urllib.parse.urlsplit(value)
+            host = parsed.hostname or ""
+            if parsed.port is not None:
+                host = f"{host}:{parsed.port}"
+            return urllib.parse.urlunsplit((parsed.scheme, host, parsed.path, "", ""))
+        except ValueError:
+            return "[release URL redacted]"
+
+    return _URL_IN_DIAGNOSTIC_RE.sub(replace, message)
 
 
 def _is_literal_loopback_http(url: str) -> bool:
@@ -276,6 +300,36 @@ def _github_route(
     if repository is not None and route[0] != repository:
         return None
     return route
+
+def _github_latest_tag(
+    url: str,
+    *,
+    repository: str | None = None,
+) -> tuple[str, str] | None:
+    """Return ``(repository, tag)`` for a same-repository latest redirect."""
+    parsed = urllib.parse.urlparse(url)
+    try:
+        port = _effective_port(parsed)
+    except ValueError:
+        return None
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname != GITHUB_HOST
+        or port != 443
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+    ):
+        return None
+    match = _GITHUB_LATEST_TAG_RE.fullmatch(parsed.path)
+    if match is None:
+        return None
+    tag = urllib.parse.unquote(match.group("tag"))
+    repo = match.group("repo")
+    if not tag or "/" in tag or "\\" in tag or (repository is not None and repo != repository):
+        return None
+    return repo, tag
 
 def _artifact_specs(value: Any) -> tuple[dict[str, str], ...]:
     if value is None:
@@ -642,43 +696,6 @@ def _validate_candidate(
     return pack
 
 
-class ActivationTransaction:
-    """Retain activation backups until the new pack has been reloaded."""
-
-    def __init__(
-        self,
-        rollback_dir: Path,
-        changed: list[tuple[Path, Path | None]],
-    ) -> None:
-        self._rollback_dir = rollback_dir
-        self._changed = changed
-        self._closed = False
-
-    def finalize(self) -> None:
-        if self._closed:
-            return
-        shutil.rmtree(self._rollback_dir, ignore_errors=False)
-        self._closed = True
-
-    def rollback(self) -> None:
-        if self._closed:
-            return
-        first_error: OSError | None = None
-        for target, backup in reversed(self._changed):
-            try:
-                if backup is not None and backup.exists():
-                    os.replace(backup, target)
-                elif target.exists():
-                    target.unlink()
-            except OSError as exc:
-                first_error = first_error or exc
-        try:
-            shutil.rmtree(self._rollback_dir, ignore_errors=False)
-        except OSError as exc:
-            first_error = first_error or exc
-        self._closed = True
-        if first_error is not None:
-            raise first_error
 
 
 class ReleaseChannel:
@@ -694,8 +711,9 @@ class ReleaseChannel:
         client: httpx.AsyncClient | None = None,
         allow_loopback_http: bool = False,
         manifest_public_key: bytes | None = None,
+        pack_store: PackStore | None = None,
     ) -> None:
-        self.pack_dir = Path(pack_dir)
+        self.pack_store = pack_store or PackStore(pack_dir)
         self.manifest_url = manifest_url
         self.app_version = app_version
         self.timeout = timeout
@@ -710,6 +728,10 @@ class ReleaseChannel:
                     )
                 manifest_public_key = _decode_manifest_public_key(override)
         self.manifest_public_key = manifest_public_key
+
+    @property
+    def pack_dir(self) -> Path:
+        return self.pack_store.pack_dir
 
     def _validate_transport_url(
         self,
@@ -789,7 +811,7 @@ class ReleaseChannel:
         *,
         label: str,
     ) -> str:
-        """Resolve a latest-release route to its immutable GitHub tag URL."""
+        """Resolve a latest route through GitHub's same-origin tag redirect."""
         if not policy.github_latest or policy.github_repo is None or policy.github_asset is None:
             raise ReleaseChannelError(f"{label} GitHub latest release is unavailable")
         route = _github_route(policy.initial_url)
@@ -801,55 +823,33 @@ class ReleaseChannel:
         ):
             raise ReleaseChannelError(f"{label} GitHub latest release is invalid")
         repository, _, asset = route
-        metadata_url = f"https://{GITHUB_API_HOST}/repos{repository}/releases/latest"
-        metadata_label = f"{label} GitHub release metadata"
+        metadata_url = f"https://{GITHUB_HOST}{repository}/releases/latest"
+        metadata_label = f"{label} GitHub latest tag"
         metadata_parsed = self._validate_transport_url(metadata_url, label=metadata_label)
         if (
-            metadata_parsed.hostname != GITHUB_API_HOST
+            metadata_parsed.hostname != GITHUB_HOST
             or _effective_port(metadata_parsed) != 443
-            or metadata_parsed.path != f"/repos{repository}/releases/latest"
+            or metadata_parsed.path != f"{repository}/releases/latest"
             or metadata_parsed.query
             or metadata_parsed.fragment
         ):
             raise ReleaseChannelError(f"{metadata_label} URL is invalid")
 
-        chunks: list[bytes] = []
-        total = 0
         async with client.stream(
             "GET",
             metadata_url,
-            headers={
-                "Accept": "application/vnd.github+json",
-                "User-Agent": "BhayanakLegends-release-channel",
-            },
+            headers={"User-Agent": "BhayanakLegends-release-channel"},
             follow_redirects=False,
         ) as response:
-            if response.is_redirect:
-                raise ReleaseChannelError(f"{metadata_label} redirect is not allowed")
-            try:
-                response.raise_for_status()
-            except httpx.HTTPError as exc:
-                raise ReleaseChannelError(f"{metadata_label} request failed") from exc
-            content_length = response.headers.get("content-length")
-            if content_length is not None:
-                try:
-                    declared_length = int(content_length)
-                except ValueError as exc:
-                    raise ReleaseChannelError(
-                        f"{metadata_label} content length is invalid"
-                    ) from exc
-                if declared_length < 0 or declared_length > MANIFEST_MAX_BYTES:
-                    raise ReleaseChannelError(
-                        f"{metadata_label} exceeds {MANIFEST_MAX_BYTES} byte limit"
-                    )
-            async for chunk in response.aiter_bytes(64 * 1024):
-                if chunk:
-                    total += len(chunk)
-                    if total > MANIFEST_MAX_BYTES:
-                        raise ReleaseChannelError(
-                            f"{metadata_label} exceeds {MANIFEST_MAX_BYTES} byte limit"
-                        )
-                    chunks.append(chunk)
+            if not response.is_redirect:
+                raise ReleaseChannelError(f"{metadata_label} did not redirect to a tag")
+            location = response.headers.get("location")
+            if not location:
+                raise ReleaseChannelError(f"{metadata_label} redirect has no location")
+            tag_url = urllib.parse.urljoin(metadata_url, location)
+            tag = _github_latest_tag(tag_url, repository=repository)
+            if tag is None:
+                raise ReleaseChannelError(f"{metadata_label} redirect escaped its repository")
             final_url = str(response.url) or metadata_url
             final_parsed = self._validate_transport_url(
                 final_url,
@@ -857,32 +857,19 @@ class ReleaseChannel:
                 expected_origin=_origin(metadata_url),
             )
             if (
-                final_parsed.hostname != GITHUB_API_HOST
+                final_parsed.hostname != GITHUB_HOST
                 or final_parsed.path != metadata_parsed.path
                 or final_parsed.query
                 or final_parsed.fragment
             ):
                 raise ReleaseChannelError(f"{metadata_label} changed its endpoint")
+            _, resolved_tag = tag
 
-        try:
-            metadata = json.loads(b"".join(chunks).decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise ReleaseChannelError(f"{metadata_label} is not valid JSON") from exc
-        if not isinstance(metadata, dict):
-            raise ReleaseChannelError(f"{metadata_label} is not a JSON object")
-        tag = metadata.get("tag_name")
-        if (
-            not isinstance(tag, str)
-            or not tag
-            or tag in {".", ".."}
-            or "/" in tag
-            or "\\" in tag
-        ):
-            raise ReleaseChannelError(f"{metadata_label} tag is invalid")
         tagged_url = urllib.parse.urlunparse(
             urllib.parse.urlparse(policy.initial_url)._replace(
                 path=(
-                    f"{repository}/releases/download/{urllib.parse.quote(tag, safe='')}/"
+                    f"{repository}/releases/download/"
+                    f"{urllib.parse.quote(resolved_tag, safe='')}/"
                     f"{urllib.parse.quote(asset, safe='')}"
                 ),
                 query="",
@@ -894,7 +881,7 @@ class ReleaseChannel:
             repository=repository,
             require_tag=True,
         )
-        if tagged_route != (repository, tag, asset):
+        if tagged_route != (repository, resolved_tag, asset):
             raise ReleaseChannelError(f"{metadata_label} tag is invalid")
         return tagged_url
 
@@ -1048,7 +1035,7 @@ class ReleaseChannel:
         defer_finalize: bool = False,
     ) -> ReleaseResult:
         """Check the public manifest and activate only a newer valid candidate."""
-        transaction: ActivationTransaction | None = None
+        transaction: PackActivationTransaction | None = None
         try:
             async with self._client_context() as client:
                 manifest_fetch = await self._fetch_bytes(
@@ -1085,7 +1072,10 @@ class ReleaseChannel:
                 release = _manifest(raw_manifest_json, logical_manifest_url)
                 if not is_newer_version(release.pack_version, current_version):
                     return ReleaseResult(False, current_version, release.schema_version, "up-to-date")
-                with tempfile.TemporaryDirectory(prefix="bl-pack-", dir=self.pack_dir.parent) as temporary:
+                with tempfile.TemporaryDirectory(
+                    prefix="bl-pack-",
+                    dir=self.pack_store.storage_parent,
+                ) as temporary:
                     temp_root = Path(temporary)
                     download = temp_root / "download"
                     await self._download(
@@ -1130,8 +1120,9 @@ class ReleaseChannel:
         ) as exc:
             if transaction is not None:
                 transaction.rollback()
-            log.warning("Findings Pack release check failed: %s", exc)
-            return ReleaseResult(False, current_version, None, str(exc))
+            reason = _sanitize_diagnostic(exc)
+            log.warning("Findings Pack release check failed: %s", reason)
+            return ReleaseResult(False, current_version, None, reason)
 
     def _client_context(self):
         if self.client is not None:
@@ -1166,76 +1157,12 @@ class ReleaseChannel:
             target.unlink(missing_ok=True)
             raise
 
-    def _activate(self, candidate: Path) -> ActivationTransaction:
-        """Replace the active pack with an already-validated candidate.
-
-        Artifacts stage first; the pack JSON swap is the single commit point.
-        Backups live in a sibling rollback directory until the caller finalizes
-        the transaction after a successful reload.
-        """
-        self.pack_dir.mkdir(parents=True, exist_ok=True)
-
-        rollback_dir = Path(
-            tempfile.mkdtemp(prefix=f".{self.pack_dir.name}-rollback-", dir=self.pack_dir.parent)
-        )
-        changed: list[tuple[Path, Path | None]] = []
-        transaction = ActivationTransaction(rollback_dir, changed)
-        staged_pack = candidate / PACK_FILENAME
-        target_pack = self.pack_dir / PACK_FILENAME
-        candidate_files = {
-            source.relative_to(candidate)
-            for source in candidate.rglob("*")
-            if source.is_file()
-        }
+    def _activate(self, candidate: Path) -> PackActivationTransaction:
+        """Publish an already-validated candidate as one immutable generation."""
         try:
-            # Artifacts are staged first. The JSON is the commit point: readers
-            # see either the old validated pack or the complete new pack.
-            for source in candidate.rglob("*"):
-                if not source.is_file() or source == staged_pack:
-                    continue
-                if source.name == PACK_FILENAME:
-                    continue
-                relative = source.relative_to(candidate)
-                target = self.pack_dir / relative
-                target.parent.mkdir(parents=True, exist_ok=True)
-                backup: Path | None = None
-                if target.exists():
-                    backup = rollback_dir / relative
-                    backup.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(target, backup)
-                changed.append((target, backup))
-                os.replace(source, target)
-            preserved_schema = (
-                PurePosixPath(SCHEMA_FILENAME)
-                if not (candidate / SCHEMA_FILENAME).is_file()
-                else None
-            )
-            for target in sorted(
-                (path for path in self.pack_dir.rglob("*") if path.is_file()),
-                key=lambda path: path.relative_to(self.pack_dir).as_posix(),
-            ):
-                relative = target.relative_to(self.pack_dir)
-                if relative in candidate_files or relative == preserved_schema:
-                    continue
-                backup = rollback_dir / relative
-                backup.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(target, backup)
-                changed.append((target, backup))
-                target.unlink()
-
-
-            if not staged_pack.is_file():
-                raise ReleaseChannelError(f"release is missing {staged_pack.name}")
-            backup = None
-            if target_pack.exists():
-                backup = rollback_dir / staged_pack.name
-                shutil.copy2(target_pack, backup)
-            changed.append((target_pack, backup))
-            os.replace(staged_pack, target_pack)
-        except Exception:
-            transaction.rollback()
-            raise
-        return transaction
+            return self.pack_store.activate_candidate(candidate)
+        except PackError as exc:
+            raise ReleaseChannelError(str(exc)) from exc
 
     async def __aexit__(self, *args: object) -> None:
         return None

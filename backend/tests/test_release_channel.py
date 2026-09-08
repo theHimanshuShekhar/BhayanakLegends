@@ -112,10 +112,11 @@ async def test_valid_update_activates_and_preserves_artifact_hash(tmp_path: Path
     result = await channel.check_and_activate("v2")
     assert result.activated
     assert result.pack_version == "v3"
-    assert json.loads((tmp_path / "pack" / "findings-pack.v2.json").read_text())["pack_version"] == "v3"
+    active = channel.pack_dir
+    assert json.loads((active / "findings-pack.v2.json").read_text())["pack_version"] == "v3"
 
     for relative, expected in canonical_model_assets().items():
-        assert (tmp_path / "pack" / relative).read_bytes() == expected
+        assert (active / relative).read_bytes() == expected
 
 @pytest.mark.asyncio
 async def test_bad_schema_is_rejected(tmp_path: Path) -> None:
@@ -176,8 +177,8 @@ async def test_interrupted_swap_leaves_current_pack_untouched(tmp_path: Path, mo
     real_replace = __import__("os").replace
 
     def interrupted(source: str | Path, target: str | Path) -> None:
-        if Path(target).name == "findings-pack.v2.json":
-            raise OSError("simulated interrupted swap")
+        if Path(target).name == ".pack-pointer":
+            raise OSError("simulated interrupted pointer swap")
         real_replace(source, target)
 
     monkeypatch.setattr("bhayanak_legends.release_channel.os.replace", interrupted)
@@ -203,8 +204,9 @@ async def test_activation_transaction_can_roll_back_after_reload_failure(tmp_pat
 
     assert result.activated
     assert result.activation is not None
+    active = channel.pack_dir
     assert (
-        (pack_dir / primary_model_path).read_bytes()
+        (active / primary_model_path).read_bytes()
         == canonical_model_assets()[primary_model_path]
     )
     result.activation.rollback()
@@ -345,9 +347,9 @@ async def test_download_at_exact_64mib_boundary_is_eligible(tmp_path: Path) -> N
     assert len(asset) == COMPRESSED_ASSET_MAX_BYTES
     channel = _channel(tmp_path, asset)
     result = await channel.check_and_activate("v2")
-    assert result.activated
+    active = channel.pack_dir
+    assert json.loads((active / "findings-pack.v2.json").read_text())["pack_version"] == "v3"
     assert result.pack_version == "v3"
-    assert json.loads((tmp_path / "pack" / "findings-pack.v2.json").read_text())["pack_version"] == "v3"
     _assert_no_leftovers(tmp_path)
 
 
@@ -583,7 +585,7 @@ async def test_github_latest_direct_cdn_redirect_is_pinned_by_metadata(
     latest_url = (
         "https://github.com/acme/project/releases/latest/download/findings-pack-manifest.json"
     )
-    api_url = "https://api.github.com/repos/acme/project/releases/latest"
+    tag_lookup_url = "https://github.com/acme/project/releases/latest"
     tag_url = (
         "https://github.com/acme/project/releases/download/v3.4.5/"
         "findings-pack-manifest.json"
@@ -598,8 +600,12 @@ async def test_github_latest_direct_cdn_redirect_is_pinned_by_metadata(
         seen.append(str(request.url))
         if str(request.url) == latest_url:
             return httpx.Response(302, headers={"location": cdn_url}, request=request)
-        if str(request.url) == api_url:
-            return httpx.Response(200, json={"tag_name": "v3.4.5"}, request=request)
+        if str(request.url) == tag_lookup_url:
+            return httpx.Response(
+                302,
+                headers={"location": "/acme/project/releases/tag/v3.4.5"},
+                request=request,
+            )
         if str(request.url) == cdn_url:
             return httpx.Response(200, content=b"signed-manifest", request=request)
         return httpx.Response(404, request=request)
@@ -617,7 +623,7 @@ async def test_github_latest_direct_cdn_redirect_is_pinned_by_metadata(
     assert fetched.logical_url == tag_url
     assert fetched.transfer_url == cdn_url
     assert fetched.body == b"signed-manifest"
-    assert seen == [latest_url, api_url, cdn_url]
+    assert seen == [latest_url, tag_lookup_url, cdn_url]
 
 
 @pytest.mark.asyncio
@@ -625,7 +631,7 @@ async def test_github_latest_direct_cdn_redirect_requires_valid_metadata(
     tmp_path: Path,
 ) -> None:
     latest_url = "https://github.com/acme/project/releases/latest/download/asset.zip"
-    api_url = "https://api.github.com/repos/acme/project/releases/latest"
+    tag_lookup_url = "https://github.com/acme/project/releases/latest"
     cdn_url = (
         "https://release-assets.githubusercontent.com/github-production-release-asset/"
         "acme/project/123/asset.zip?X-Amz-Signature=fixture"
@@ -634,10 +640,10 @@ async def test_github_latest_direct_cdn_redirect_requires_valid_metadata(
     def handler(request: httpx.Request) -> httpx.Response:
         if str(request.url) == latest_url:
             return httpx.Response(302, headers={"location": cdn_url}, request=request)
-        if str(request.url) == api_url:
+        if str(request.url) == tag_lookup_url:
             return httpx.Response(
-                200,
-                json={"tag_name": "release/attacker-controlled"},
+                302,
+                headers={"location": "https://github.com/other/project/releases/tag/v3.4.5"},
                 request=request,
             )
         raise AssertionError(f"unexpected request: {request.url}")

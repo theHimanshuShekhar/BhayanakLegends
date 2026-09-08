@@ -28,6 +28,7 @@ from fastapi.testclient import TestClient
 from bhayanak_legends.app import APP_VERSION, _run_release_channel_check, create_app
 from bhayanak_legends.config import SidecarConfig
 from bhayanak_legends.credentials import InMemoryCredentialStore
+from bhayanak_legends.pack import PackStore
 from bhayanak_legends.release_channel import ReleaseChannel
 from pack_fixture_helpers import canonical_model_assets, minimal_pack, model_manifest_pins
 from bhayanak_legends.routers_events import event_stream
@@ -101,6 +102,7 @@ def _app_and_channel(
         client=client,
         allow_loopback_http=True,
         manifest_public_key=TEST_PUBLIC_KEY,
+        pack_store=app.state.pack,
     )
     return app, channel
 
@@ -141,6 +143,22 @@ async def test_update_publishes_pack_updated_after_reload(tmp_path: Path) -> Non
     assert health.status_code == 200
     assert health.json()["status"] == "ok"
     assert health.json()["pack_version"] == "v3"
+
+
+async def test_activated_generation_survives_restart(tmp_path: Path) -> None:
+    app, channel = _app_and_channel(tmp_path, _asset())
+    previous = app.state.pack.pack_dir
+
+    await _run_release_channel_check(app, channel)
+
+    current = app.state.pack.pack_dir
+    assert current != previous
+    assert json.loads((previous / "findings-pack.v2.json").read_text())["pack_version"] == "v2"
+    assert json.loads((current / "findings-pack.v2.json").read_text())["pack_version"] == "v3"
+
+    restarted = PackStore(app.state.config.resolved_active_pack_dir())
+    restarted.initialize()
+    assert restarted.version() == "v3"
 
 
 async def test_reload_failure_restores_previous_pack_and_suppresses_event(
@@ -200,9 +218,14 @@ async def test_interrupted_artifact_staging_keeps_previous_pack(
 
     real_replace = os.replace
 
+    pointer_calls = 0
+
     def interrupted(source: str | Path, target: str | Path) -> None:
-        if Path(target).name == "honest-model.bin":
-            raise OSError("simulated staging failure")
+        nonlocal pointer_calls
+        if Path(target).name == ".active-pointer":
+            pointer_calls += 1
+            if pointer_calls == 1:
+                raise OSError("simulated interrupted generation setup")
         real_replace(source, target)
 
     monkeypatch.setattr("bhayanak_legends.release_channel.os.replace", interrupted)
@@ -228,9 +251,14 @@ async def test_interrupted_json_commit_keeps_previous_pack(
 
     real_replace = os.replace
 
+    pointer_calls = 0
+
     def interrupted(source: str | Path, target: str | Path) -> None:
-        if Path(target).name == "findings-pack.v2.json":
-            raise OSError("simulated interrupted swap")
+        nonlocal pointer_calls
+        if Path(target).name == ".active-pointer":
+            pointer_calls += 1
+            if pointer_calls == 2:
+                raise OSError("simulated interrupted generation commit")
         real_replace(source, target)
 
     monkeypatch.setattr("bhayanak_legends.release_channel.os.replace", interrupted)
