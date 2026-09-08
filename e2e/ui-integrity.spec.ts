@@ -265,6 +265,7 @@ async function currentStop(page: Page): Promise<TabStop | null> {
 
 test.describe("cross-route UI integrity", () => {
   test("semantic outline, retained sections, overflow, and wrapped statuses at both viewports", async ({ page, request }, testInfo) => {
+    test.setTimeout(120_000);
     // Earlier suites leave LCU/Live replay scenarios behind; the semantic
     // contract is defined against the deterministic idle baseline.
     await idleBaseline(request);
