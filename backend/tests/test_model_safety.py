@@ -266,6 +266,10 @@ async def test_release_manifest_pins_available_model_card_and_artifact(tmp_path:
             return httpx.Response(200, content=asset, request=request)
         return httpx.Response(404, request=request)
 
+    store = PackStore(root)
+    store.initialize()
+    assert store.version() == "v2"
+
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     channel = ReleaseChannel(
         root,
@@ -274,9 +278,11 @@ async def test_release_manifest_pins_available_model_card_and_artifact(tmp_path:
         client=client,
         allow_loopback_http=True,
         manifest_public_key=private_key.public_key().public_bytes_raw(),
+        pack_store=store,
     )
     result = await channel.check_and_activate("v2")
     assert result.activated
+    assert store.version() == "v3"
     active = channel.pack_dir
     assert active != root
     assert json.loads((root / "findings-pack.v2.json").read_text())["pack_version"] == "v2"
@@ -320,6 +326,32 @@ def test_restart_does_not_promote_orphan_generation_without_committed_pointer(
     assert restarted.version() == "v2"
     assert restarted.pack_dir == root
     assert not orphan.exists()
+
+
+def test_committed_generation_survives_cleanup_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, pack, _artifact, _card_payload = _fixture_pack(tmp_path)
+    store = PackStore(root)
+    store.initialize()
+    candidate = tmp_path / "candidate"
+    shutil.copytree(root, candidate)
+    (candidate / "findings-pack.v2.json").write_text(
+        json.dumps({**pack, "pack_version": "v3"}),
+        encoding="utf-8",
+    )
+    transaction = store.activate_candidate(candidate)
+
+    def fail_cleanup(*, keep: Path | None = None) -> None:
+        del keep
+        raise OSError("simulated Windows handle retention")
+
+    monkeypatch.setattr(store, "_cleanup_generations", fail_cleanup)
+    transaction.finalize()
+    store.reload()
+
+    assert store.version() == "v3"
 
 
 def test_activation_waits_for_outer_what_if_read_transaction(

@@ -199,6 +199,7 @@ class PackActivationTransaction:
         *,
         original_pointer: str | None,
         original_path: Path | None,
+        original_pack: dict | None,
         previous_path: Path | None,
         current_path: Path,
         migrated_legacy: bool,
@@ -206,6 +207,7 @@ class PackActivationTransaction:
         self._store = store
         self._original_pointer = original_pointer
         self._original_path = original_path
+        self._original_pack = original_pack
         self._previous_path = previous_path
         self._current_path = current_path
         self._migrated_legacy = migrated_legacy
@@ -223,6 +225,10 @@ class PackActivationTransaction:
             ):
                 shutil.rmtree(self._previous_path, ignore_errors=True)
             self._store._cleanup_generations(keep=self._current_path)
+        except OSError:
+            # The pointer is already committed. Windows may retain handles to
+            # an older generation, so cleanup is explicitly best-effort.
+            pass
         finally:
             self._closed = True
             if self._lock_held:
@@ -248,6 +254,7 @@ class PackActivationTransaction:
                     self._store._active_dir = self._original_path
             except OSError as exc:
                 first_error = exc
+            self._store._pack = self._original_pack
             try:
                 if self._current_path.exists() and self._current_path != self._store._active_dir:
                     shutil.rmtree(self._current_path, ignore_errors=False)
@@ -483,16 +490,6 @@ class PackStore:
         self._remove_pointer()
         self._cleanup_generations()
 
-        if self._logical_dir.exists():
-            try:
-                self._validate_existing(self._logical_dir)
-            except PackError:
-                pass
-            else:
-                self._active_dir = self._logical_dir
-                self._snapshot_last_known_good()
-                return
-
         known_good = self.last_known_good_dir
         if known_good.is_dir():
             try:
@@ -504,6 +501,17 @@ class PackStore:
                 pass
             else:
                 return
+
+        if self._logical_dir.exists():
+            try:
+                self._validate_existing(self._logical_dir)
+            except PackError:
+                pass
+            else:
+                self._active_dir = self._logical_dir
+                self._snapshot_last_known_good()
+                return
+
 
         if self.bundled_dir is None:
             if self._logical_dir.exists():
@@ -530,6 +538,7 @@ class PackStore:
         self._activation_lock.acquire()
         original_pointer: str | None = None
         original_path: Path | None = self._logical_dir
+        original_pack: dict | None = self._pack
         previous_path: Path | None = None
         migrated_legacy = False
         current_path: Path | None = None
@@ -557,10 +566,12 @@ class PackStore:
             os.replace(candidate, current_path)
             self._write_pointer_name(current_path.name)
             self._active_dir = current_path
+            self._pack = None
             return PackActivationTransaction(
                 self,
                 original_pointer=original_pointer,
                 original_path=original_path,
+                original_pack=original_pack,
                 previous_path=previous_path,
                 current_path=current_path,
                 migrated_legacy=migrated_legacy,
@@ -589,6 +600,7 @@ class PackStore:
                     self._active_dir = original_path
             except OSError:
                 pass
+            self._pack = original_pack
             self._activation_lock.release()
             raise
 

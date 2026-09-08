@@ -161,6 +161,23 @@ async def test_activated_generation_survives_restart(tmp_path: Path) -> None:
     assert restarted.version() == "v3"
 
 
+async def test_corrupt_pointer_recovers_last_successfully_activated_pack(
+    tmp_path: Path,
+) -> None:
+    app, channel = _app_and_channel(tmp_path, _asset())
+    logical = app.state.config.resolved_active_pack_dir()
+
+    await _run_release_channel_check(app, channel)
+    pointer = logical.parent / f".{logical.name}-pointer"
+    pointer.write_text("../uncommitted-generation", encoding="ascii")
+
+    restarted = PackStore(logical)
+    restarted.initialize()
+
+    assert restarted.version() == "v3"
+    assert json.loads((logical / "findings-pack.v2.json").read_text())["pack_version"] == "v3"
+
+
 async def test_reload_failure_restores_previous_pack_and_suppresses_event(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
