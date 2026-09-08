@@ -399,11 +399,14 @@ test.describe("active Live Companion replay", () => {
     expect(statusResponse.ok()).toBeTruthy();
     expect(containsForbiddenKeys(await statusResponse.json())).toBe(false);
 
+    await page.route("**/events**", (route) => route.abort("failed"));
     await page.route(`${SIDECAR}/live/ingame`, (route) => route.abort("failed"));
     await page.reload();
     await expect(page.getByTestId("ingame-error")).toBeVisible();
     await expect(page.getByRole("alert")).toHaveCount(1);
     await captureState(page, testInfo, "error");
+    await page.unroute(`${SIDECAR}/live/ingame`);
+    await page.unroute("**/events**");
     expectNoBrowserErrors(browserErrors.filter((error) => !error.includes("ERR_FAILED")));
   });
   test("startup hydration through champ select, in-game, game end, and reconnect is one continuous flow", async ({ page, request }, testInfo) => {
