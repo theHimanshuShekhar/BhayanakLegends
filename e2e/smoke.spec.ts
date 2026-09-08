@@ -26,10 +26,21 @@ test.describe("Bhayanak Legends v2 smoke", () => {
     expect(response.status()).toBeLessThan(500);
   });
 
-  test("live match shows objectives priors from the Findings Pack", async ({ page }) => {
+  test("live match identifies the active Findings Pack version and pooled patch range", async ({ page, request }) => {
+    const packResponse = await request.get(`${SIDECAR}/pack`, { headers: AUTH });
+    expect(packResponse.ok()).toBeTruthy();
+    const pack = await packResponse.json();
+    expect(pack).toMatchObject({
+      schema_version: 2,
+      pack_version: "v2",
+      patch_range: { min: "14.17", max: "16.17" },
+      dataset: { eligible_matches: 125_031, participant_performances: 1_250_310 },
+    });
     await page.goto("/live");
     await expect(page.getByTestId("sidecar-dot")).toBeVisible();
-    await expect(page.getByText("81.4%").first()).toBeVisible();
+    await expect(
+      page.getByText("Findings Pack v2 · 125,031 matches · 14.17–16.17", { exact: true }),
+    ).toBeVisible({ timeout: 15_000 });
   });
 
   test("post-game suppresses comeback rate for the replayed mild deficit", async ({ page }) => {
