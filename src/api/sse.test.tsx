@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseSseMessage, useEvents, type SseMessage } from "./sse";
 
@@ -199,7 +199,7 @@ describe("shared SSE owner", () => {
       </>,
     );
 
-    await waitFor(() => expect(FakeEventSource.instances).toHaveLength(1));
+    await act(async () => {});
     const source = FakeEventSource.instances[0];
     await act(async () => {
       source.open();
@@ -228,10 +228,7 @@ describe("shared SSE owner", () => {
       </>,
     );
 
-    await act(async () => {
-      vi.advanceTimersByTime(0);
-      await Promise.resolve();
-    });
+    await act(async () => {});
     expect(FakeEventSource.instances).toHaveLength(1);
     await act(async () => {
       FakeEventSource.instances[0].open();
@@ -264,10 +261,7 @@ describe("shared SSE owner", () => {
       </>,
     );
 
-    await act(async () => {
-      vi.advanceTimersByTime(0);
-      await Promise.resolve();
-    });
+    await act(async () => {});
     expect(FakeEventSource.instances).toHaveLength(1);
     expect(edges).toEqual([false]);
     await act(async () => {
@@ -298,10 +292,7 @@ describe("shared SSE owner", () => {
   it("closes the source and cancels reconnect when the final subscriber unmounts", async () => {
     vi.useFakeTimers();
     const view = render(<StatusOnly />);
-    await act(async () => {
-      vi.advanceTimersByTime(0);
-      await Promise.resolve();
-    });
+    await act(async () => {});
     const source = FakeEventSource.instances[0];
     source.error();
     view.unmount();

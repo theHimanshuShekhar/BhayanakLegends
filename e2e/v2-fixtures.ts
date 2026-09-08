@@ -1,7 +1,10 @@
 import type { Page } from "@playwright/test";
 
 const PACK_URL = "http://127.0.0.1:23122/pack";
-
+const PACK_HEADERS = {
+  "X-BL-Token": "local-sidecar-development-token-32chars",
+  Host: "127.0.0.1:23122",
+};
 const EVIDENCE_METADATA = {
   patch_range: { min: "14.17", max: "16.17" },
   population_scope: "e2e v2 pooled population fixture",
@@ -121,18 +124,25 @@ const MATCHUP_EXAMPLES = [
  * shipped pack or weakening route readiness.
  */
 export async function mockTierEvidencePack(page: Page): Promise<void> {
-  await page.route(PACK_URL, async (route) => {
-    const response = await route.fetch();
-    const pack = (await response.json()) as Record<string, unknown>;
-    const fixturePack = {
-      ...pack,
-      tier_list: TIER_LIST,
-      matchup_examples: MATCHUP_EXAMPLES,
-    };
-    await route.fulfill({
+  const response = await page.context().request.get(PACK_URL, { headers: PACK_HEADERS });
+  if (!response.ok()) {
+    throw new Error(`base Findings Pack request failed: ${response.status()}`);
+  }
+  const pack = await response.json();
+  if (typeof pack !== "object" || pack === null || Array.isArray(pack)) {
+    throw new Error("base Findings Pack response was not a JSON object");
+  }
+  const fixturePack = {
+    ...(pack as Record<string, unknown>),
+    tier_list: TIER_LIST,
+    matchup_examples: MATCHUP_EXAMPLES,
+  };
+  const body = JSON.stringify(fixturePack);
+  await page.route(PACK_URL, (route) =>
+    route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(fixturePack),
-    });
-  });
+      body,
+    }),
+  );
 }

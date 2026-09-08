@@ -1044,6 +1044,7 @@ fn wait_for_health_until(
     Err(format!("sidecar health timed out: {last_error}"))
 }
 
+#[cfg(test)]
 fn health_request(port: u16, token: &str, timeout: Duration) -> Result<SidecarHealth, String> {
     let shutdown = ShutdownToken::default();
     health_request_until(port, token, Instant::now() + timeout, &shutdown)
@@ -1436,7 +1437,8 @@ mod tests {
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
             let mut request = [0_u8; 1024];
-            stream.read(&mut request).unwrap();
+            let bytes_read = stream.read(&mut request).unwrap();
+            assert!(bytes_read > 0);
             let body = r#"{"status":"ok"}"#;
             write!(
                 stream,

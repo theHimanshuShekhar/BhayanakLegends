@@ -1,4 +1,4 @@
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useCallback, useRef, useSyncExternalStore } from "react";
 import { eventsUrl, invalidateConnection } from "./client";
 import { isChampSelectSnapshot, isInGameSnapshot, PHASES } from "./liveValidation";
 import type {
@@ -141,24 +141,12 @@ const statusListeners = new Set<StatusListener>();
 const connectionListeners = new Set<ConnectionListener>();
 let source: EventSource | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-let connectTimer: ReturnType<typeof setTimeout> | null = null;
 let resolvingUrl = false;
 let connected = false;
 let generation = 0;
 
 function hasSubscribers() {
   return eventListeners.size > 0 || statusListeners.size > 0 || connectionListeners.size > 0;
-}
-
-function connectSoon() {
-  // React subscribes useSyncExternalStore before passive effects register the
-  // message callback. Defer one macrotask so committed listeners attach before
-  // an EventSource can open and deliver its first frame.
-  if (connectTimer !== null) return;
-  connectTimer = setTimeout(() => {
-    connectTimer = null;
-    if (hasSubscribers()) connect();
-  }, 0);
 }
 
 function notifyStatus() {
@@ -171,10 +159,6 @@ function stopConnection() {
   if (reconnectTimer !== null) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
-  }
-  if (connectTimer !== null) {
-    clearTimeout(connectTimer);
-    connectTimer = null;
   }
   resolvingUrl = false;
   connected = false;
@@ -242,29 +226,11 @@ function connect() {
     });
 }
 
-function subscribeStatus(listener: StatusListener) {
-  statusListeners.add(listener);
-  connectSoon();
-  return () => {
-    statusListeners.delete(listener);
-    if (!hasSubscribers()) stopConnection();
-  };
-}
-
 function subscribeEvents(listener: EventListener) {
   eventListeners.add(listener);
-  connectSoon();
+  connect();
   return () => {
     eventListeners.delete(listener);
-    if (!hasSubscribers()) stopConnection();
-  };
-}
-function subscribeConnection(listener: ConnectionListener) {
-  connectionListeners.add(listener);
-  listener(connected);
-  connectSoon();
-  return () => {
-    connectionListeners.delete(listener);
     if (!hasSubscribers()) stopConnection();
   };
 }
@@ -275,23 +241,37 @@ function getConnected() {
 
 /** Subscribes to the app-wide event stream; all callers share one EventSource. */
 export function useEvents(onMessage?: EventListener, options?: UseEventsOptions) {
-  const connectedNow = useSyncExternalStore(subscribeStatus, getConnected, () => false);
   const handlerRef = useRef(onMessage);
   const connectionHandlerRef = useRef(options?.onConnectionChange);
   handlerRef.current = onMessage;
   connectionHandlerRef.current = options?.onConnectionChange;
-
-  useEffect(() => {
-    if (!onMessage) return;
-    return subscribeEvents((message) => handlerRef.current?.(message));
-  }, []);
-
-  useEffect(() => {
-    if (!options?.onConnectionChange) return;
-    return subscribeConnection((nextConnected) => connectionHandlerRef.current?.(nextConnected));
-  }, []);
-
-  return connectedNow;
+  const hasMessage = onMessage !== undefined;
+  const hasConnectionHandler = options?.onConnectionChange !== undefined;
+  const subscribe = useCallback(
+    (listener: StatusListener) => {
+      statusListeners.add(listener);
+      const eventListener = hasMessage
+        ? (message: SseMessage) => handlerRef.current?.(message)
+        : undefined;
+      if (eventListener) eventListeners.add(eventListener);
+      const connectionListener = hasConnectionHandler
+        ? (nextConnected: boolean) => connectionHandlerRef.current?.(nextConnected)
+        : undefined;
+      if (connectionListener) {
+        connectionListeners.add(connectionListener);
+        connectionListener(connected);
+      }
+      connect();
+      return () => {
+        statusListeners.delete(listener);
+        if (eventListener) eventListeners.delete(eventListener);
+        if (connectionListener) connectionListeners.delete(connectionListener);
+        if (!hasSubscribers()) stopConnection();
+      };
+    },
+    [hasConnectionHandler, hasMessage],
+  );
+  return useSyncExternalStore(subscribe, getConnected, () => false);
 }
 
 /** Exposed for query hooks that consume typed events without opening another connection. */

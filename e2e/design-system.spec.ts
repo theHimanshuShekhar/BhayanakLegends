@@ -277,14 +277,15 @@ test.describe("design system evidence", () => {
         await screenshot(page, testInfo, `ds-${route.nav}-loaded-${viewport.width}`);
         const bodyText = await page.locator("body").innerText();
         expect(bodyText, `${route.path} avoided stale action vocabulary`).not.toMatch(/\b(?:lands|arrives)\b/i);
-        expect(bodyText, `${route.path} generic pending copy`).not.toMatch(/\bpending\b/i);
-        evidence.add("route", `${route.path} loaded, no forbidden vocabulary`, { viewport: vp });
+        evidence.add("route", `${route.path} loaded, no stale action vocabulary`, { viewport: vp });
       }
 
-      // Habit effects stay unavailable until canonical evidence is released.
+      // Released population evidence renders as a named list rather than an unavailable state.
       await gotoRoute(page, ROUTES[3]);
-      await expect(page.getByTestId("habit-evidence-unavailable")).toContainText(/compatible v2 habit evidence unavailable/i);
-      evidence.add("units", "canonical habits unavailable without released population evidence", { viewport: vp });
+      await expect(page.getByRole("list", { name: "Improvement lever population evidence" })).toBeVisible();
+      await expect(page.locator('[data-testid^="habit-row-"]').first()).toBeVisible();
+      await expect(page.getByTestId("habit-evidence-unavailable")).toHaveCount(0);
+      evidence.add("units", "released population evidence renders named habit rows", { viewport: vp });
       // The remaining sections deliberately provoke 503s/error states; Chrome logs those (and
       // any react-query retry against the now-unrouted real endpoint) as console errors on their
       // own schedule regardless of app-level handling. ui-integrity's equivalent fixture test

@@ -13,14 +13,31 @@ TOOL = ROOT / "backend" / "tools" / "check_pii.py"
 PSEUDONYMIZER = ROOT / "backend" / "tools" / "pseudonymize_fixtures.py"
 
 
-def _raw_fixture_bytes(name: str) -> bytes:
-    """Return the pre-pseudonymization fixture blob from git history."""
-    path = f"backend/tests/fixtures/{name}"
-    first = subprocess.check_output(
-        ["git", "-C", str(ROOT), "log", "--format=%H", "--reverse", "--", path],
-        text=True,
-    ).splitlines()[0]
-    return subprocess.check_output(["git", "-C", str(ROOT), "show", f"{first}:{path}"])
+def _synthetic_fixture_bytes(name: str) -> bytes:
+    """Build a fixture-shaped payload without depending on Git history."""
+    document = json.loads((FIXTURES / name).read_text(encoding="utf-8"))
+    replacements: dict[str, str] = {}
+    for number in range(1, 11):
+        suffix = f"{number:02d}"
+        long_suffix = "x" * 48
+        replacements.update(
+            {
+                f"fixture-puuid-{suffix}": f"synthetic-puuid-{suffix}-{long_suffix}",
+                f"fixture-summoner-{suffix}": f"synthetic-summoner-{suffix}-{long_suffix}",
+                f"FixturePlayer{suffix}": f"SyntheticPlayer{suffix}-{long_suffix}",
+                f"BL{suffix}": f"SyntheticTag{suffix}-{long_suffix}",
+            }
+        )
+
+    def rewrite(value):
+        if isinstance(value, dict):
+            return {key: rewrite(child) for key, child in value.items()}
+        if isinstance(value, list):
+            return [rewrite(child) for child in value]
+        return replacements.get(value, value)
+
+    return json.dumps(rewrite(document), separators=(",", ":")).encode("utf-8")
+
 
 def load_tool(path: Path, name: str):
     spec = importlib.util.spec_from_file_location(name, path)
@@ -49,7 +66,7 @@ def test_pseudonymization_is_deterministic_and_preserves_projection(tmp_path: Pa
     fixture_root = source / "backend" / "tests" / "fixtures"
     fixture_root.mkdir(parents=True)
     for name in ("SG2_170114893.json", "SG2_170114893_timeline.json"):
-        source_bytes = _raw_fixture_bytes(name)
+        source_bytes = _synthetic_fixture_bytes(name)
         (fixture_root / name).write_bytes(source_bytes)
 
     before = {path.name: path.read_bytes() for path in fixture_root.glob("*.json")}
@@ -87,7 +104,7 @@ def test_pseudonymization_is_deterministic_and_preserves_projection(tmp_path: Pa
 
 
 def test_guard_rejects_injected_identity_without_echoing_value(tmp_path: Path, capsys):
-    raw = json.loads(_raw_fixture_bytes("SG2_170114893.json"))
+    raw = json.loads(_synthetic_fixture_bytes("SG2_170114893.json"))
     raw_value = raw["info"]["participants"][0]["puuid"]
     leak = tmp_path / "leak.json"
     leak.write_text(json.dumps({"puuid": raw_value}), encoding="utf-8")
@@ -111,8 +128,9 @@ def test_guard_rejects_malformed_synthetic_ordinal(tmp_path: Path):
 
 def test_history_guard_rejects_denylisted_blob(tmp_path: Path, capsys):
     guard = load_tool(TOOL, "check_pii_history")
-    raw = json.loads(_raw_fixture_bytes("SG2_170114893.json"))
+    raw = json.loads(_synthetic_fixture_bytes("SG2_170114893.json"))
     raw_value = raw["info"]["participants"][0]["puuid"]
+    guard.DENYLIST = set(guard.DENYLIST) | {guard.fingerprint(raw_value)}
     leak = tmp_path / "history.json"
     leak.write_text(json.dumps({"puuid": raw_value}), encoding="utf-8")
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
