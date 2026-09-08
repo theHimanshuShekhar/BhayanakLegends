@@ -379,6 +379,7 @@ def build_ingame_snapshot(
         event = _build_live_event_row(raw_event)
         if event is not None:
             events.append(event)
+    events.sort(key=lambda event: event.t_s)
     events = events[-MAX_EVENTS:]
     clock = game_data.get("gameTime", game_data.get("gameClock")) or 0
     raw_mode = game_data.get("gameMode")
@@ -590,14 +591,14 @@ class _LiveEventDeltaTracker:
             if source_time is not None and event.t_s < source_time:
                 self._ordering_violations.add(key)
             source_time = event.t_s
-            if self._max_event_time is not None and event.t_s < self._max_event_time:
-                self._ordering_violations.add(key)
             tracked = self._seen.get(key)
+            if tracked is None and self._max_event_time is not None and event.t_s < self._max_event_time:
+                self._ordering_violations.add(key)
             if tracked is not None and tracked.source_order != eligible_order:
                 self._ordering_violations.add(key)
-            if self._max_event_time is None or event.t_s > self._max_event_time:
-                self._max_event_time = event.t_s
             if tracked is None:
+                if self._max_event_time is None or event.t_s > self._max_event_time:
+                    self._max_event_time = event.t_s
                 tracked = _TrackedEvent(
                     key=key,
                     event_id=self._event_id(event, eligible_order),

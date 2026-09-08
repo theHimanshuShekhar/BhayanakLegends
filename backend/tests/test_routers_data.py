@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
-
 from bhayanak_legends.app import create_app
 from bhayanak_legends.config import SidecarConfig
+from fastapi.testclient import TestClient
 
 AUTH = {
     "X-BL-Token": "local-sidecar-development-token-32chars",
@@ -17,6 +17,18 @@ REPO = Path(__file__).resolve().parents[2]
 SHIPPED_PACK = json.loads(
     (REPO / "pack" / "findings-pack.v2.json").read_text(encoding="utf-8")
 )
+
+
+def _pack_without_released_models() -> dict:
+    pack = deepcopy(SHIPPED_PACK)
+    for declaration in (pack.get("models") or {}).values():
+        if declaration.get("release_status") != "available":
+            continue
+        declaration["release_status"] = "withheld"
+        declaration["release_reason"] = "test fixture has no released model"
+        declaration.pop("artifact", None)
+        declaration.pop("model_card", None)
+    return pack
 
 
 def build_client(tmp_path: Path, pack: dict | None = None) -> TestClient:
@@ -85,7 +97,7 @@ def test_history_summary_aggregates(tmp_path: Path):
     assert roles["MIDDLE"]["games"] == 2 and roles["MIDDLE"]["wins"] == 1
     assert roles["BOTTOM"]["games"] == 1 and roles["BOTTOM"]["wins"] == 1
 def test_all_personal_routes_follow_a_to_b_to_a_owner_scope(tmp_path: Path):
-    client = build_client(tmp_path, pack=SHIPPED_PACK)
+    client = build_client(tmp_path, pack=_pack_without_released_models())
     store = client.app.state.store
     owner_a = store.active_owner_key()
     assert owner_a is not None
@@ -287,7 +299,7 @@ def test_postgame_does_not_fallback_to_undeclared_flat_features(tmp_path: Path):
 
 
 def test_benchmarks_are_contract_suppressed_without_v2_population_rows(tmp_path: Path):
-    client = build_client(tmp_path, pack=SHIPPED_PACK)
+    client = build_client(tmp_path, pack=_pack_without_released_models())
     seed(client.app.state.store, "a1", features=_v2_features(cs10=50, level10=8))
 
     with client:
@@ -297,7 +309,7 @@ def test_benchmarks_are_contract_suppressed_without_v2_population_rows(tmp_path:
 
 
 def test_what_if_without_released_model_is_suppressed(tmp_path: Path):
-    client = build_client(tmp_path, pack=SHIPPED_PACK)
+    client = build_client(tmp_path, pack=_pack_without_released_models())
     seed(client.app.state.store, "a1", features=_v2_features(cs10=50, level10=8))
 
     with client:

@@ -1,19 +1,19 @@
 {
   "schema_version": "loltrends-parity-v2-fixture-v1",
   "feature_contract_version": "loltrends-parity-v2",
-  "local_puuid": "fixture-puuid-15",
+  "local_puuid": "fixture-puuid-01",
   "local_participant_id": 1,
   "participants": [
-    {"participantId": 1, "puuid": "fixture-puuid-15", "teamId": 100, "teamPosition": "TOP"},
-    {"participantId": 2, "puuid": "fixture-puuid-07", "teamId": 100, "teamPosition": "JUNGLE"},
-    {"participantId": 3, "puuid": "fixture-puuid-08", "teamId": 100, "teamPosition": "MIDDLE"},
-    {"participantId": 4, "puuid": "fixture-puuid-09", "teamId": 100, "teamPosition": "BOTTOM"},
-    {"participantId": 5, "puuid": "fixture-puuid-10", "teamId": 100, "teamPosition": "UTILITY"},
-    {"participantId": 6, "puuid": "fixture-puuid-11", "teamId": 200, "teamPosition": "TOP"},
-    {"participantId": 7, "puuid": "fixture-puuid-12", "teamId": 200, "teamPosition": "JUNGLE"},
-    {"participantId": 8, "puuid": "fixture-puuid-13", "teamId": 200, "teamPosition": "MIDDLE"},
-    {"participantId": 9, "puuid": "fixture-puuid-14", "teamId": 200, "teamPosition": "BOTTOM"},
-    {"participantId": 10, "puuid": "fixture-puuid-06", "teamId": 200, "teamPosition": "UTILITY"}
+    {"participantId": 1, "puuid": "fixture-puuid-01", "teamId": 100, "teamPosition": "TOP"},
+    {"participantId": 2, "puuid": "fixture-puuid-02", "teamId": 100, "teamPosition": "JUNGLE"},
+    {"participantId": 3, "puuid": "fixture-puuid-03", "teamId": 100, "teamPosition": "MIDDLE"},
+    {"participantId": 4, "puuid": "fixture-puuid-04", "teamId": 100, "teamPosition": "BOTTOM"},
+    {"participantId": 5, "puuid": "fixture-puuid-05", "teamId": 100, "teamPosition": "UTILITY"},
+    {"participantId": 6, "puuid": "fixture-puuid-06", "teamId": 200, "teamPosition": "TOP"},
+    {"participantId": 7, "puuid": "fixture-puuid-07", "teamId": 200, "teamPosition": "JUNGLE"},
+    {"participantId": 8, "puuid": "fixture-puuid-08", "teamId": 200, "teamPosition": "MIDDLE"},
+    {"participantId": 9, "puuid": "fixture-puuid-09", "teamId": 200, "teamPosition": "BOTTOM"},
+    {"participantId": 10, "puuid": "fixture-puuid-10", "teamId": 200, "teamPosition": "UTILITY"}
   ],
   "defaults": {
     "position": [5000, 5000],

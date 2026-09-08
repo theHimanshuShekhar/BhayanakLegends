@@ -65,7 +65,7 @@ def test_training_and_live_adapters_match_every_timestamp_and_side() -> None:
             assert_values(training, expected)
 
             live = deepcopy(observation["live"])
-            live["activePlayer"]["summonerName"] = "FixturePlayer25" if side == 100 else "FixturePlayer31"
+            live["activePlayer"]["summonerName"] = "FixturePlayer01" if side == 100 else "FixturePlayer06"
             online = adapt_live_client_state(
                 live, fixture["patch"], items, observed_at_s=time_s, now_s=time_s
             )

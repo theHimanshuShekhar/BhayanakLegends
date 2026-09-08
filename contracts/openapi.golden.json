@@ -2063,12 +2063,53 @@
             "minItems": 1,
             "type": "array"
           },
+          "coefficient": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "effect": {
-            "type": "number"
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "effect_interval": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PackV2HabitEffectInterval"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "eligibility": {
             "minLength": 1,
             "type": "string"
+          },
+          "era_results": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/PackV2HabitEraResult"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "era_stability": {
             "enum": [
@@ -2093,11 +2134,24 @@
           },
           "metric_kind": {
             "enum": [
+              "odds_ratio",
               "odds_ratio_per_standard_deviation",
               "percentage_points",
               "win_rate"
             ],
             "type": "string"
+          },
+          "p_value": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "patch_range": {
             "$ref": "#/components/schemas/PackV2PatchRange"
@@ -2129,9 +2183,29 @@
             ],
             "type": "string"
           },
+          "review_context_only": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "sample": {
-            "exclusiveMinimum": 0.0,
+            "minimum": 0.0,
             "type": "integer"
+          },
+          "significant": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "source_document": {
             "minLength": 1,
@@ -2144,6 +2218,17 @@
           "source_section": {
             "minLength": 1,
             "type": "string"
+          },
+          "strength": {
+            "anyOf": [
+              {
+                "const": "weak",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "tier": {
             "enum": [
@@ -2171,11 +2256,102 @@
           "label",
           "metric_kind",
           "unit",
-          "effect",
           "feature",
           "eligibility",
           "tier",
           "release_status",
+          "sample"
+        ],
+        "type": "object"
+      },
+      "PackV2HabitEffectInterval": {
+        "additionalProperties": false,
+        "properties": {
+          "lower": {
+            "exclusiveMinimum": 0.0,
+            "type": "number"
+          },
+          "upper": {
+            "exclusiveMinimum": 0.0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "lower",
+          "upper"
+        ],
+        "type": "object"
+      },
+      "PackV2HabitEraResult": {
+        "additionalProperties": false,
+        "properties": {
+          "coefficient": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "effect": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "effect_interval": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PackV2HabitEffectInterval"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "p_value": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sample": {
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "significant": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "available",
+              "insufficient_data"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
           "sample"
         ],
         "type": "object"

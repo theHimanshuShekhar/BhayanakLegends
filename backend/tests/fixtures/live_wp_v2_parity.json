@@ -386,12 +386,12 @@
           "gameTime": 300.0
         },
         "activePlayer": {
-          "summonerName": "FixturePlayer25",
+          "summonerName": "FixturePlayer01",
           "championName": "Champion1"
         },
         "allPlayers": [
           {
-            "summonerName": "FixturePlayer25",
+            "summonerName": "FixturePlayer01",
             "championName": "Champion1",
             "team": "ORDER",
             "level": 7,
@@ -416,7 +416,7 @@
             ]
           },
           {
-            "summonerName": "FixturePlayer27",
+            "summonerName": "FixturePlayer02",
             "championName": "Champion2",
             "team": "ORDER",
             "level": 7,
@@ -430,7 +430,7 @@
             "items": []
           },
           {
-            "summonerName": "FixturePlayer28",
+            "summonerName": "FixturePlayer03",
             "championName": "Champion3",
             "team": "ORDER",
             "level": 8,
@@ -444,7 +444,7 @@
             "items": []
           },
           {
-            "summonerName": "FixturePlayer29",
+            "summonerName": "FixturePlayer04",
             "championName": "Champion4",
             "team": "ORDER",
             "level": 8,
@@ -458,7 +458,7 @@
             "items": []
           },
           {
-            "summonerName": "FixturePlayer30",
+            "summonerName": "FixturePlayer05",
             "championName": "Champion5",
             "team": "ORDER",
             "level": 5,
@@ -472,7 +472,7 @@
             "items": []
           },
           {
-            "summonerName": "FixturePlayer31",
+            "summonerName": "FixturePlayer06",
             "championName": "Champion6",
             "team": "CHAOS",
             "level": 7,
@@ -492,7 +492,7 @@
             ]
           },
           {
-            "summonerName": "FixturePlayer32",
+            "summonerName": "FixturePlayer07",
             "championName": "Champion7",
             "team": "CHAOS",
             "level": 6,
@@ -506,7 +506,7 @@
             "items": []
           },
           {
-            "summonerName": "FixturePlayer33",
+            "summonerName": "FixturePlayer08",
             "championName": "Champion8",
             "team": "CHAOS",
             "level": 7,
@@ -520,7 +520,7 @@
             "items": []
           },
           {
-            "summonerName": "FixturePlayer34",
+            "summonerName": "FixturePlayer09",
             "championName": "Champion9",
             "team": "CHAOS",
             "level": 8,
@@ -534,7 +534,7 @@
             "items": []
           },
           {
-            "summonerName": "FixturePlayer26",
+            "summonerName": "FixturePlayer10",
             "championName": "Champion10",
             "team": "CHAOS",
             "level": 5,
@@ -553,27 +553,27 @@
             {
               "EventName": "DragonKill",
               "EventTime": 250.0,
-              "KillerName": "ORDER"
+              "KillerName": "Order"
             },
             {
               "EventName": "TurretKilled",
               "EventTime": 280.0,
-              "KillerName": "CHAOS"
+              "KillerName": "Chaos"
             },
             {
               "EventName": "HeraldKill",
               "EventTime": 700.0,
-              "KillerName": "CHAOS"
+              "KillerName": "Chaos"
             },
             {
               "EventName": "TurretKilled",
               "EventTime": 750.0,
-              "KillerName": "FixturePlayer27"
+              "KillerName": "FixturePlayer02"
             },
             {
               "EventName": "BaronKill",
               "EventTime": 780.0,
-              "KillerName": "ORDER"
+              "KillerName": "Order"
             }
           ]
         }
@@ -616,12 +616,12 @@
           "gameTime": 600.0
         },
         "activePlayer": {
-          "summonerName": "FixturePlayer25",
+          "summonerName": "FixturePlayer01",
           "championName": "Champion1"
         },
         "allPlayers": [
           {
-            "summonerName": "FixturePlayer25",
+            "summonerName": "FixturePlayer01",
             "championName": "Champion1",
             "team": "ORDER",
             "level": 8,
@@ -651,7 +651,7 @@
             ]
           },
           {
-            "summonerName": "FixturePlayer27",
+            "summonerName": "FixturePlayer02",
             "championName": "Champion2",
             "team": "ORDER",
             "level": 8,
@@ -665,7 +665,7 @@
             "items": []
           },
           {
-            "summonerName": "FixturePlayer28",
+            "summonerName": "FixturePlayer03",
             "championName": "Champion3",
             "team": "ORDER",
             "level": 9,
@@ -679,7 +679,7 @@
             "items": []
           },
           {
-            "summonerName": "FixturePlayer29",
+            "summonerName": "FixturePlayer04",
             "championName": "Champion4",
             "team": "ORDER",
             "level": 9,
@@ -693,7 +693,7 @@
             "items": []
           },
           {
-            "summonerName": "FixturePlayer30",
+            "summonerName": "FixturePlayer05",
             "championName": "Champion5",
             "team": "ORDER",
             "level": 6,
@@ -707,7 +707,7 @@
             "items": []
           },
           {
-            "summonerName": "FixturePlayer31",
+            "summonerName": "FixturePlayer06",
             "championName": "Champion6",
             "team": "CHAOS",
             "level": 8,
@@ -737,7 +737,7 @@
             ]
           },
           {
-            "summonerName": "FixturePlayer32",
+            "summonerName": "FixturePlayer07",
             "championName": "Champion7",
             "team": "CHAOS",
             "level": 7,
@@ -751,7 +751,7 @@
             "items": []
           },
           {
-            "summonerName": "FixturePlayer33",
+            "summonerName": "FixturePlayer08",
             "championName": "Champion8",
             "team": "CHAOS",
             "level": 8,
@@ -765,7 +765,7 @@
             "items": []
           },
           {
-            "summonerName": "FixturePlayer34",
+            "summonerName": "FixturePlayer09",
             "championName": "Champion9",
             "team": "CHAOS",
             "level": 9,
@@ -779,7 +779,7 @@
             "items": []
           },
           {
-            "summonerName": "FixturePlayer26",
+            "summonerName": "FixturePlayer10",
             "championName": "Champion10",
             "team": "CHAOS",
             "level": 6,
@@ -798,27 +798,27 @@
             {
               "EventName": "DragonKill",
               "EventTime": 250.0,
-              "KillerName": "ORDER"
+              "KillerName": "Order"
             },
             {
               "EventName": "TurretKilled",
               "EventTime": 280.0,
-              "KillerName": "CHAOS"
+              "KillerName": "Chaos"
             },
             {
               "EventName": "HeraldKill",
               "EventTime": 700.0,
-              "KillerName": "CHAOS"
+              "KillerName": "Chaos"
             },
             {
               "EventName": "TurretKilled",
               "EventTime": 750.0,
-              "KillerName": "FixturePlayer27"
+              "KillerName": "FixturePlayer02"
             },
             {
               "EventName": "BaronKill",
               "EventTime": 780.0,
-              "KillerName": "ORDER"
+              "KillerName": "Order"
             }
           ]
         }
@@ -861,12 +861,12 @@
           "gameTime": 800.0
         },
         "activePlayer": {
-          "summonerName": "FixturePlayer25",
+          "summonerName": "FixturePlayer01",
           "championName": "Champion1"
         },
         "allPlayers": [
           {
-            "summonerName": "FixturePlayer25",
+            "summonerName": "FixturePlayer01",
             "championName": "Champion1",
             "team": "ORDER",
             "level": 8,
@@ -896,7 +896,7 @@
             ]
           },
           {
-            "summonerName": "FixturePlayer27",
+            "summonerName": "FixturePlayer02",
             "championName": "Champion2",
             "team": "ORDER",
             "level": 8,
@@ -910,7 +910,7 @@
             "items": []
           },
           {
-            "summonerName": "FixturePlayer28",
+            "summonerName": "FixturePlayer03",
             "championName": "Champion3",
             "team": "ORDER",
             "level": 9,
@@ -924,7 +924,7 @@
             "items": []
           },
           {
-            "summonerName": "FixturePlayer29",
+            "summonerName": "FixturePlayer04",
             "championName": "Champion4",
             "team": "ORDER",
             "level": 9,
@@ -938,7 +938,7 @@
             "items": []
           },
           {
-            "summonerName": "FixturePlayer30",
+            "summonerName": "FixturePlayer05",
             "championName": "Champion5",
             "team": "ORDER",
             "level": 6,
@@ -952,7 +952,7 @@
             "items": []
           },
           {
-            "summonerName": "FixturePlayer31",
+            "summonerName": "FixturePlayer06",
             "championName": "Champion6",
             "team": "CHAOS",
             "level": 8,
@@ -982,7 +982,7 @@
             ]
           },
           {
-            "summonerName": "FixturePlayer32",
+            "summonerName": "FixturePlayer07",
             "championName": "Champion7",
             "team": "CHAOS",
             "level": 7,
@@ -996,7 +996,7 @@
             "items": []
           },
           {
-            "summonerName": "FixturePlayer33",
+            "summonerName": "FixturePlayer08",
             "championName": "Champion8",
             "team": "CHAOS",
             "level": 8,
@@ -1010,7 +1010,7 @@
             "items": []
           },
           {
-            "summonerName": "FixturePlayer34",
+            "summonerName": "FixturePlayer09",
             "championName": "Champion9",
             "team": "CHAOS",
             "level": 9,
@@ -1024,7 +1024,7 @@
             "items": []
           },
           {
-            "summonerName": "FixturePlayer26",
+            "summonerName": "FixturePlayer10",
             "championName": "Champion10",
             "team": "CHAOS",
             "level": 6,
@@ -1043,27 +1043,27 @@
             {
               "EventName": "DragonKill",
               "EventTime": 250.0,
-              "KillerName": "ORDER"
+              "KillerName": "Order"
             },
             {
               "EventName": "TurretKilled",
               "EventTime": 280.0,
-              "KillerName": "CHAOS"
+              "KillerName": "Chaos"
             },
             {
               "EventName": "HeraldKill",
               "EventTime": 700.0,
-              "KillerName": "CHAOS"
+              "KillerName": "Chaos"
             },
             {
               "EventName": "TurretKilled",
               "EventTime": 750.0,
-              "KillerName": "FixturePlayer27"
+              "KillerName": "FixturePlayer02"
             },
             {
               "EventName": "BaronKill",
               "EventTime": 780.0,
-              "KillerName": "ORDER"
+              "KillerName": "Order"
             }
           ]
         }

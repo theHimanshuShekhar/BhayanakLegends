@@ -138,7 +138,7 @@ async def test_live_service_passes_exact_adapter_to_runtime() -> None:
     fixture = load_fixture()
     snapshot = deepcopy(fixture["observations"][0]["live"])
     snapshot["gameData"]["gameVersion"] = fixture["patch"]
-    snapshot["activePlayer"]["summonerName"] = "FixturePlayer25"
+    snapshot["activePlayer"]["summonerName"] = "FixturePlayer01"
     runtime = RecordingRuntime()
     service = LiveService(
         FixtureLcu(),
@@ -231,7 +231,7 @@ def test_live_route_exposes_service_probability(tmp_path: Path, monkeypatch) -> 
     fixture = load_fixture()
     snapshot = deepcopy(fixture["observations"][0]["live"])
     snapshot["gameData"]["gameVersion"] = fixture["patch"]
-    snapshot["activePlayer"]["summonerName"] = "FixturePlayer25"
+    snapshot["activePlayer"]["summonerName"] = "FixturePlayer01"
     provider = LiveWpFeatureProvider(StaticCatalogProvider(catalog(fixture)))
 
     class FixtureService(LiveService):
