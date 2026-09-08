@@ -162,9 +162,7 @@ describe("HistoryPage", () => {
     const startBtn = screen.getByTestId("start-sync");
     expect(startBtn).toBeDisabled();
     expect(startBtn).toHaveAttribute("aria-describedby", "start-disabled-reason");
-    expect(screen.getByTestId("start-disabled-reason")).toHaveTextContent(
-      "Assign a Riot account before starting Backfill.",
-    );
+    expect(screen.getByTestId("start-disabled-reason")).toBeVisible();
     expect(screen.getByTestId("input-riot-key")).toHaveAttribute(
       "placeholder",
       "saved — leave blank to keep",

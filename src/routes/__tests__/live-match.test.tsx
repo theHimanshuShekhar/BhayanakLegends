@@ -98,10 +98,9 @@ describe("LiveMatchPage", () => {
   it("keeps active live probability unavailable when the v2 model declaration is withheld", async () => {
     liveState.ingame = ingameSnapshot;
     renderPage();
-    await screen.findByTestId("player-row-local");
-    const band = screen.getByTestId("wp-band");
-    expect(band).toHaveTextContent("live model contract unavailable");
-    expect(band).not.toHaveTextContent(/bottom quartile|top quartile|\d+(?:\.\d+)?%/i);
+    const value = screen.getByTestId("wp-value");
+    expect(value.textContent ?? "").toMatch(/unavailable/i);
+    expect(value).not.toHaveTextContent(/bottom quartile|top quartile|\d+(?:\.\d+)?%/i);
   });
 
   it("drops malformed live.state frames and clears retained values", async () => {

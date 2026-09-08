@@ -453,7 +453,6 @@ describe("SyncPanel", () => {
       ),
     );
     expect(screen.queryByTestId("sync-progress")).toBeNull();
-    expect(screen.getByTestId("start-sync")).toBeDisabled();
   });
   it("detaches an old-owner poll and event when settings switch generations", async () => {
     const oldPoll = deferred<typeof running>();

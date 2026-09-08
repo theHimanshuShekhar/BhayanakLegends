@@ -44,7 +44,7 @@ export function ObjectiveReadCard({ pack }: { pack: FindingsPackV2 | undefined }
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ font: "600 11px var(--font-mono)" }}>{objectiveLabel(objective)}</div>
                 {rows.length > 0 ? (
-                  <ul style={{ display: "flex", flexDirection: "column", gap: 6, listStyle: "none", margin: "6px 0 0", padding: 0 }}>
+                  <ul aria-label={`${objectiveLabel(objective)} observations`} style={{ display: "flex", flexDirection: "column", gap: 6, listStyle: "none", margin: "6px 0 0", padding: 0 }}>
                     {rows.map((row) => {
                       const available = isObjectiveRenderable(row);
                       return (
