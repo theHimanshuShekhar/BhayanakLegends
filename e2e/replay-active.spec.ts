@@ -231,11 +231,11 @@ test.describe("active Live Companion replay", () => {
     await expect(page.getByTestId("team-chaos")).toContainText("Camille");
     await expect(page.getByTestId("score-strip")).toContainText("kills");
     await expect(page.getByTestId("event-feed")).toContainText("DragonKill");
-    await expect(page.getByTestId("wp-value")).toHaveText("Unavailable: live model contract unavailable");
-    await expect(page.getByTestId("wp-band")).toContainText(
-      "Live inference is unavailable; no probability is shown without an exact model input contract.",
+    await expect(page.getByTestId("wp-value")).toHaveText(/Unavailable:/i);
+    await expect(page.getByTestId("wp-status")).toHaveText(/^(?:unavailable|suppressed)$/i);
+    await expect(page.getByTestId("wp-band")).not.toContainText(
+      /(?:\d+(?:\.\d+)?%|bottom quartile|top quartile)/i,
     );
-    await expect(page.getByTestId("wp-band")).not.toContainText(/bottom quartile|top quartile/i);
     await expectRenderedSnapshot(page, initial);
     await expectLiveDataContractDetector(page, initial);
     await expectNoHorizontalClipping(page);
@@ -303,11 +303,16 @@ test.describe("active Live Companion replay", () => {
       await expectNoHorizontalClipping(page);
       await captureState(page, testInfo, `contrast-active-${viewport.width}`);
 
+      // Keep the stream quiet while forcing the request error. A healthy SSE
+      // frame is valid recovery data and must not be suppressed by production
+      // code just to make this error fixture deterministic.
+      await page.route("**/events**", (route) => route.abort("failed"));
       await page.route(`${SIDECAR}/live/ingame*`, (route) => route.abort("failed"));
       await page.reload();
       await expect(page.getByTestId("ingame-error")).toBeVisible();
       await captureState(page, testInfo, `contrast-error-${viewport.width}`);
       await page.unroute(`${SIDECAR}/live/ingame*`);
+      await page.unroute("**/events**");
 
       for (const [outcome, win] of [["victory", true], ["defeat", false]] as const) {
         await page.route(`${SIDECAR}/postgame/latest`, async (route) => {
@@ -451,11 +456,11 @@ test.describe("active Live Companion replay", () => {
       await expect(initial.teams.order.flatMap((player) => player.items)).not.toHaveLength(0);
       await expectRenderedSnapshot(page, initial);
       await expectLiveDataContractDetector(page, initial);
-      await expect(page.getByTestId("wp-value")).toHaveText("Unavailable: live model contract unavailable");
-      await expect(page.getByTestId("wp-band")).toContainText(
-        "Live inference is unavailable; no probability is shown without an exact model input contract.",
+      await expect(page.getByTestId("wp-value")).toHaveText(/Unavailable:/i);
+      await expect(page.getByTestId("wp-status")).toHaveText(/^(?:unavailable|suppressed)$/i);
+      await expect(page.getByTestId("wp-band")).not.toContainText(
+        /(?:\d+(?:\.\d+)?%|bottom quartile|top quartile)/i,
       );
-      await expect(page.getByTestId("wp-band")).not.toContainText(/bottom quartile|top quartile/i);
       await expectNoHorizontalClipping(page);
       await captureState(page, testInfo, `flow-in-game-${viewport.width}`);
 

@@ -592,6 +592,24 @@ test.describe("cross-route UI integrity", () => {
     await screenshot(page, testInfo, "ui-integrity-state-empty-postgame");
     evidence.add("empty fixture renders empty-state copy", { route: "/postgame" });
 
+    // Keep this benchmark error fixture independent from replay-stack owner
+    // bootstrap timing; an inactive owner correctly disables the query before
+    // the intercepted failure can be rendered.
+    await page.route("**/settings", (route) =>
+      route.fulfill({
+        status: 200,
+        json: {
+          owner_key: "replay#E2E",
+          generation: 1,
+          owner_state: "active",
+          owner_error: null,
+          riot_id: "replay#E2E",
+          region_route: "sea",
+          has_key: true,
+          auto_sync: false,
+        },
+      }),
+    );
     // Error: benchmarks failure surfaces a role=alert with actionable copy.
     await page.route("**/benchmarks", (route) =>
       route.fulfill({ status: 503, json: { detail: "Findings Pack unavailable" } }),
@@ -605,6 +623,7 @@ test.describe("cross-route UI integrity", () => {
 
     // Victory: intercepted digest flips the verdict tile teal-side up.
     await page.unroute("**/benchmarks");
+    await page.unroute("**/settings");
     await page.route("**/postgame/latest", (route) => route.fulfill({ status: 200, json: victoryDigest }));
     for (const viewport of VIEWPORTS) {
       await page.setViewportSize(viewport);

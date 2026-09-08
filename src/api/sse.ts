@@ -141,12 +141,24 @@ const statusListeners = new Set<StatusListener>();
 const connectionListeners = new Set<ConnectionListener>();
 let source: EventSource | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let connectTimer: ReturnType<typeof setTimeout> | null = null;
 let resolvingUrl = false;
 let connected = false;
 let generation = 0;
 
 function hasSubscribers() {
   return eventListeners.size > 0 || statusListeners.size > 0 || connectionListeners.size > 0;
+}
+
+function connectSoon() {
+  // React subscribes useSyncExternalStore before passive effects register the
+  // message callback. Defer one macrotask so committed listeners attach before
+  // an EventSource can open and deliver its first frame.
+  if (connectTimer !== null) return;
+  connectTimer = setTimeout(() => {
+    connectTimer = null;
+    if (hasSubscribers()) connect();
+  }, 0);
 }
 
 function notifyStatus() {
@@ -159,6 +171,10 @@ function stopConnection() {
   if (reconnectTimer !== null) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
+  }
+  if (connectTimer !== null) {
+    clearTimeout(connectTimer);
+    connectTimer = null;
   }
   resolvingUrl = false;
   connected = false;
@@ -228,7 +244,7 @@ function connect() {
 
 function subscribeStatus(listener: StatusListener) {
   statusListeners.add(listener);
-  connect();
+  connectSoon();
   return () => {
     statusListeners.delete(listener);
     if (!hasSubscribers()) stopConnection();
@@ -237,7 +253,7 @@ function subscribeStatus(listener: StatusListener) {
 
 function subscribeEvents(listener: EventListener) {
   eventListeners.add(listener);
-  connect();
+  connectSoon();
   return () => {
     eventListeners.delete(listener);
     if (!hasSubscribers()) stopConnection();
@@ -246,7 +262,7 @@ function subscribeEvents(listener: EventListener) {
 function subscribeConnection(listener: ConnectionListener) {
   connectionListeners.add(listener);
   listener(connected);
-  connect();
+  connectSoon();
   return () => {
     connectionListeners.delete(listener);
     if (!hasSubscribers()) stopConnection();

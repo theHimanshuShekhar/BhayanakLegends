@@ -116,9 +116,23 @@ async function gotoRoute(page: Page, route: Route) {
 
 /** Waits out the .rc-route entrance fade so screenshots never capture a mid-animation frame. */
 async function settleRouteAnimation(page: Page): Promise<void> {
-  const route = page.locator(".rc-route").first();
-  if ((await route.count()) === 0) return;
-  await route.evaluate((el) => Promise.all(el.getAnimations().map((animation) => animation.finished)));
+  // A late route transition can replace the document between the locator count
+  // and its evaluation. Retry against the new route instead of turning that
+  // normal navigation race into a test failure.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const route = page.locator(".rc-route").first();
+    if ((await route.count()) === 0) return;
+    try {
+      await route.evaluate((el) => Promise.all(el.getAnimations().map((animation) => animation.finished)));
+      return;
+    } catch (error) {
+      if (!(error instanceof Error) || !/execution context was destroyed|frame was detached/i.test(error.message)) {
+        throw error;
+      }
+      if (attempt === 2) throw error;
+      await page.waitForLoadState("domcontentloaded").catch(() => undefined);
+    }
+  }
 }
 
 /** Effective foreground/background of a testid'd element, walking ancestors for an opaque backdrop. */
@@ -200,6 +214,12 @@ async function fulfillTimer(page: Page, timerSec: number) {
 }
 
 test.describe("design system evidence", () => {
+  test.afterEach(async ({ page }) => {
+    // Ignore callbacks still awaiting route.fetch when a failed navigation
+    // tears down the page; Playwright otherwise reports a secondary
+    // "Test ended" failure that obscures the assertion under test.
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+  });
   test("six-route state matrix records tokens, units, copy, and action hierarchy at both viewports", async ({
     page,
     request,
@@ -423,6 +443,10 @@ test.describe("design system evidence", () => {
         route.fulfill({
           status: 200,
           json: {
+            owner_key: backfillSettings.owner_key,
+            generation: backfillSettings.generation,
+            owner_state: backfillSettings.owner_state,
+            owner_error: backfillSettings.owner_error,
             state: "running",
             mode: "era_first",
             total_queued: 40,
@@ -447,6 +471,10 @@ test.describe("design system evidence", () => {
         route.fulfill({
           status: 200,
           json: {
+            owner_key: backfillSettings.owner_key,
+            generation: backfillSettings.generation,
+            owner_state: backfillSettings.owner_state,
+            owner_error: backfillSettings.owner_error,
             state: "error",
             mode: "era_first",
             total_queued: 40,

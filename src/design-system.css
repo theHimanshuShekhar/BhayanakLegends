@@ -114,6 +114,11 @@
   max-width: 100%;
 }
 
+.live-match-columns,
+.live-match-column,
+.live-match-middle-grid {
+  min-width: 0;
+}
 .card3 {
   border-radius: var(--radius-lg);
   background: var(--color-surface);

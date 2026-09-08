@@ -55,8 +55,16 @@ export function ObjectivesCard({ pack }: { pack: FindingsPackV2 | undefined }) {
                   <div style={{ fontSize: 8.5, color: "var(--color-dimmer)" }}>No compatible typed row in this pack.</div>
                 )}
               </div>
-              <div style={{ textAlign: "right", flex: "none" }}>
-                <div className="mono-n" style={{ font: "700 15px var(--font-mono)", color: available ? "var(--color-soft-blue)" : "var(--color-dimmer)" }}>
+              <div style={{ textAlign: "right", flex: "0 1 45%", minWidth: 0 }}>
+                <div
+                  className="mono-n"
+                  style={{
+                    minWidth: 0,
+                    font: "700 15px var(--font-mono)",
+                    color: available ? "var(--color-soft-blue)" : "var(--color-dimmer)",
+                    overflowWrap: "anywhere",
+                  }}
+                >
                   {available ? formatRate(row.rate) : <Unavailable reason={row?.release_status === "withheld" ? "evidence withheld" : "objective metric unavailable"} />}
                 </div>
                 <div style={{ fontSize: 7.5, letterSpacing: ".06em", color: "var(--color-dimmer)" }}>
