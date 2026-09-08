@@ -239,6 +239,7 @@ class PackActivationTransaction:
         if self._closed:
             return
         first_error: OSError | None = None
+        pointer_restored = False
         try:
             try:
                 if self._original_pointer is not None:
@@ -246,15 +247,16 @@ class PackActivationTransaction:
                     self._store._active_dir = self._original_path
                 elif self._migrated_legacy:
                     self._store._remove_pointer()
-                    if self._previous_path is not None and self._previous_path.exists():
-                        shutil.rmtree(self._previous_path, ignore_errors=False)
                     self._store._active_dir = self._store._logical_dir
+                    if self._previous_path is not None and self._previous_path.exists():
+                        shutil.rmtree(self._previous_path, ignore_errors=True)
                 else:
                     self._store._remove_pointer()
                     self._store._active_dir = self._original_path
+                pointer_restored = True
             except OSError as exc:
                 first_error = exc
-            self._store._pack = self._original_pack
+            self._store._pack = self._original_pack if pointer_restored else None
             try:
                 if self._current_path.exists() and self._current_path != self._store._active_dir:
                     shutil.rmtree(self._current_path, ignore_errors=False)

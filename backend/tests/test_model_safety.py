@@ -354,6 +354,32 @@ def test_committed_generation_survives_cleanup_failure(
     assert store.version() == "v3"
 
 
+def test_failed_pointer_rollback_keeps_cache_on_committed_generation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, pack, _artifact, _card_payload = _fixture_pack(tmp_path)
+    store = PackStore(root)
+    store.initialize()
+    assert store.version() == "v2"
+    candidate = tmp_path / "candidate"
+    shutil.copytree(root, candidate)
+    (candidate / "findings-pack.v2.json").write_text(
+        json.dumps({**pack, "pack_version": "v3"}),
+        encoding="utf-8",
+    )
+    transaction = store.activate_candidate(candidate)
+
+    def fail_pointer_removal() -> None:
+        raise OSError("simulated pointer rollback failure")
+
+    monkeypatch.setattr(store, "_remove_pointer", fail_pointer_removal)
+    with pytest.raises(OSError, match="pointer rollback"):
+        transaction.rollback()
+
+    assert store.version() == "v3"
+
+
 def test_activation_waits_for_outer_what_if_read_transaction(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
