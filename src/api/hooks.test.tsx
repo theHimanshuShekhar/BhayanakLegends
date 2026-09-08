@@ -215,7 +215,10 @@ describe("useLiveStatus arbitration", () => {
     mocks.liveStatus.mockResolvedValue(idleStatus);
     vi.useFakeTimers();
     renderProbe();
-    await act(async () => {});
+    await act(async () => {
+      vi.advanceTimersByTime(0);
+      await Promise.resolve();
+    });
     expect(FakeEventSource.instances).toHaveLength(1);
     await act(async () => FakeEventSource.instances[0].open());
     expect(mocks.liveStatus).toHaveBeenCalledTimes(1);
