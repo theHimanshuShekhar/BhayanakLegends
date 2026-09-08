@@ -597,6 +597,13 @@ class PackStore:
                     self._remove_pointer()
                     self._active_dir = original_path
                     pointer_restored = True
+                    if (
+                        original_pointer is None
+                        and previous_path is not None
+                        and previous_path != original_path
+                        and previous_path.exists()
+                    ):
+                        shutil.rmtree(previous_path, ignore_errors=True)
             except OSError:
                 pass
             self._pack = original_pack if pointer_restored else None

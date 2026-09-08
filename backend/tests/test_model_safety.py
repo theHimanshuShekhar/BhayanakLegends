@@ -354,6 +354,26 @@ def test_committed_generation_survives_cleanup_failure(
     assert store.version() == "v3"
 
 
+def test_failed_legacy_pointer_setup_removes_orphan_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _pack, _artifact, _card_payload = _fixture_pack(tmp_path)
+    store = PackStore(root)
+    store.initialize()
+    candidate = tmp_path / "candidate"
+    shutil.copytree(root, candidate)
+
+    def fail_pointer_setup(_name: str) -> None:
+        raise OSError("simulated legacy pointer setup failure")
+
+    monkeypatch.setattr(store, "_write_pointer_name", fail_pointer_setup)
+    with pytest.raises(OSError, match="legacy pointer setup"):
+        store.activate_candidate(candidate)
+
+    assert sorted(tmp_path.glob(".active-generation-*")) == []
+    assert store.pack_dir == root
+
+
 def test_failed_pointer_rollback_keeps_cache_on_committed_generation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
