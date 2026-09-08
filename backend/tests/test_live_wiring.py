@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from contextlib import nullcontext
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -210,7 +211,7 @@ async def test_typed_live_vector_reaches_runtime_model_session() -> None:
             return [[0.73]]
 
     runtime = InferenceRuntime.__new__(InferenceRuntime)
-    runtime._pack_store = SimpleNamespace(pack_dir=Path("."))
+    runtime._pack_store = SimpleNamespace(pack_dir=Path("."), read_transaction=nullcontext)
     runtime._sessions = {}
     runtime._declaration = lambda _key: (pack, declaration, None)
     runtime._session = lambda _key, _declaration, _root: (Session(), card)
