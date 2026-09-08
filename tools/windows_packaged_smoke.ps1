@@ -34,10 +34,10 @@ $state = [ordered]@{
   higher_version    = $HigherVersion
   rejected_version  = $RejectedVersion
   expected_pack_version = $ExpectedPackVersion
+  relaunch_mode        = $null
   phases            = @()
   owned_sidecars    = @()
   errors            = @()
-  owned_sidecar_details = @()
 }
 
 function Save-State {
@@ -96,6 +96,18 @@ function Wait-ProcessGoneByName([string]$NameLike, [int]$TimeoutSeconds) {
   return $false
 }
 
+function Get-ProcessesByExecutablePath([string]$ExecutablePath) {
+  $fullPath = [IO.Path]::GetFullPath($ExecutablePath)
+  @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+      Where-Object {
+        $_.ExecutablePath -and
+        [string]::Equals([string]$_.ExecutablePath, $fullPath, [StringComparison]::OrdinalIgnoreCase)
+      } |
+      ForEach-Object {
+        Get-Process -Id ([int]$_.ProcessId) -ErrorAction SilentlyContinue
+      })
+}
+
 function Close-App([System.Diagnostics.Process]$App, [array]$BaselineSidecars) {
   $App.Refresh()
   if (-not $App.HasExited) {
@@ -107,24 +119,7 @@ function Close-App([System.Diagnostics.Process]$App, [array]$BaselineSidecars) {
     }
   }
   Start-Sleep -Seconds 1
-  $details = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-    Where-Object {
-      $_.Name -like "bhayanak-legends-sidecar*" -and
-      $BaselineSidecars -notcontains $_.ProcessId
-    } |
-    ForEach-Object {
-      [ordered]@{
-        pid              = [int]$_.ProcessId
-        parent_pid       = [int]$_.ParentProcessId
-        creation_time    = "$($_.CreationDate)"
-        executable_path  = "$($_.ExecutablePath)"
-        command_line     = "$($_.CommandLine)"
-      }
-    })
-  $state.owned_sidecar_details += $details
-  Write-Output "owned sidecar details before natural waits:"
-  $details | ConvertTo-Json -Compress -Depth 3 | Write-Output
-  $newSidecars = @($details | ForEach-Object { $_.pid })
+  $newSidecars = @(Get-Sidecars | Where-Object { $BaselineSidecars -notcontains $_ })
   $state.owned_sidecars += $newSidecars
   $survivors = @()
   foreach ($sidecar in $newSidecars) {
@@ -357,7 +352,7 @@ try {
     throw "packaged app did not exit to hand off to the signed-update installer"
   }
   # The updater plugin exits before Drop cleanup; terminate the full sidecar
-  # process trees before starting the relaunched app.
+  # process trees before adopting its relaunch, or starting one if absent.
   $cleanup = Stop-OwnedSidecars -BaselineSidecars $baseline
   foreach ($sidecar in @($cleanup.attempted)) {
     if ($state.owned_sidecars -notcontains $sidecar) {
@@ -378,11 +373,30 @@ try {
   }
   Start-Sleep -Seconds 1
 
-  # --- Phase 2: the relaunched app must be the higher version with a healthy, reconnected sidecar.
-  $app2StdoutLog = Join-Path $env:SMOKE_DIAGNOSTICS "app2-stdout.log"
-  $app2StderrLog = Join-Path $env:SMOKE_DIAGNOSTICS "app2-stderr.log"
-  $app2 = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru `
-    -RedirectStandardOutput $app2StdoutLog -RedirectStandardError $app2StderrLog
+  # NSIS installers receive /R by default, so the updater normally relaunches
+  # this exact executable. Adopt that process instead of starting a duplicate.
+  $relaunchCandidates = @(Get-ProcessesByExecutablePath -ExecutablePath $appPath)
+  $app2StdoutLog = $null
+  $app2StderrLog = $null
+  if ($relaunchCandidates.Count -eq 1) {
+    $app2 = $relaunchCandidates[0]
+    $state.relaunch_mode = "updater"
+    Write-Output "adopting updater-relaunched packaged app process $($app2.Id)"
+  } elseif ($relaunchCandidates.Count -eq 0) {
+    $app2StdoutLog = Join-Path $env:SMOKE_DIAGNOSTICS "app2-stdout.log"
+    $app2StderrLog = Join-Path $env:SMOKE_DIAGNOSTICS "app2-stderr.log"
+    $app2 = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru `
+      -RedirectStandardOutput $app2StdoutLog -RedirectStandardError $app2StderrLog
+    $state.relaunch_mode = "explicit"
+    Write-Output "starting packaged app explicitly after updater installer completion"
+  } else {
+    $pids = ($relaunchCandidates | ForEach-Object { [int]$_.Id }) -join ", "
+    $message = "multiple updated packaged app processes found after updater completion: $pids"
+    $state.errors += $message
+    Save-State
+    throw $message
+  }
+  Save-State
   try {
     Invoke-WebviewAssertions -App $app2 -Phase "updated" -DebugPort $DebugPort -ExpectedVersion $HigherVersion -ExpectedPackVersion $ExpectedPackVersion `
       -AppStdoutLog $app2StdoutLog -AppStderrLog $app2StderrLog -AppName $appNameForDiagnostics

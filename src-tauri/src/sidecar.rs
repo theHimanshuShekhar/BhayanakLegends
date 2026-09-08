@@ -129,8 +129,6 @@ pub(crate) struct SidecarStateInner {
 struct ProcessContainment {
     #[cfg(windows)]
     job: *mut std::ffi::c_void,
-    #[cfg(windows)]
-    pid: u32,
 }
 
 impl ProcessContainment {
@@ -149,15 +147,7 @@ impl ProcessContainment {
     fn terminate(&self) {
         #[cfg(windows)]
         unsafe {
-            eprintln!(
-                "sidecar containment termination requested for pid {}",
-                self.pid
-            );
-            let result = windows_containment::terminate(self.job);
-            eprintln!(
-                "sidecar containment termination returned {result} for pid {}",
-                self.pid
-            );
+            let _ = windows_containment::terminate(self.job);
         }
     }
 }
@@ -274,8 +264,7 @@ mod windows_containment {
                 CloseHandle(job);
                 return Err("sidecar containment attachment failed".into());
             }
-            eprintln!("sidecar containment attached for pid {pid}");
-            Ok(ProcessContainment { job, pid })
+            Ok(ProcessContainment { job })
         }
     }
 
@@ -817,13 +806,6 @@ impl SidecarProcessAdapter for ProductionSidecarAdapter {
 
     fn reap(&mut self, child: &mut Self::Handle) -> Result<(), String> {
         child.proc.reap();
-        #[cfg(windows)]
-        eprintln!(
-            "sidecar root reap returned for pid {}",
-            child.containment.pid
-        );
-        #[cfg(not(windows))]
-        eprintln!("sidecar root reap returned");
         Ok(())
     }
 
@@ -1215,7 +1197,6 @@ fn run_sidecar_supervisor(app: tauri::AppHandle) {
     let mut supervisor = Supervisor::with_shutdown(ProductionSidecarAdapter, shutdown);
     loop {
         if supervisor.shutdown.is_requested() {
-            eprintln!("sidecar supervisor observed shutdown");
             let _ = supervisor.stop();
             publish_sidecar_state(
                 &app,
@@ -1246,7 +1227,6 @@ fn run_sidecar_supervisor(app: tauri::AppHandle) {
                 );
                 if let Err(error) = supervisor.observe_exit() {
                     if supervisor.shutdown.is_requested() {
-                        eprintln!("sidecar supervisor observed shutdown during exit wait");
                         let _ = supervisor.stop();
                         publish_sidecar_state(
                             &app,
@@ -1273,7 +1253,6 @@ fn run_sidecar_supervisor(app: tauri::AppHandle) {
             }
             Err(error) => {
                 if supervisor.shutdown.is_requested() {
-                    eprintln!("sidecar supervisor observed shutdown during startup");
                     let _ = supervisor.stop();
                     publish_sidecar_state(
                         &app,
@@ -1300,7 +1279,6 @@ fn run_sidecar_supervisor(app: tauri::AppHandle) {
 }
 
 pub(crate) fn request_shutdown(app: &tauri::AppHandle) {
-    eprintln!("sidecar shutdown requested");
     let state = app.state::<SidecarState>();
     state.1.request_shutdown();
     if let Ok(mut guard) = state.0.lock() {
@@ -1313,12 +1291,7 @@ pub(crate) fn request_shutdown(app: &tauri::AppHandle) {
         });
         state.1.notify();
     };
-    let completed = state.1.wait_for_shutdown();
-    if completed {
-        eprintln!("sidecar shutdown wait completed");
-    } else {
-        eprintln!("sidecar shutdown wait timed out");
-    }
+    state.1.wait_for_shutdown();
 }
 
 pub(crate) fn start_supervisor(app: tauri::AppHandle) {
