@@ -581,28 +581,25 @@ class PackStore:
         except Exception:
             if current_path is not None and current_path.exists():
                 shutil.rmtree(current_path, ignore_errors=True)
+            pointer_restored = False
             try:
                 if original_pointer is not None:
                     self._write_pointer_name(original_pointer)
                     self._active_dir = original_path
+                    pointer_restored = True
                 elif migrated_legacy:
                     self._remove_pointer()
-                    if previous_path is not None and previous_path.exists():
-                        shutil.rmtree(previous_path, ignore_errors=False)
                     self._active_dir = self._logical_dir
+                    pointer_restored = True
+                    if previous_path is not None and previous_path.exists():
+                        shutil.rmtree(previous_path, ignore_errors=True)
                 else:
                     self._remove_pointer()
-                    if (
-                        original_pointer is None
-                        and previous_path is not None
-                        and previous_path != original_path
-                        and previous_path.exists()
-                    ):
-                        shutil.rmtree(previous_path, ignore_errors=False)
                     self._active_dir = original_path
+                    pointer_restored = True
             except OSError:
                 pass
-            self._pack = original_pack
+            self._pack = original_pack if pointer_restored else None
             self._activation_lock.release()
             raise
 
