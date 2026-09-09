@@ -99,8 +99,25 @@ const POSTGAME_DIGEST = {
   },
 };
 
+const ACTIVE_SETTINGS = {
+  owner_key: "replay#E2E",
+  generation: 1,
+  owner_state: "active",
+  owner_error: null,
+  riot_id: "replay#E2E",
+  region_route: "sea",
+  has_key: true,
+  auto_sync: false,
+};
+
 test.describe("Personal History feature insights", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.route("**/settings", (route) =>
+      route.fulfill({ status: 200, json: ACTIVE_SETTINGS }),
+    );
+  });
   test("shows role-adjusted comparisons and feature trajectories in the Journal", async ({ page }) => {
+
     await page.route("**/history/insights*", async (route) => {
       await route.fulfill({ json: FEATURE_INSIGHTS });
     });
