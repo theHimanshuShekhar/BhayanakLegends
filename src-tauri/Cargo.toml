@@ -1,6 +1,6 @@
 [package]
 name = "bhayanak-legends"
-version = "0.1.4"
+version = "0.1.5"
 description = "Friends-first League of Legends companion app built on LoLTrends research"
 authors = ["theHimanshuShekhar"]
 edition = "2021"

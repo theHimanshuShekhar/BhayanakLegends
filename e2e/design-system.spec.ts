@@ -207,6 +207,34 @@ const REPLAY_TIMER_SESSION = {
   enemy: [],
 } as const;
 
+const ACTIVE_SETTINGS = {
+  owner_key: "replay#E2E",
+  generation: 1,
+  owner_state: "active",
+  owner_error: null,
+  riot_id: "replay#E2E",
+  region_route: "sea",
+  has_key: true,
+  auto_sync: false,
+};
+
+const LOADING_HISTORY_SUMMARY = {
+  matches: 0,
+  patches: [],
+  by_role: [],
+  win_rate: 0,
+};
+
+async function routeHistoryLoading(page: Page, delayMs: number) {
+  await page.route("**/settings", (route) =>
+    route.fulfill({ status: 200, json: ACTIVE_SETTINGS }),
+  );
+  await page.route("**/history/summary", async (route) => {
+    await page.waitForTimeout(delayMs);
+    await route.fulfill({ status: 200, json: LOADING_HISTORY_SUMMARY });
+  });
+}
+
 async function fulfillTimer(page: Page, timerSec: number) {
   await page.route("**/live/session", (route) =>
     route.fulfill({ status: 200, json: { ...REPLAY_TIMER_SESSION, timer_sec: timerSec } }),
@@ -312,16 +340,15 @@ test.describe("design system evidence", () => {
       evidence.add("state", "progress error: role=alert visible", { viewport: vp });
       await page.unroute("**/benchmarks");
 
-      await page.route("**/history/summary", async (route) => {
-        await new Promise((resolve) => setTimeout(resolve, 900));
-        await route.fallback();
-      });
+      await routeHistoryLoading(page, 900);
       await page.goto("/history");
       await expect(page.locator(".history-skeletons").first()).toBeVisible();
       await settleRouteAnimation(page);
       await screenshot(page, testInfo, `ds-history-loading-${viewport.width}`);
       evidence.add("state", "history loading: skeleton region visible", { viewport: vp });
+      await expect(page.getByTestId("summary-matches")).toBeVisible();
       await page.unroute("**/history/summary");
+      await page.unroute("**/settings");
 
       const digestBase = {
         match_id: "ds-e2e",
@@ -702,14 +729,13 @@ test.describe("design system evidence", () => {
         const disabledPair = await computedPairFor(page, "cancel-sync");
 
         // Loading copy.
-        await page.route("**/history/summary", async (route) => {
-          await new Promise((resolve) => setTimeout(resolve, 900));
-          await route.fallback();
-        });
+        await routeHistoryLoading(page, 900);
         await page.goto("/history");
         await expect(page.locator(".history-skeletons").first()).toBeVisible();
         rows.push({ name: "loading source status", pair: await computedPairFor(page, "backfill-source-status") });
+        await expect(page.getByTestId("summary-matches")).toBeVisible();
         await page.unroute("**/history/summary");
+        await page.unroute("**/settings");
 
         // Empty copy.
         await page.goto("/postgame");
