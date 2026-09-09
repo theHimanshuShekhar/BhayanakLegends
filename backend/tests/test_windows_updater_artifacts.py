@@ -6,9 +6,11 @@ import importlib.util
 import json
 import os
 import subprocess
+import threading
 import sys
 import textwrap
 from pathlib import Path
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import quote
 
 import pytest
@@ -30,7 +32,7 @@ def load_checker():
 def make_fixture(tmp_path: Path) -> tuple[Path, Path, Path, str]:
     bundle = tmp_path / "bundle" / "nsis"
     bundle.mkdir(parents=True)
-    archive = bundle / "Bhayanak Legends_0.1.10_x64-setup.exe"
+    archive = bundle / "Bhayanak Legends_0.1.11_x64-setup.exe"
     archive.write_bytes(b"signed installer bytes")
     signature = archive.with_name(archive.name + ".sig")
     signature_text = "detached-signature-content"
@@ -39,11 +41,11 @@ def make_fixture(tmp_path: Path) -> tuple[Path, Path, Path, str]:
     metadata.write_text(
         json.dumps(
             {
-                "version": "0.1.10",
+                "version": "0.1.11",
                 "platforms": {
                     "windows-x86_64": {
                         "signature": signature_text,
-                        "url": "https://github.example/releases/download/v0.1.10/"
+                        "url": "https://github.example/releases/download/v0.1.11/"
                         + quote(archive.name),
                     }
                 },
@@ -62,34 +64,8 @@ def _workflow_python(step_name: str, marker: str = "          import ") -> str:
     return textwrap.dedent(workflow[source_start:source_end])
 
 
-def _workflow_shell(step_name: str) -> str:
-    lines = (REPO_ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8").splitlines()
-    step_start = lines.index(f"      - name: {step_name}")
-    run_start = next(
-        index for index in range(step_start, len(lines)) if lines[index] == "        run: |"
-    )
-    step_end = next(
-        (
-            index
-            for index in range(run_start + 1, len(lines))
-            if lines[index].startswith("      - name: ")
-        ),
-        len(lines),
-    )
-    return textwrap.dedent("\n".join(lines[run_start + 1 : step_end]))
 
 
-def _run_workflow_shell(
-    script: str, env: dict[str, str], *, cwd: Path | None = None
-) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["bash", "-c", script],
-        env=env,
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
 
 
 def _run_workflow_python(script: str, *args: Path | str) -> subprocess.CompletedProcess[str]:
@@ -159,203 +135,221 @@ def _stage_and_inventory(
     return staged_dir, json.loads(inventory_path.read_text(encoding="utf-8"))
 
 
-def _assert_upload_selection_is_unique(
-    inventory_path: Path, expected_assets: list[str]
-) -> None:
-    selected = _run_workflow_python(
-        _workflow_python("Upload exact updater and Findings Pack assets to draft"),
-        inventory_path,
-    )
-    assert selected.returncode == 0, selected.stderr
-    assert selected.stdout.splitlines() == expected_assets
-    assert len(selected.stdout.splitlines()) == len(set(selected.stdout.splitlines()))
 
-def test_upload_path_checks_normalize_windows_runner_temp(tmp_path: Path):
-    version = "0.1.10"
+
+
+def test_upload_transaction_validates_paths_identity_and_api(tmp_path: Path, capsys):
+    source = _workflow_python(
+        "Upload exact updater and Findings Pack assets to draft",
+        marker="          import json",
+    )
+    module_path = tmp_path / "upload_transaction.py"
+    module_path.write_text(source, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("upload_transaction", module_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    version = "0.1.11"
+    tag = f"v{version}"
     repository = "theHimanshuShekhar/BhayanakLegends"
-    native_temp = r"D:\a\_temp"
-    runner_temp = tmp_path / "runner-temp"
-    native_fixture_temp = tmp_path / "D:" / "a" / "_temp"
-    updater_assets = [
+    token = "test-token-123456789012345678901234"
+    runner_temp = tmp_path / "native-temp"
+    staged_dir = runner_temp / "updater-bundle"
+    staged_dir.mkdir(parents=True)
+    updater_names = [
         f"bhayanak-legends-{version}-windows-x86_64-setup.exe",
         f"bhayanak-legends-{version}-windows-x86_64-setup.exe.sig",
     ]
-    other_assets = [
-        "latest.json",
-        "findings-pack.v2.zip",
-        "findings-pack-manifest.json",
-        "findings-pack-manifest.json.sig",
-    ]
-    for temp_root in (runner_temp, native_fixture_temp):
-        bundle_dir = temp_root / "updater-bundle"
-        bundle_dir.mkdir(parents=True)
-        for asset_name in updater_assets:
-            (bundle_dir / asset_name).write_bytes(b"updater asset")
-        for asset_name in other_assets:
-            (temp_root / asset_name).write_bytes(b"release asset")
-    for temp_root in (runner_temp, native_fixture_temp):
-        (temp_root / "release-inventory.json").write_text(
-            json.dumps({"assets": updater_assets}) + "\n",
-            encoding="utf-8",
-        )
-    (runner_temp / "release-identity").write_text(
-        f"v{version}\n123\nhttps://uploads.github.com/repos/{repository}/releases/123/assets\n",
-        encoding="utf-8",
-    )
-    (runner_temp / "release-promotion-attempt").write_text(
-        f"v{version}\n123\n",
-        encoding="utf-8",
-    )
-    (runner_temp / "release-promotion-marker").write_text(
-        f"v{version}\n123\n",
-        encoding="utf-8",
-    )
-
-    fake_bin = tmp_path / "fake-bin"
-    fake_bin.mkdir()
-    cygpath = fake_bin / "cygpath"
-    cygpath_log = tmp_path / "cygpath.log"
-    cygpath.write_text(
-        """#!/usr/bin/env python3
-import os
-import sys
-
-mode, path = sys.argv[1:3]
-native_root = r"D:\\a\\_temp"
-posix_root = os.environ["FAKE_POSIX_ROOT"]
-if mode == "-u":
-    if path.startswith(native_root):
-        suffix = path[len(native_root) :]
-        result = posix_root + suffix.replace("\\\\", "/")
-    else:
-        result = path
-    native = ""
-elif mode == "-m":
-    suffix = path[len(posix_root) :] if path.startswith(posix_root) else path
-    result = "D:/a/_temp" + suffix.replace("\\\\", "/")
-    native = result
-else:
-    raise SystemExit(f"unsupported cygpath mode: {mode}")
-with open(os.environ["CYGPATH_LOG"], "a", encoding="utf-8") as output:
-    output.write(f"{mode}\\t{path}\\t{result}\\t{native}\\n")
-print(result)
-""",
-        encoding="utf-8",
-    )
-    cygpath.chmod(0o755)
-    gh = fake_bin / "gh"
-    gh.write_text(
-        """#!/usr/bin/env bash
-set -euo pipefail
-if [[ "$*" == *"@tsv"* ]]; then
-  printf '123\\t%s\\ttrue\\n' "$GITHUB_REF_NAME"
-fi
-""",
-        encoding="utf-8",
-    )
-    gh.chmod(0o755)
-    uv = fake_bin / "uv"
-    uv.write_text(
-        """#!/usr/bin/env bash
-set -euo pipefail
-inventory_path="${@: -1}"
-if [[ ! -f "$inventory_path" ]]; then
-  echo "fake uv could not read final inventory path: $inventory_path" >&2
-  exit 1
-fi
-printf '%s\n' "$*" >> "$UV_ARGS_LOG"
-printf '%s\n' "$FAKE_UPDATER_ASSETS"
-""",
-        encoding="utf-8",
-    )
-    uv.chmod(0o755)
-    curl_log = tmp_path / "curl-config.log"
-    uv_args_log = tmp_path / "uv-args.log"
-    curl = fake_bin / "curl"
-    curl.write_text(
-        """#!/usr/bin/env bash
-set -euo pipefail
-cat >> "$CURL_LOG"
-printf '\\n---\\n' >> "$CURL_LOG"
-""",
-        encoding="utf-8",
-    )
-    curl.chmod(0o755)
-
-    environment = os.environ.copy()
-    environment.update(
-        {
-            "PATH": f"{fake_bin}{os.pathsep}{environment['PATH']}",
-            "GH_TOKEN": "test-token",
-            "RUNNER_TEMP": native_temp,
-            "INVENTORY_PATH": native_temp + r"\release-inventory.json",
-            "GITHUB_REF_NAME": f"v{version}",
-            "GITHUB_REPOSITORY": repository,
-            "FAKE_POSIX_ROOT": str(runner_temp),
-            "FAKE_UPDATER_ASSETS": "\n".join(updater_assets),
-            "CYGPATH_LOG": str(cygpath_log),
-            "CURL_LOG": str(curl_log),
-            "UV_ARGS_LOG": str(uv_args_log),
-        }
-    )
-    result = _run_workflow_shell(
-        _workflow_shell("Upload exact updater and Findings Pack assets to draft"),
-        environment,
-        cwd=tmp_path,
-    )
-
-    assert result.returncode == 0, result.stderr
-    configs = curl_log.read_text(encoding="utf-8").split("\n---\n")
-    expected_upload_targets = {
-        f'data-binary = "@D:/a/_temp/updater-bundle/{name}"'
-        for name in updater_assets
-    } | {f'data-binary = "@D:/a/_temp/{name}"' for name in other_assets}
-    observed_upload_targets = {
-        line.strip()
-        for config in configs[:-1]
-        for line in config.splitlines()
-        if line.startswith("data-binary = ")
+    fixed_assets = {
+        "latest.json": b'{"version":"0.1.11"}',
+        "findings-pack.v2.zip": b"findings-pack-bytes",
+        "findings-pack-manifest.json": b'{"size":19}',
+        "findings-pack-manifest.json.sig": b"manifest-signature",
     }
-    assert observed_upload_targets == expected_upload_targets
-    upload_paths = [
-        Path(target.removeprefix('data-binary = "@').removesuffix('"'))
-        for target in observed_upload_targets
+    asset_bytes = {
+        **{name: f"bytes-{name}".encode() for name in updater_names},
+        **fixed_assets,
+    }
+    for name in updater_names:
+        (staged_dir / name).write_bytes(asset_bytes[name])
+    for name, content in fixed_assets.items():
+        (runner_temp / name).write_bytes(content)
+    inventory_path = runner_temp / "release-inventory.json"
+    inventory_path.write_text(json.dumps({"assets": updater_names}) + "\n", encoding="utf-8")
+    identity_path = runner_temp / "release-identity"
+    identity_path.write_text(
+        f"{tag}\n123\nhttps://uploads.github.com/repos/{repository}/releases/123/assets\n",
+        encoding="utf-8",
+    )
+
+    class Response:
+        def __init__(self, status: int, payload: dict[str, object]):
+            self.status = status
+            self.body = json.dumps(payload).encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return self.body
+
+    class Opener:
+        def __init__(self, release: dict[str, object], uploads: list[dict[str, object]]):
+            self.release = release
+            self.uploads = uploads
+            self.requests: list[object] = []
+
+        def __call__(self, request):
+            self.requests.append(request)
+            if request.get_method() == "GET":
+                return Response(200, self.release)
+            upload_index = sum(
+                1 for previous in self.requests[:-1] if previous.get_method() == "POST"
+            )
+            return Response(201, self.uploads[upload_index])
+
+    release = {"id": 123, "tag_name": tag, "draft": True, "assets": []}
+    responses = [
+        {"id": 100 + index, "name": name}
+        for index, name in enumerate([*updater_names, *fixed_assets])
     ]
-    assert all((tmp_path / path).is_file() for path in upload_paths)
-    cygpath_entries = [
-        line.split("\t", 3)
-        for line in cygpath_log.read_text(encoding="utf-8").splitlines()
-    ]
-    native_conversions = [entry for mode, _source, entry, _native in cygpath_entries if mode == "-m"]
-    assert native_conversions
-    assert all((tmp_path / Path(path)).is_dir() for path in native_conversions)
-    native_forward_paths = [native for mode, _source, _result, native in cygpath_entries if mode == "-m"]
-    assert native_forward_paths
-    assert all(path.startswith("D:/") and "\\" not in path for path in native_forward_paths)
-    uv_args = uv_args_log.read_text(encoding="utf-8").splitlines()
-    assert any("D:/a/_temp/release-inventory.json" in line for line in uv_args)
-    for step_name, stop_marker in (
-        (
-            "Verify draft release contents before promotion",
-            'RELEASE_JSON="$RUNNER_TEMP_MSYS/release-before-verification.json"',
-        ),
-        ("Promote verified release draft", "RELEASE_STATE="),
-        (
-            "Verify anonymous latest release endpoints",
-            'download_anonymous "$PUBLIC_BASE/latest.json" "$PUBLIC_DIR_NATIVE/latest.json"',
-        ),
-        ("Re-draft release after a failed publication check", "EXPECTED_TAG="),
-    ):
-        script = _workflow_shell(step_name)
-        probe = script[: script.index(stop_marker)] + 'printf "%s\\n" "$RUNNER_TEMP_MSYS"\n'
-        probe_result = _run_workflow_shell(probe, environment, cwd=tmp_path)
-        assert probe_result.returncode == 0, f"{step_name}: {probe_result.stderr}"
-        assert probe_result.stdout.strip() == str(runner_temp)
+    opener = Opener(release, responses)
+    module.upload_release(
+        runner_temp,
+        inventory_path,
+        identity_path,
+        tag,
+        repository,
+        token,
+        opener=opener,
+    )
+    output = capsys.readouterr()
+    assert token not in output.out + output.err
+    assert len(opener.requests) == 1 + len(responses)
+    get_request = opener.requests[0]
+    assert get_request.get_method() == "GET"
+    assert get_request.full_url == f"https://api.github.com/repos/{repository}/releases/123"
+    get_headers = {key.lower(): value for key, value in get_request.header_items()}
+    assert get_headers["accept"] == "application/vnd.github+json"
+    assert get_headers["authorization"] == f"Bearer {token}"
+    for request, (name, content) in zip(opener.requests[1:], asset_bytes.items()):
+        assert request.get_method() == "POST"
+        assert request.full_url == (
+            f"https://uploads.github.com/repos/{repository}/releases/123/assets"
+            f"?name={quote(name, safe='')}"
+        )
+        assert request.data == content
+        headers = {key.lower(): value for key, value in request.header_items()}
+        assert headers["accept"] == "application/vnd.github+json"
+        assert headers["authorization"] == f"Bearer {token}"
+        assert headers["content-type"] == "application/octet-stream"
+
+    existing = Opener(
+        {**release, "assets": [{"id": 999, "name": "already-there.exe"}]},
+        responses,
+    )
+    with pytest.raises(SystemExit, match="already has assets"):
+        module.upload_release(
+            runner_temp,
+            inventory_path,
+            identity_path,
+            tag,
+            repository,
+            token,
+            opener=existing,
+        )
+    assert len(existing.requests) == 1
+
+    missing_name = "findings-pack.v2.zip"
+    (runner_temp / missing_name).unlink()
+    missing = Opener(release, responses)
+    with pytest.raises(SystemExit, match="required local release asset is missing"):
+        module.upload_release(
+            runner_temp,
+            inventory_path,
+            identity_path,
+            tag,
+            repository,
+            token,
+            opener=missing,
+        )
+    assert all(request.get_method() == "GET" for request in missing.requests)
+    (runner_temp / missing_name).write_bytes(fixed_assets[missing_name])
+
+    wrong_name = Opener(release, [{**responses[0], "name": "wrong-name.exe"}, *responses[1:]])
+    with pytest.raises(SystemExit, match="wrong asset"):
+        module.upload_release(
+            runner_temp,
+            inventory_path,
+            identity_path,
+            tag,
+            repository,
+            token,
+            opener=wrong_name,
+        )
+    assert len(wrong_name.requests) == 2
+
+    duplicate_id = Opener(
+        release,
+        [{**response, "id": 100} for response in responses],
+    )
+    with pytest.raises(SystemExit, match="duplicate asset ID"):
+        module.upload_release(
+            runner_temp,
+            inventory_path,
+            identity_path,
+            tag,
+            repository,
+            token,
+            opener=duplicate_id,
+        )
+    assert len(duplicate_id.requests) == 3
+    redirect_requests: list[tuple[str, str | None]] = []
+
+    class RedirectHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            redirect_requests.append((self.path, self.headers.get("Authorization")))
+            self.send_response(302)
+            self.send_header(
+                "Location",
+                f"http://127.0.0.1:{self.server.server_port}/location",
+            )
+            self.end_headers()
+
+        def log_message(self, *_args) -> None:
+            return
+
+    server = HTTPServer(("127.0.0.1", 0), RedirectHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        redirect_request = module.Request(
+            f"http://127.0.0.1:{server.server_port}/start",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        with pytest.raises(SystemExit, match="HTTP 302"):
+            module.request_json(
+                module.NO_REDIRECT_OPENER.open,
+                redirect_request,
+                "redirect probe",
+            )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+    assert redirect_requests == [("/start", f"Bearer {token}")]
+    output = capsys.readouterr()
+    assert token not in output.out + output.err
 
 
 def test_workflow_stages_signed_exe_once_and_uploads_unique_assets(tmp_path: Path):
-    version = "0.1.10"
-    source_name = "Bhayanak Legends_0.1.10_x64-setup.exe"
+    version = "0.1.11"
+    source_name = "Bhayanak Legends_0.1.11_x64-setup.exe"
     signature_text = "signed-exe-signature"
     staged_dir, inventory = _stage_and_inventory(
         tmp_path,
@@ -375,17 +369,14 @@ def test_workflow_stages_signed_exe_once_and_uploads_unique_assets(tmp_path: Pat
     assert inventory["updater"] == canonical
     assert inventory["signature"] == canonical + ".sig"
     assert inventory["assets"] == expected_assets
-    _assert_upload_selection_is_unique(
-        tmp_path / "release-inventory.json", expected_assets
-    )
 
 
 def test_workflow_stages_separate_unsigned_installer_and_signed_archive(
     tmp_path: Path,
 ):
-    version = "0.1.10"
-    installer_name = "Bhayanak Legends_0.1.10_x64-setup.exe"
-    archive_name = "Bhayanak Legends_0.1.10_x64.nsis.zip"
+    version = "0.1.11"
+    installer_name = "Bhayanak Legends_0.1.11_x64-setup.exe"
+    archive_name = "Bhayanak Legends_0.1.11_x64.nsis.zip"
     signature_text = "signed-archive-signature"
     staged_dir, inventory = _stage_and_inventory(
         tmp_path,
@@ -411,9 +402,6 @@ def test_workflow_stages_separate_unsigned_installer_and_signed_archive(
     assert inventory["updater"] == canonical_archive
     assert inventory["signature"] == canonical_archive + ".sig"
     assert inventory["assets"] == expected_assets
-    _assert_upload_selection_is_unique(
-        tmp_path / "release-inventory.json", expected_assets
-    )
 
 
 def test_matching_windows_artifacts_pass(tmp_path: Path):
@@ -534,7 +522,7 @@ def test_release_workflow_stages_safe_updater_names_before_id_addressed_upload()
     stage = workflow.index("Stage canonical Windows updater assets")
     check = workflow.index("check_windows_updater_artifacts.py")
     draft = workflow.index('releases" > "$CREATE_RESPONSE_MSYS"')
-    upload = workflow.index('url = "${UPLOAD_URL}?name=${asset_name}"')
+    upload = workflow.index("Upload exact updater and Findings Pack assets to draft")
     upload_start = workflow.index("Upload exact updater and Findings Pack assets to draft")
     verify_start = workflow.index("Verify draft release contents before promotion")
     upload_step = workflow[upload_start:verify_start]
@@ -551,21 +539,28 @@ def test_release_workflow_stages_safe_updater_names_before_id_addressed_upload()
     assert "exactly one signed updater candidate" in workflow
     assert "dict.fromkeys" in workflow
     assert '"assets": asset_names' in workflow
-    assert "gh api" in upload_step
-    assert "releases/${RELEASE_ID}/assets" in workflow
-    assert "releases/assets/${asset_id}" in workflow
-    assert "--config -" in upload_step
-    assert 'Authorization: Bearer ${GH_TOKEN}' in upload_step
-    assert 'ASSET_PATH_CURL="$asset_path"' in upload_step
+    assert "uv run --project backend --locked python -" in upload_step
+    assert "from urllib.request import HTTPRedirectHandler, Request, build_opener" in upload_step
+    assert "class RejectRedirectHandler(HTTPRedirectHandler)" in upload_step
+    assert "NO_REDIRECT_OPENER = build_opener(RejectRedirectHandler)" in upload_step
+    assert "opener=NO_REDIRECT_OPENER.open" in upload_step
+    assert "urlopen" not in upload_step
+    assert "https://api.github.com/repos/{repository}/releases/{release_id}" in upload_step
+    assert "https://uploads.github.com/repos/{repository}/releases/{release_id}/assets" in upload_step
+    assert "quote(name, safe='')" in upload_step
+    assert "path.is_file()" in upload_step
+    assert "remote_assets" in upload_step
+    assert "uploaded_ids" in upload_step
     assert 'RUNNER_TEMP_NATIVE="$(cygpath -m "$RUNNER_TEMP_MSYS")"' in upload_step
-    assert 'STAGED_BUNDLE_DIR_NATIVE="$RUNNER_TEMP_NATIVE/updater-bundle"' in upload_step
-    assert 'INVENTORY_PATH_NATIVE="$RUNNER_TEMP_NATIVE/release-inventory.json"' in upload_step
-    assert 'data-binary = "@${ASSET_PATH_CURL}"' in upload_step
-    assert 'data-binary = "@${asset_path}"' not in upload_step
-    assert '--input "$asset_path"' not in upload_step
+    assert '"$INVENTORY_PATH_NATIVE"' in upload_step
+    assert '"$IDENTITY_PATH_NATIVE"' in upload_step
+    assert "ASSET_PATH_CURL" not in upload_step
+    assert "--config -" not in upload_step
+    assert "curl" not in upload_step
+    assert "gh api" not in upload_step
     assert "--method POST" not in upload_step
-    assert 'releases/${RELEASE_ID}/assets?name=${asset_name}' not in upload_step
-    assert "len(set(assets)) != len(assets)" in upload_step
+    assert "gh release upload" not in upload_step
+    assert "--clobber" not in upload_step
     assert "--clobber" not in workflow
     assert "gh release create" not in workflow
     assert "gh release upload" not in workflow
@@ -583,7 +578,7 @@ def test_release_staged_updater_names_preserve_local_bytes():
     assert "signed_updaters" in workflow
     assert 'filecmp.cmp(source, target, shallow=False)' in workflow
     assert 'shutil.copyfile(source, target)' in workflow
-    assert "release asset name is not GitHub-safe" in workflow
+    assert "safe unique updater assets" in workflow
 
 def test_tauri_config_enables_signed_updater_artifacts():
     config = json.loads((REPO_ROOT / "src-tauri/tauri.conf.json").read_text(encoding="utf-8"))

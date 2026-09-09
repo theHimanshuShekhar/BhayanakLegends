@@ -114,15 +114,14 @@ case cannot upload the same file twice.
 Every asset upload uses the draft response's validated `upload_url` base. The
 URL must be HTTPS on `uploads.github.com`, with the exact
 `/repos/<repository>/releases/<release-id>/assets{?name,label}` shape. The
-workflow defines one canonical MSYS path per Bash step for filesystem checks,
-then converts each path explicitly to a Windows-native form before passing it
-to native Python/uv and to curl where it is a native executable. The bearer
-token therefore never appears in the curl process arguments. It never sends an
-asset `POST` to the default API host. The installer, updater archive and
-detached signature, `latest.json`, and `findings-pack.v2.zip`,
-`findings-pack-manifest.json`, and `findings-pack-manifest.json.sig` are
-explicitly enumerated; the workflow never uses `--clobber`, so an existing
-asset is a failure rather than an overwrite.
+workflow derives one canonical MSYS runner-temp root, converts it once to a
+forward-slash native path, and passes the native inventory, identity, and asset
+paths to one Python upload transaction. That transaction validates the tag,
+release ID, draft state, empty asset list, safe names, and every local file
+before sending each exact file's bytes to the validated upload URL. The bearer
+token remains in the Python process environment and is never printed. The
+workflow never sends an asset `POST` to the default API host or overwrites an
+existing asset.
 
 Before promotion, the workflow keeps the release private as a draft and queries
 the captured release ID and its complete asset list. It records every remote
@@ -182,13 +181,13 @@ set -euo pipefail
 fixture_root="$(mktemp -d)"
 trap 'rm -rf "$fixture_root"' EXIT
 bundle_dir="$fixture_root/bundle/nsis"
-archive="$bundle_dir/Bhayanak Legends_0.1.10_x64-setup.exe"
+archive="$bundle_dir/Bhayanak Legends_0.1.11_x64-setup.exe"
 signature="$archive.sig"
 mkdir -p "$bundle_dir" "$fixture_root/temp"
 printf 'fixture installer\n' > "$archive"
 printf 'fixture signature\n' > "$signature"
 export RUNNER_TEMP="$fixture_root/temp"
-export GITHUB_REF_NAME=v0.1.10
+export GITHUB_REF_NAME=v0.1.11
 export GITHUB_REPOSITORY=theHimanshuShekhar/BhayanakLegends
 
 RUNNER_TEMP_MSYS="$(cygpath -u "$RUNNER_TEMP")"

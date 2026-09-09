@@ -146,7 +146,7 @@ def test_updater_artifacts_enabled_in_tauri_config():
 
 
 def test_all_release_version_sources_are_aligned():
-    expected = "0.1.10"
+    expected = "0.1.11"
     package = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))
     tauri = json.loads(CONFIG.read_text(encoding="utf-8"))
     backend = tomllib.loads(
@@ -295,17 +295,22 @@ def test_release_draft_is_verified_before_promotion():
     assert "release-identity" in create_step
 
     upload_step = _workflow_step("Upload exact updater and Findings Pack assets to draft")
-    assert "gh api" in upload_step
-    assert "findings-pack.v2.zip" in upload_step
-    assert "findings-pack-manifest.json" in upload_step
-    assert "findings-pack-manifest.json.sig" in upload_step
-    assert 'EXPECTED_UPLOAD_URL="https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets"' in upload_step
-    assert "UPLOAD_URL" in upload_step
-    assert 'ASSET_PATH_CURL="$asset_path"' in upload_step
-    assert 'RUNNER_TEMP_MSYS="$(cygpath -u "$RUNNER_TEMP")"' in upload_step
+    assert "uv run --project backend --locked python -" in upload_step
+    assert "RUNNER_TEMP_MSYS" in upload_step
     assert 'RUNNER_TEMP_NATIVE="$(cygpath -m "$RUNNER_TEMP_MSYS")"' in upload_step
-    assert 'STAGED_BUNDLE_DIR_NATIVE="$RUNNER_TEMP_NATIVE/updater-bundle"' in upload_step
-    assert 'INVENTORY_PATH_NATIVE="$RUNNER_TEMP_NATIVE/release-inventory.json"' in upload_step
+    assert '"$INVENTORY_PATH_NATIVE"' in upload_step
+    assert '"$IDENTITY_PATH_NATIVE"' in upload_step
+    assert "from urllib.request import HTTPRedirectHandler, Request, build_opener" in upload_step
+    assert "https://api.github.com/repos/{repository}/releases/{release_id}" in upload_step
+    assert "https://uploads.github.com/repos/{repository}/releases/{release_id}/assets" in upload_step
+    assert "quote(name, safe='')" in upload_step
+    assert "path.is_file()" in upload_step
+    assert "remote_assets" in upload_step
+    assert "uploaded_ids" in upload_step
+    assert "class RejectRedirectHandler(HTTPRedirectHandler)" in upload_step
+    assert "NO_REDIRECT_OPENER = build_opener(RejectRedirectHandler)" in upload_step
+    assert "opener=NO_REDIRECT_OPENER.open" in upload_step
+    assert "urlopen" not in upload_step
     for name in (
         "Build canonical Findings Pack release payload",
         "Sign Findings Pack manifest",
@@ -321,19 +326,16 @@ def test_release_draft_is_verified_before_promotion():
         "Re-draft release after a failed publication check",
     ):
         assert 'RUNNER_TEMP_MSYS="$(cygpath -u "$RUNNER_TEMP")"' in _workflow_step(name)
-    assert "ASSET_PATH_CURL" in upload_step
-    assert "--config -" in upload_step
-    assert 'Authorization: Bearer ${GH_TOKEN}' in upload_step
-    assert 'data-binary = "@${ASSET_PATH_CURL}"' in upload_step
-    assert 'data-binary = "@${asset_path}"' not in upload_step
-    assert 'url = "${UPLOAD_URL}?name=${asset_name}"' in upload_step
-    assert "inventory.get(\"assets\")" in upload_step
-    assert "len(set(assets)) != len(assets)" in upload_step
-    assert "--method POST" not in upload_step
-    assert 'releases/${RELEASE_ID}/assets?name=${asset_name}' not in upload_step
+    assert '"Authorization": f"Bearer {token}"' in upload_step
+    assert "new release unexpectedly already has assets" in upload_step
     assert "release identity or draft state changed before asset upload" in upload_step
-    assert "--clobber" not in upload_step
+    assert "ASSET_PATH_CURL" not in upload_step
+    assert "--config -" not in upload_step
+    assert "curl" not in upload_step
+    assert "gh api" not in upload_step
+    assert "--method POST" not in upload_step
     assert "gh release upload" not in upload_step
+    assert "--clobber" not in upload_step
     verify_step = _workflow_step("Verify draft release contents before promotion")
     assert "gh api" in verify_step
     assert "releases/${RELEASE_ID}/assets?per_page=100" in verify_step
