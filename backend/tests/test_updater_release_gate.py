@@ -146,7 +146,7 @@ def test_updater_artifacts_enabled_in_tauri_config():
 
 
 def test_all_release_version_sources_are_aligned():
-    expected = "0.1.3"
+    expected = "0.1.4"
     package = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))
     tauri = json.loads(CONFIG.read_text(encoding="utf-8"))
     backend = tomllib.loads(
@@ -300,6 +300,24 @@ def test_release_draft_is_verified_before_promotion():
     assert 'EXPECTED_UPLOAD_URL="https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets"' in upload_step
     assert "UPLOAD_URL" in upload_step
     assert 'ASSET_PATH_CURL="$(cygpath -m "$asset_path")"' in upload_step
+    assert 'RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"' in upload_step
+    assert 'STAGED_BUNDLE_DIR="$(cygpath -u "$RUNNER_TEMP/updater-bundle")"' in upload_step
+    assert 'INVENTORY_PATH="$(cygpath -u "$INVENTORY_PATH")"' in upload_step
+    for name in (
+        "Build canonical Findings Pack release payload",
+        "Sign Findings Pack manifest",
+        "Verify generated Findings Pack payload",
+        "Verify updater signing prerequisites",
+        "Stage canonical Windows updater assets",
+        "Check Windows updater artifacts",
+        "Inventory exact updater assets before draft creation",
+        "Create signed release draft",
+        "Verify draft release contents before promotion",
+        "Promote verified release draft",
+        "Verify anonymous latest release endpoints",
+        "Re-draft release after a failed publication check",
+    ):
+        assert 'RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"' in _workflow_step(name)
     assert "ASSET_PATH_CURL" in upload_step
     assert "--config -" in upload_step
     assert 'Authorization: Bearer ${GH_TOKEN}' in upload_step

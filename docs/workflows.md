@@ -114,8 +114,9 @@ case cannot upload the same file twice.
 Every asset upload uses the draft response's validated `upload_url` base. The
 URL must be HTTPS on `uploads.github.com`, with the exact
 `/repos/<repository>/releases/<release-id>/assets{?name,label}` shape. The
-workflow normalizes each Windows asset path with `cygpath -m` before putting
-only the forward-slash path in the config, then sends each exact local file as
+workflow first normalizes the native Windows runner-temp roots to POSIX
+paths with `cygpath -u` for Git Bash filesystem checks, then normalizes each
+asset path with `cygpath -m` before putting only the forward-slash path in the
 raw bytes through a curl config supplied on stdin; the bearer token therefore
 never appears in the curl process arguments. It never sends an asset `POST` to
 the default API host. The installer, updater archive and detached signature,
@@ -181,13 +182,13 @@ set -euo pipefail
 fixture_root="$(mktemp -d)"
 trap 'rm -rf "$fixture_root"' EXIT
 bundle_dir="$fixture_root/bundle/nsis"
-archive="$bundle_dir/Bhayanak Legends_0.1.3_x64-setup.exe"
+archive="$bundle_dir/Bhayanak Legends_0.1.4_x64-setup.exe"
 signature="$archive.sig"
 mkdir -p "$bundle_dir" "$fixture_root/temp"
 printf 'fixture installer\n' > "$archive"
 printf 'fixture signature\n' > "$signature"
 export RUNNER_TEMP="$fixture_root/temp"
-export GITHUB_REF_NAME=v0.1.3
+export GITHUB_REF_NAME=v0.1.4
 export GITHUB_REPOSITORY=theHimanshuShekhar/BhayanakLegends
 
 VERSION="${GITHUB_REF_NAME#v}"

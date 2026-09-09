@@ -168,6 +168,7 @@ jobs:
       - name: Build canonical Findings Pack release payload
         shell: bash
         run: |
+          RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"
           VERSION="${GITHUB_REF_NAME#v}"
           uv run --project backend --locked python tools/build_findings_pack_release.py \
             --pack-dir pack \
@@ -181,6 +182,8 @@ jobs:
         env:
           FINDINGS_PACK_MANIFEST_SIGNING_KEY: ${{ secrets.FINDINGS_PACK_MANIFEST_SIGNING_KEY }}
         run: |
+          set -euo pipefail
+          RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"
           uv run --project backend --locked python tools/sign_findings_pack_manifest.py \
             "$RUNNER_TEMP/findings-pack-manifest.json" \
             --output "$RUNNER_TEMP/findings-pack-manifest.json.sig"
@@ -191,6 +194,14 @@ jobs:
           PACK_SIGNATURE_PATH: ${{ runner.temp }}/findings-pack-manifest.json.sig
           PACK_ASSET_PATH: ${{ runner.temp }}/findings-pack.v2.zip
         run: |
+          set -euo pipefail
+          RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"
+          PACK_MANIFEST_PATH_POSIX="$RUNNER_TEMP/findings-pack-manifest.json"
+          PACK_SIGNATURE_PATH_POSIX="$RUNNER_TEMP/findings-pack-manifest.json.sig"
+          PACK_ASSET_PATH_POSIX="$RUNNER_TEMP/findings-pack.v2.zip"
+          PACK_MANIFEST_PATH="$(cygpath -m "$PACK_MANIFEST_PATH_POSIX")"
+          PACK_SIGNATURE_PATH="$(cygpath -m "$PACK_SIGNATURE_PATH_POSIX")"
+          PACK_ASSET_PATH="$(cygpath -m "$PACK_ASSET_PATH_POSIX")"
           uv run --project backend --locked python - <<'PY'
           import hashlib
           import json
@@ -223,6 +234,7 @@ jobs:
         run: |
           set +x
           set -euo pipefail
+          RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"
           if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" || -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]]; then
             echo "updater signing key/password secrets are not provisioned; refusing to publish unsigned updates" >&2
             exit 1
@@ -336,6 +348,8 @@ jobs:
           STAGED_BUNDLE_DIR: ${{ runner.temp }}/updater-bundle
         run: |
           set -euo pipefail
+          RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"
+          STAGED_BUNDLE_DIR="$RUNNER_TEMP/updater-bundle"
           VERSION="${GITHUB_REF_NAME#v}"
           SOURCE_BUNDLE_DIR="src-tauri/target/release/bundle/nsis"
           rm -rf "$STAGED_BUNDLE_DIR"
@@ -411,6 +425,9 @@ jobs:
           LATEST_JSON_PATH: ${{ runner.temp }}/latest.json
         run: |
           set -euo pipefail
+          RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"
+          STAGED_BUNDLE_DIR="$RUNNER_TEMP/updater-bundle"
+          LATEST_JSON_PATH="$RUNNER_TEMP/latest.json"
           VERSION="${GITHUB_REF_NAME#v}"
           uv run --project backend --locked python tools/check_windows_updater_artifacts.py \
             --bundle-dir "$STAGED_BUNDLE_DIR" \
@@ -427,6 +444,10 @@ jobs:
           STAGED_BUNDLE_DIR: ${{ runner.temp }}/updater-bundle
         run: |
           set -euo pipefail
+          RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"
+          INVENTORY_PATH="$RUNNER_TEMP/release-inventory.json"
+          LATEST_JSON_PATH="$RUNNER_TEMP/latest.json"
+          STAGED_BUNDLE_DIR="$RUNNER_TEMP/updater-bundle"
           uv run --project backend --locked python - \
             "$INVENTORY_PATH" \
             "$LATEST_JSON_PATH" \
@@ -508,6 +529,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"
           TAG="$GITHUB_REF_NAME"
           VERSION="${TAG#v}"
           CREATE_RESPONSE="$RUNNER_TEMP/release-create-response.json"
@@ -569,8 +591,10 @@ jobs:
         run: |
           set -euo pipefail
           TAG="$GITHUB_REF_NAME"
+          RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"
+          STAGED_BUNDLE_DIR="$(cygpath -u "$RUNNER_TEMP/updater-bundle")"
+          INVENTORY_PATH="$(cygpath -u "$INVENTORY_PATH")"
           ID_FILE="$RUNNER_TEMP/release-identity"
-          STAGED_BUNDLE_DIR="$RUNNER_TEMP/updater-bundle"
           if [[ ! -s "$ID_FILE" || "$(sed -n '1p' "$ID_FILE")" != "$TAG" ]]; then
             echo "release identity marker is missing or points to another tag" >&2
             exit 1
@@ -675,6 +699,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"
           TAG="$GITHUB_REF_NAME"
           VERSION="${TAG#v}"
           ID_FILE="$RUNNER_TEMP/release-identity"
@@ -995,6 +1020,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"
           TAG="$GITHUB_REF_NAME"
           ID_FILE="$RUNNER_TEMP/release-identity"
           if [[ ! -s "$ID_FILE" || "$(sed -n '1p' "$ID_FILE")" != "$TAG" ]]; then
@@ -1030,6 +1056,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"
           TAG="$GITHUB_REF_NAME"
           VERSION="${TAG#v}"
           PUBLIC_DIR="$RUNNER_TEMP/anonymous-release"
@@ -1220,6 +1247,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"
           TAG="$GITHUB_REF_NAME"
           PROMOTION_ATTEMPT="$RUNNER_TEMP/release-promotion-attempt"
           PROMOTION_MARKER="$RUNNER_TEMP/release-promotion-marker"

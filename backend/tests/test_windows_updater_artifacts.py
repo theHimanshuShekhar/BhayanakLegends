@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import textwrap
@@ -29,7 +30,7 @@ def load_checker():
 def make_fixture(tmp_path: Path) -> tuple[Path, Path, Path, str]:
     bundle = tmp_path / "bundle" / "nsis"
     bundle.mkdir(parents=True)
-    archive = bundle / "Bhayanak Legends_0.1.3_x64-setup.exe"
+    archive = bundle / "Bhayanak Legends_0.1.4_x64-setup.exe"
     archive.write_bytes(b"signed installer bytes")
     signature = archive.with_name(archive.name + ".sig")
     signature_text = "detached-signature-content"
@@ -38,11 +39,11 @@ def make_fixture(tmp_path: Path) -> tuple[Path, Path, Path, str]:
     metadata.write_text(
         json.dumps(
             {
-                "version": "0.1.3",
+                "version": "0.1.4",
                 "platforms": {
                     "windows-x86_64": {
                         "signature": signature_text,
-                        "url": "https://github.example/releases/download/v0.1.3/"
+                        "url": "https://github.example/releases/download/v0.1.4/"
                         + quote(archive.name),
                     }
                 },
@@ -59,6 +60,33 @@ def _workflow_python(step_name: str, marker: str = "          import ") -> str:
     source_start = workflow.index(marker, step_start)
     source_end = workflow.index("          PY", source_start)
     return textwrap.dedent(workflow[source_start:source_end])
+
+
+def _workflow_shell(step_name: str) -> str:
+    lines = (REPO_ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8").splitlines()
+    step_start = lines.index(f"      - name: {step_name}")
+    run_start = next(
+        index for index in range(step_start, len(lines)) if lines[index] == "        run: |"
+    )
+    step_end = next(
+        (
+            index
+            for index in range(run_start + 1, len(lines))
+            if lines[index].startswith("      - name: ")
+        ),
+        len(lines),
+    )
+    return textwrap.dedent("\n".join(lines[run_start + 1 : step_end]))
+
+
+def _run_workflow_shell(script: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", "-c", script],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
 
 
 def _run_workflow_python(script: str, *args: Path | str) -> subprocess.CompletedProcess[str]:
@@ -139,10 +167,147 @@ def _assert_upload_selection_is_unique(
     assert selected.stdout.splitlines() == expected_assets
     assert len(selected.stdout.splitlines()) == len(set(selected.stdout.splitlines()))
 
+def test_upload_path_checks_normalize_windows_runner_temp(tmp_path: Path):
+    version = "0.1.4"
+    repository = "theHimanshuShekhar/BhayanakLegends"
+    native_temp = r"D:\a\_temp"
+    runner_temp = tmp_path / "runner-temp"
+    bundle_dir = runner_temp / "updater-bundle"
+    bundle_dir.mkdir(parents=True)
+    updater_assets = [
+        f"bhayanak-legends-{version}-windows-x86_64-setup.exe",
+        f"bhayanak-legends-{version}-windows-x86_64-setup.exe.sig",
+    ]
+    other_assets = [
+        "latest.json",
+        "findings-pack.v2.zip",
+        "findings-pack-manifest.json",
+        "findings-pack-manifest.json.sig",
+    ]
+    for asset_name in updater_assets:
+        (bundle_dir / asset_name).write_bytes(b"updater asset")
+    for asset_name in other_assets:
+        (runner_temp / asset_name).write_bytes(b"release asset")
+    (runner_temp / "release-inventory.json").write_text(
+        json.dumps({"assets": updater_assets}) + "\n",
+        encoding="utf-8",
+    )
+    (runner_temp / "release-identity").write_text(
+        f"v{version}\n123\nhttps://uploads.github.com/repos/{repository}/releases/123/assets\n",
+        encoding="utf-8",
+    )
+    (runner_temp / "release-promotion-attempt").write_text(
+        f"v{version}\n123\n",
+        encoding="utf-8",
+    )
+    (runner_temp / "release-promotion-marker").write_text(
+        f"v{version}\n123\n",
+        encoding="utf-8",
+    )
+
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    cygpath = fake_bin / "cygpath"
+    cygpath.write_text(
+        """#!/usr/bin/env python3
+import os
+import sys
+
+mode, path = sys.argv[1:3]
+native_root = r"D:\\a\\_temp"
+posix_root = os.environ["FAKE_POSIX_ROOT"]
+if mode == "-u":
+    if path.startswith(native_root):
+        suffix = path[len(native_root) :]
+        print(posix_root + suffix.replace("\\\\", "/"))
+    else:
+        print(path)
+elif mode == "-m":
+    suffix = path[len(posix_root) :] if path.startswith(posix_root) else path
+    print("D:/a/_temp" + suffix.replace("\\\\", "/"))
+else:
+    raise SystemExit(f"unsupported cygpath mode: {mode}")
+""",
+        encoding="utf-8",
+    )
+    cygpath.chmod(0o755)
+    gh = fake_bin / "gh"
+    gh.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$*" == *"@tsv"* ]]; then
+  printf '123\\t%s\\ttrue\\n' "$GITHUB_REF_NAME"
+fi
+""",
+        encoding="utf-8",
+    )
+    gh.chmod(0o755)
+    uv = fake_bin / "uv"
+    uv.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$FAKE_UPDATER_ASSETS"
+""",
+        encoding="utf-8",
+    )
+    uv.chmod(0o755)
+    curl_log = tmp_path / "curl-config.log"
+    curl = fake_bin / "curl"
+    curl.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+cat >> "$CURL_LOG"
+printf '\\n---\\n' >> "$CURL_LOG"
+""",
+        encoding="utf-8",
+    )
+    curl.chmod(0o755)
+
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "PATH": f"{fake_bin}{os.pathsep}{environment['PATH']}",
+            "GH_TOKEN": "test-token",
+            "RUNNER_TEMP": native_temp,
+            "INVENTORY_PATH": native_temp + r"\release-inventory.json",
+            "GITHUB_REF_NAME": f"v{version}",
+            "GITHUB_REPOSITORY": repository,
+            "FAKE_POSIX_ROOT": str(runner_temp),
+            "FAKE_UPDATER_ASSETS": "\n".join(updater_assets),
+            "CURL_LOG": str(curl_log),
+        }
+    )
+    result = _run_workflow_shell(
+        _workflow_shell("Upload exact updater and Findings Pack assets to draft"),
+        environment,
+    )
+
+    assert result.returncode == 0, result.stderr
+    configs = curl_log.read_text(encoding="utf-8").split("\n---\n")
+    assert len(configs) == len(updater_assets) + len(other_assets) + 1
+    assert all('data-binary = "@D:/a/_temp/' in config for config in configs[:-1])
+    for step_name, stop_marker in (
+        (
+            "Verify draft release contents before promotion",
+            'RELEASE_JSON="$RUNNER_TEMP/release-before-verification.json"',
+        ),
+        ("Promote verified release draft", "RELEASE_STATE="),
+        (
+            "Verify anonymous latest release endpoints",
+            'download_anonymous "$PUBLIC_BASE/latest.json" "$PUBLIC_DIR/latest.json"',
+        ),
+        ("Re-draft release after a failed publication check", "EXPECTED_TAG="),
+    ):
+        script = _workflow_shell(step_name)
+        probe = script[: script.index(stop_marker)] + 'printf "%s\\n" "$RUNNER_TEMP"\n'
+        probe_result = _run_workflow_shell(probe, environment)
+        assert probe_result.returncode == 0, f"{step_name}: {probe_result.stderr}"
+        assert probe_result.stdout.strip() == str(runner_temp)
+
 
 def test_workflow_stages_signed_exe_once_and_uploads_unique_assets(tmp_path: Path):
-    version = "0.1.3"
-    source_name = "Bhayanak Legends_0.1.3_x64-setup.exe"
+    version = "0.1.4"
+    source_name = "Bhayanak Legends_0.1.4_x64-setup.exe"
     signature_text = "signed-exe-signature"
     staged_dir, inventory = _stage_and_inventory(
         tmp_path,
@@ -170,9 +335,9 @@ def test_workflow_stages_signed_exe_once_and_uploads_unique_assets(tmp_path: Pat
 def test_workflow_stages_separate_unsigned_installer_and_signed_archive(
     tmp_path: Path,
 ):
-    version = "0.1.3"
-    installer_name = "Bhayanak Legends_0.1.3_x64-setup.exe"
-    archive_name = "Bhayanak Legends_0.1.3_x64.nsis.zip"
+    version = "0.1.4"
+    installer_name = "Bhayanak Legends_0.1.4_x64-setup.exe"
+    archive_name = "Bhayanak Legends_0.1.4_x64.nsis.zip"
     signature_text = "signed-archive-signature"
     staged_dir, inventory = _stage_and_inventory(
         tmp_path,
