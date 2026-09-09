@@ -853,7 +853,7 @@ jobs:
           ):
               raise SystemExit("release identity or draft state changed before verification")
           PY
-          mapfile -t EXPECTED_ASSETS < <(
+          mapfile -d '' -t EXPECTED_ASSETS < <(
             uv run --project backend --locked python - "$INVENTORY_PATH_NATIVE" <<'PY'
           import json
           import sys
@@ -875,22 +875,22 @@ jobs:
           ):
               raise SystemExit("release inventory did not enumerate unique updater assets")
           for name in assets:
-              print(name)
+              sys.stdout.buffer.write(name.encode("utf-8") + b"\0")
           PY
           )
           if [[ "${#EXPECTED_ASSETS[@]}" -lt 2 || "${#EXPECTED_ASSETS[@]}" -gt 3 ]]; then
             echo "release inventory did not enumerate two or three unique updater assets" >&2
             exit 1
           fi
-          mapfile -t UPDATER_DETAILS < <(
+          mapfile -d '' -t UPDATER_DETAILS < <(
             uv run --project backend --locked python - "$INVENTORY_PATH_NATIVE" <<'PY'
           import json
           import sys
           from pathlib import Path
 
           inventory = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-          print(inventory["updater"])
-          print(inventory["signature"])
+          sys.stdout.buffer.write(inventory["updater"].encode("utf-8") + b"\0")
+          sys.stdout.buffer.write(inventory["signature"].encode("utf-8") + b"\0")
           PY
           )
           if [[ "${#UPDATER_DETAILS[@]}" -ne 2 ]]; then

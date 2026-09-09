@@ -1,6 +1,6 @@
 [project]
 name = "bhayanak-legends"
-version = "0.1.13"
+version = "0.1.14"
 description = "Bhayanak Legends Python sidecar: Findings Pack server, personal-history sync, live-game detection"
 requires-python = ">=3.13"
 dependencies = [

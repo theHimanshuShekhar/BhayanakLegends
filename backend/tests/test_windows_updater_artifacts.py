@@ -32,7 +32,7 @@ def load_checker():
 def make_fixture(tmp_path: Path) -> tuple[Path, Path, Path, str]:
     bundle = tmp_path / "bundle" / "nsis"
     bundle.mkdir(parents=True)
-    archive = bundle / "Bhayanak Legends_0.1.13_x64-setup.exe"
+    archive = bundle / "Bhayanak Legends_0.1.14_x64-setup.exe"
     archive.write_bytes(b"signed installer bytes")
     signature = archive.with_name(archive.name + ".sig")
     signature_text = "detached-signature-content"
@@ -41,11 +41,11 @@ def make_fixture(tmp_path: Path) -> tuple[Path, Path, Path, str]:
     metadata.write_text(
         json.dumps(
             {
-                "version": "0.1.13",
+                "version": "0.1.14",
                 "platforms": {
                     "windows-x86_64": {
                         "signature": signature_text,
-                        "url": "https://github.example/releases/download/v0.1.13/"
+                        "url": "https://github.example/releases/download/v0.1.14/"
                         + quote(archive.name),
                     }
                 },
@@ -138,6 +138,119 @@ def _stage_and_inventory(
 
 
 
+def test_verify_shell_uses_nul_framing_for_windows_python_output(tmp_path: Path):
+    workflow = (REPO_ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    verify_start = workflow.index("      - name: Verify draft release contents before promotion")
+    expected_start = workflow.index(
+        "          mapfile -d '' -t EXPECTED_ASSETS",
+        verify_start,
+    )
+    expected_end = workflow.index(
+        '          if [[ "${#EXPECTED_ASSETS[@]}"',
+        expected_start,
+    )
+    details_start = workflow.index(
+        "          mapfile -d '' -t UPDATER_DETAILS",
+        expected_end,
+    )
+    details_end = workflow.index(
+        '          if [[ "${#UPDATER_DETAILS[@]}"',
+        details_start,
+    )
+    expected_block = textwrap.dedent(workflow[expected_start:expected_end])
+    details_block = textwrap.dedent(workflow[details_start:details_end])
+
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_uv = fake_bin / "uv"
+    fake_uv.write_text(
+        textwrap.dedent(
+            """\
+            #!/usr/bin/env python3
+            import json
+            import os
+            import sys
+            from pathlib import Path
+
+            source = sys.stdin.buffer.read()
+            if b"sys.stdout.buffer.write" in source:
+                if b'inventory["updater"]' in source:
+                    values = [
+                        b"bhayanak-legends-0.1.14-windows-x86_64-setup.exe",
+                        b"bhayanak-legends-0.1.14-windows-x86_64-setup.exe.sig",
+                    ]
+                else:
+                    values = [
+                        b"bhayanak-legends-0.1.14-windows-x86_64-setup.exe",
+                        b"bhayanak-legends-0.1.14-windows-x86_64-setup.exe.sig",
+                    ]
+                sys.stdout.buffer.write(b"\\0".join(values) + b"\\0")
+            elif b"BOUNDARY_PROBE" in source:
+                argument_start = sys.argv.index("-") + 1
+                Path(os.environ["CAPTURE_PATH"]).write_text(
+                    json.dumps(sys.argv[argument_start:]),
+                    encoding="utf-8",
+                )
+            else:
+                sys.stdout.buffer.write(b"ordinary\\r\\n")
+            """
+        ),
+        encoding="utf-8",
+    )
+    fake_uv.chmod(0o755)
+
+    capture_path = tmp_path / "captured-arguments.json"
+    ordinary_path = tmp_path / "ordinary-output"
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
+    env["INVENTORY_PATH_NATIVE"] = str(tmp_path / "inventory.json")
+    env["CAPTURE_PATH"] = str(capture_path)
+    env["ORDINARY_CAPTURE_PATH"] = str(ordinary_path)
+    shell_script = "\n".join(
+        [
+            "set -euo pipefail",
+            'ordinary="$(',
+            "  uv run --project backend --locked python - <<'PY'",
+            'print("ordinary")',
+            "PY",
+            ')"',
+            'printf \'%s\' "$ordinary" > "$ORDINARY_CAPTURE_PATH"',
+            expected_block,
+            details_block,
+            "EXPECTED_NAMES=(",
+            "  latest.json",
+            '  "${EXPECTED_ASSETS[@]}"',
+            "  findings-pack.v2.zip",
+            "  findings-pack-manifest.json",
+            "  findings-pack-manifest.json.sig",
+            ")",
+            "uv run --project backend --locked python - \"$CAPTURE_PATH\" "
+            "\"${EXPECTED_NAMES[@]}\" <<'PY'",
+            "# BOUNDARY_PROBE",
+            "PY",
+            "",
+        ]
+    )
+    result = subprocess.run(
+        ["bash", "-c", shell_script],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert ordinary_path.read_bytes() == b"ordinary" + bytes([13])
+    assert json.loads(capture_path.read_text(encoding="utf-8")) == [
+        str(capture_path),
+        "latest.json",
+        "bhayanak-legends-0.1.14-windows-x86_64-setup.exe",
+        "bhayanak-legends-0.1.14-windows-x86_64-setup.exe.sig",
+        "findings-pack.v2.zip",
+        "findings-pack-manifest.json",
+        "findings-pack-manifest.json.sig",
+    ]
+
 def test_upload_transaction_validates_paths_identity_and_api(tmp_path: Path, capsys):
     source = _workflow_python(
         "Upload exact updater and Findings Pack assets to draft",
@@ -151,7 +264,7 @@ def test_upload_transaction_validates_paths_identity_and_api(tmp_path: Path, cap
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
 
-    version = "0.1.13"
+    version = "0.1.14"
     tag = f"v{version}"
     repository = "theHimanshuShekhar/BhayanakLegends"
     token = "test-token-123456789012345678901234"
@@ -163,7 +276,7 @@ def test_upload_transaction_validates_paths_identity_and_api(tmp_path: Path, cap
         f"bhayanak-legends-{version}-windows-x86_64-setup.exe.sig",
     ]
     fixed_assets = {
-        "latest.json": b'{"version":"0.1.13"}',
+        "latest.json": b'{"version":"0.1.14"}',
         "findings-pack.v2.zip": b"findings-pack-bytes",
         "findings-pack-manifest.json": b'{"size":19}',
         "findings-pack-manifest.json.sig": b"manifest-signature",
@@ -517,8 +630,8 @@ def test_promotion_rejects_changed_asset_id_before_patch(tmp_path: Path):
 
 
 def test_workflow_stages_signed_exe_once_and_uploads_unique_assets(tmp_path: Path):
-    version = "0.1.13"
-    source_name = "Bhayanak Legends_0.1.13_x64-setup.exe"
+    version = "0.1.14"
+    source_name = "Bhayanak Legends_0.1.14_x64-setup.exe"
     signature_text = "signed-exe-signature"
     staged_dir, inventory = _stage_and_inventory(
         tmp_path,
@@ -543,9 +656,9 @@ def test_workflow_stages_signed_exe_once_and_uploads_unique_assets(tmp_path: Pat
 def test_workflow_stages_separate_unsigned_installer_and_signed_archive(
     tmp_path: Path,
 ):
-    version = "0.1.13"
-    installer_name = "Bhayanak Legends_0.1.13_x64-setup.exe"
-    archive_name = "Bhayanak Legends_0.1.13_x64.nsis.zip"
+    version = "0.1.14"
+    installer_name = "Bhayanak Legends_0.1.14_x64-setup.exe"
+    archive_name = "Bhayanak Legends_0.1.14_x64.nsis.zip"
     signature_text = "signed-archive-signature"
     staged_dir, inventory = _stage_and_inventory(
         tmp_path,

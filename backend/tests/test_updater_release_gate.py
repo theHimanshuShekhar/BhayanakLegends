@@ -146,7 +146,7 @@ def test_updater_artifacts_enabled_in_tauri_config():
 
 
 def test_all_release_version_sources_are_aligned():
-    expected = "0.1.13"
+    expected = "0.1.14"
     package = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))
     tauri = json.loads(CONFIG.read_text(encoding="utf-8"))
     backend = tomllib.loads(
@@ -355,6 +355,10 @@ def test_release_draft_is_verified_before_promotion():
     assert "subprocess.TimeoutExpired" in verify_step
     assert "release contains duplicate asset ID" in verify_step
     assert "release asset listing request exhausted the retry deadline" in verify_step
+    assert "mapfile -d '' -t EXPECTED_ASSETS" in verify_step
+    assert "mapfile -d '' -t UPDATER_DETAILS" in verify_step
+    assert "sys.stdout.buffer.write" in verify_step
+    assert 'encode("utf-8")' in verify_step
     assert "Ed25519PublicKey" in verify_step
     assert "verify_manifest_signature" in verify_step
     assert "sha256" in verify_step
