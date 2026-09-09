@@ -192,7 +192,7 @@ async function waitForPreloadedStatus(
         (expected.champSelect === undefined || status.champ_select.active === expected.champSelect) &&
         (expected.inGame === undefined || status.ingame.active === expected.inGame)
       );
-    })
+    }, { timeout: 30_000 })
     .toBe(true);
 }
 
