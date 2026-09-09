@@ -30,7 +30,7 @@ def load_checker():
 def make_fixture(tmp_path: Path) -> tuple[Path, Path, Path, str]:
     bundle = tmp_path / "bundle" / "nsis"
     bundle.mkdir(parents=True)
-    archive = bundle / "Bhayanak Legends_0.1.9_x64-setup.exe"
+    archive = bundle / "Bhayanak Legends_0.1.10_x64-setup.exe"
     archive.write_bytes(b"signed installer bytes")
     signature = archive.with_name(archive.name + ".sig")
     signature_text = "detached-signature-content"
@@ -39,11 +39,11 @@ def make_fixture(tmp_path: Path) -> tuple[Path, Path, Path, str]:
     metadata.write_text(
         json.dumps(
             {
-                "version": "0.1.9",
+                "version": "0.1.10",
                 "platforms": {
                     "windows-x86_64": {
                         "signature": signature_text,
-                        "url": "https://github.example/releases/download/v0.1.9/"
+                        "url": "https://github.example/releases/download/v0.1.10/"
                         + quote(archive.name),
                     }
                 },
@@ -79,10 +79,13 @@ def _workflow_shell(step_name: str) -> str:
     return textwrap.dedent("\n".join(lines[run_start + 1 : step_end]))
 
 
-def _run_workflow_shell(script: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+def _run_workflow_shell(
+    script: str, env: dict[str, str], *, cwd: Path | None = None
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["bash", "-c", script],
         env=env,
+        cwd=cwd,
         capture_output=True,
         text=True,
         check=False,
@@ -168,12 +171,11 @@ def _assert_upload_selection_is_unique(
     assert len(selected.stdout.splitlines()) == len(set(selected.stdout.splitlines()))
 
 def test_upload_path_checks_normalize_windows_runner_temp(tmp_path: Path):
-    version = "0.1.9"
+    version = "0.1.10"
     repository = "theHimanshuShekhar/BhayanakLegends"
     native_temp = r"D:\a\_temp"
     runner_temp = tmp_path / "runner-temp"
-    bundle_dir = runner_temp / "updater-bundle"
-    bundle_dir.mkdir(parents=True)
+    native_fixture_temp = tmp_path / "D:" / "a" / "_temp"
     updater_assets = [
         f"bhayanak-legends-{version}-windows-x86_64-setup.exe",
         f"bhayanak-legends-{version}-windows-x86_64-setup.exe.sig",
@@ -184,14 +186,18 @@ def test_upload_path_checks_normalize_windows_runner_temp(tmp_path: Path):
         "findings-pack-manifest.json",
         "findings-pack-manifest.json.sig",
     ]
-    for asset_name in updater_assets:
-        (bundle_dir / asset_name).write_bytes(b"updater asset")
-    for asset_name in other_assets:
-        (runner_temp / asset_name).write_bytes(b"release asset")
-    (runner_temp / "release-inventory.json").write_text(
-        json.dumps({"assets": updater_assets}) + "\n",
-        encoding="utf-8",
-    )
+    for temp_root in (runner_temp, native_fixture_temp):
+        bundle_dir = temp_root / "updater-bundle"
+        bundle_dir.mkdir(parents=True)
+        for asset_name in updater_assets:
+            (bundle_dir / asset_name).write_bytes(b"updater asset")
+        for asset_name in other_assets:
+            (temp_root / asset_name).write_bytes(b"release asset")
+    for temp_root in (runner_temp, native_fixture_temp):
+        (temp_root / "release-inventory.json").write_text(
+            json.dumps({"assets": updater_assets}) + "\n",
+            encoding="utf-8",
+        )
     (runner_temp / "release-identity").write_text(
         f"v{version}\n123\nhttps://uploads.github.com/repos/{repository}/releases/123/assets\n",
         encoding="utf-8",
@@ -208,6 +214,7 @@ def test_upload_path_checks_normalize_windows_runner_temp(tmp_path: Path):
     fake_bin = tmp_path / "fake-bin"
     fake_bin.mkdir()
     cygpath = fake_bin / "cygpath"
+    cygpath_log = tmp_path / "cygpath.log"
     cygpath.write_text(
         """#!/usr/bin/env python3
 import os
@@ -219,14 +226,19 @@ posix_root = os.environ["FAKE_POSIX_ROOT"]
 if mode == "-u":
     if path.startswith(native_root):
         suffix = path[len(native_root) :]
-        print(posix_root + suffix.replace("\\\\", "/"))
+        result = posix_root + suffix.replace("\\\\", "/")
     else:
-        print(path)
+        result = path
+    native = ""
 elif mode == "-m":
     suffix = path[len(posix_root) :] if path.startswith(posix_root) else path
-    print("D:/a/_temp" + suffix.replace("\\\\", "/"))
+    result = "D:/a/_temp" + suffix.replace("\\\\", "/")
+    native = result
 else:
     raise SystemExit(f"unsupported cygpath mode: {mode}")
+with open(os.environ["CYGPATH_LOG"], "a", encoding="utf-8") as output:
+    output.write(f"{mode}\\t{path}\\t{result}\\t{native}\\n")
+print(result)
 """,
         encoding="utf-8",
     )
@@ -246,6 +258,11 @@ fi
     uv.write_text(
         """#!/usr/bin/env bash
 set -euo pipefail
+inventory_path="${@: -1}"
+if [[ ! -f "$inventory_path" ]]; then
+  echo "fake uv could not read final inventory path: $inventory_path" >&2
+  exit 1
+fi
 printf '%s\n' "$*" >> "$UV_ARGS_LOG"
 printf '%s\n' "$FAKE_UPDATER_ASSETS"
 """,
@@ -276,6 +293,7 @@ printf '\\n---\\n' >> "$CURL_LOG"
             "GITHUB_REPOSITORY": repository,
             "FAKE_POSIX_ROOT": str(runner_temp),
             "FAKE_UPDATER_ASSETS": "\n".join(updater_assets),
+            "CYGPATH_LOG": str(cygpath_log),
             "CURL_LOG": str(curl_log),
             "UV_ARGS_LOG": str(uv_args_log),
         }
@@ -283,14 +301,14 @@ printf '\\n---\\n' >> "$CURL_LOG"
     result = _run_workflow_shell(
         _workflow_shell("Upload exact updater and Findings Pack assets to draft"),
         environment,
+        cwd=tmp_path,
     )
 
     assert result.returncode == 0, result.stderr
     configs = curl_log.read_text(encoding="utf-8").split("\n---\n")
-    assert len(configs) == len(updater_assets) + len(other_assets) + 1
-    assert all('data-binary = "@D:/a/_temp/' in config for config in configs[:-1])
     expected_upload_targets = {
-        f'data-binary = "@D:/a/_temp/updater-bundle/{name}"' for name in updater_assets
+        f'data-binary = "@D:/a/_temp/updater-bundle/{name}"'
+        for name in updater_assets
     } | {f'data-binary = "@D:/a/_temp/{name}"' for name in other_assets}
     observed_upload_targets = {
         line.strip()
@@ -299,6 +317,21 @@ printf '\\n---\\n' >> "$CURL_LOG"
         if line.startswith("data-binary = ")
     }
     assert observed_upload_targets == expected_upload_targets
+    upload_paths = [
+        Path(target.removeprefix('data-binary = "@').removesuffix('"'))
+        for target in observed_upload_targets
+    ]
+    assert all((tmp_path / path).is_file() for path in upload_paths)
+    cygpath_entries = [
+        line.split("\t", 3)
+        for line in cygpath_log.read_text(encoding="utf-8").splitlines()
+    ]
+    native_conversions = [entry for mode, _source, entry, _native in cygpath_entries if mode == "-m"]
+    assert native_conversions
+    assert all((tmp_path / Path(path)).is_dir() for path in native_conversions)
+    native_forward_paths = [native for mode, _source, _result, native in cygpath_entries if mode == "-m"]
+    assert native_forward_paths
+    assert all(path.startswith("D:/") and "\\" not in path for path in native_forward_paths)
     uv_args = uv_args_log.read_text(encoding="utf-8").splitlines()
     assert any("D:/a/_temp/release-inventory.json" in line for line in uv_args)
     for step_name, stop_marker in (
@@ -315,14 +348,14 @@ printf '\\n---\\n' >> "$CURL_LOG"
     ):
         script = _workflow_shell(step_name)
         probe = script[: script.index(stop_marker)] + 'printf "%s\\n" "$RUNNER_TEMP_MSYS"\n'
-        probe_result = _run_workflow_shell(probe, environment)
+        probe_result = _run_workflow_shell(probe, environment, cwd=tmp_path)
         assert probe_result.returncode == 0, f"{step_name}: {probe_result.stderr}"
         assert probe_result.stdout.strip() == str(runner_temp)
 
 
 def test_workflow_stages_signed_exe_once_and_uploads_unique_assets(tmp_path: Path):
-    version = "0.1.9"
-    source_name = "Bhayanak Legends_0.1.9_x64-setup.exe"
+    version = "0.1.10"
+    source_name = "Bhayanak Legends_0.1.10_x64-setup.exe"
     signature_text = "signed-exe-signature"
     staged_dir, inventory = _stage_and_inventory(
         tmp_path,
@@ -350,9 +383,9 @@ def test_workflow_stages_signed_exe_once_and_uploads_unique_assets(tmp_path: Pat
 def test_workflow_stages_separate_unsigned_installer_and_signed_archive(
     tmp_path: Path,
 ):
-    version = "0.1.9"
-    installer_name = "Bhayanak Legends_0.1.9_x64-setup.exe"
-    archive_name = "Bhayanak Legends_0.1.9_x64.nsis.zip"
+    version = "0.1.10"
+    installer_name = "Bhayanak Legends_0.1.10_x64-setup.exe"
+    archive_name = "Bhayanak Legends_0.1.10_x64.nsis.zip"
     signature_text = "signed-archive-signature"
     staged_dir, inventory = _stage_and_inventory(
         tmp_path,
@@ -523,7 +556,10 @@ def test_release_workflow_stages_safe_updater_names_before_id_addressed_upload()
     assert "releases/assets/${asset_id}" in workflow
     assert "--config -" in upload_step
     assert 'Authorization: Bearer ${GH_TOKEN}' in upload_step
-    assert 'ASSET_PATH_CURL="$(cygpath -m "$asset_path")"' in upload_step
+    assert 'ASSET_PATH_CURL="$asset_path"' in upload_step
+    assert 'RUNNER_TEMP_NATIVE="$(cygpath -m "$RUNNER_TEMP_MSYS")"' in upload_step
+    assert 'STAGED_BUNDLE_DIR_NATIVE="$RUNNER_TEMP_NATIVE/updater-bundle"' in upload_step
+    assert 'INVENTORY_PATH_NATIVE="$RUNNER_TEMP_NATIVE/release-inventory.json"' in upload_step
     assert 'data-binary = "@${ASSET_PATH_CURL}"' in upload_step
     assert 'data-binary = "@${asset_path}"' not in upload_step
     assert '--input "$asset_path"' not in upload_step

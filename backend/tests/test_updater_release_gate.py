@@ -146,7 +146,7 @@ def test_updater_artifacts_enabled_in_tauri_config():
 
 
 def test_all_release_version_sources_are_aligned():
-    expected = "0.1.9"
+    expected = "0.1.10"
     package = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))
     tauri = json.loads(CONFIG.read_text(encoding="utf-8"))
     backend = tomllib.loads(
@@ -301,11 +301,11 @@ def test_release_draft_is_verified_before_promotion():
     assert "findings-pack-manifest.json.sig" in upload_step
     assert 'EXPECTED_UPLOAD_URL="https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets"' in upload_step
     assert "UPLOAD_URL" in upload_step
-    assert 'ASSET_PATH_CURL="$(cygpath -m "$asset_path")"' in upload_step
+    assert 'ASSET_PATH_CURL="$asset_path"' in upload_step
     assert 'RUNNER_TEMP_MSYS="$(cygpath -u "$RUNNER_TEMP")"' in upload_step
-    assert 'STAGED_BUNDLE_DIR_MSYS="$RUNNER_TEMP_MSYS/updater-bundle"' in upload_step
-    assert 'INVENTORY_PATH_MSYS="$RUNNER_TEMP_MSYS/release-inventory.json"' in upload_step
-    assert 'INVENTORY_PATH_NATIVE="$(cygpath -m "$INVENTORY_PATH_MSYS")"' in upload_step
+    assert 'RUNNER_TEMP_NATIVE="$(cygpath -m "$RUNNER_TEMP_MSYS")"' in upload_step
+    assert 'STAGED_BUNDLE_DIR_NATIVE="$RUNNER_TEMP_NATIVE/updater-bundle"' in upload_step
+    assert 'INVENTORY_PATH_NATIVE="$RUNNER_TEMP_NATIVE/release-inventory.json"' in upload_step
     for name in (
         "Build canonical Findings Pack release payload",
         "Sign Findings Pack manifest",

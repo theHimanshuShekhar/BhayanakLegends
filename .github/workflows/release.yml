@@ -601,9 +601,9 @@ jobs:
           set -euo pipefail
           TAG="$GITHUB_REF_NAME"
           RUNNER_TEMP_MSYS="$(cygpath -u "$RUNNER_TEMP")"
-          STAGED_BUNDLE_DIR_MSYS="$RUNNER_TEMP_MSYS/updater-bundle"
-          INVENTORY_PATH_MSYS="$RUNNER_TEMP_MSYS/release-inventory.json"
-          INVENTORY_PATH_NATIVE="$(cygpath -m "$INVENTORY_PATH_MSYS")"
+          RUNNER_TEMP_NATIVE="$(cygpath -m "$RUNNER_TEMP_MSYS")"
+          STAGED_BUNDLE_DIR_NATIVE="$RUNNER_TEMP_NATIVE/updater-bundle"
+          INVENTORY_PATH_NATIVE="$RUNNER_TEMP_NATIVE/release-inventory.json"
           ID_FILE="$RUNNER_TEMP_MSYS/release-identity"
           if [[ ! -s "$ID_FILE" || "$(sed -n '1p' "$ID_FILE")" != "$TAG" ]]; then
             echo "release identity marker is missing or points to another tag" >&2
@@ -665,13 +665,13 @@ jobs:
           fi
           ASSET_PATHS=()
           for asset_name in "${UPDATER_ASSETS[@]}"; do
-            ASSET_PATHS+=("$STAGED_BUNDLE_DIR_MSYS/$asset_name")
+            ASSET_PATHS+=("$STAGED_BUNDLE_DIR_NATIVE/$asset_name")
           done
           ASSET_PATHS+=(
-            "$RUNNER_TEMP_MSYS/latest.json"
-            "$RUNNER_TEMP_MSYS/findings-pack.v2.zip"
-            "$RUNNER_TEMP_MSYS/findings-pack-manifest.json"
-            "$RUNNER_TEMP_MSYS/findings-pack-manifest.json.sig"
+            "$RUNNER_TEMP_NATIVE/latest.json"
+            "$RUNNER_TEMP_NATIVE/findings-pack.v2.zip"
+            "$RUNNER_TEMP_NATIVE/findings-pack-manifest.json"
+            "$RUNNER_TEMP_NATIVE/findings-pack-manifest.json.sig"
           )
           for asset_path in "${ASSET_PATHS[@]}"; do
             if [[ ! -f "$asset_path" ]]; then
@@ -683,9 +683,9 @@ jobs:
               echo "release asset name is not GitHub-safe: $asset_name" >&2
               exit 1
             fi
-            ASSET_PATH_CURL="$(cygpath -m "$asset_path")"
-            if [[ -z "$ASSET_PATH_CURL" || "$ASSET_PATH_CURL" == *\\* ]]; then
-              echo "release asset path could not be normalized for curl: $asset_path" >&2
+            ASSET_PATH_CURL="$asset_path"
+            if [[ -z "$ASSET_PATH_CURL" || "$ASSET_PATH_CURL" == *\\* || "$ASSET_PATH_CURL" != */* ]]; then
+              echo "release asset path is not a forward-slash native path: $asset_path" >&2
               exit 1
             fi
             curl \
