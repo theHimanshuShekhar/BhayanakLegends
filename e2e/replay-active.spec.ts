@@ -224,6 +224,7 @@ test.describe("active Live Companion replay", () => {
 
     await setScenario(request, LCU, "in-game");
     await setScenario(request, LIVE, "in-game");
+    await waitForPreloadedStatus(request, { inGame: true });
     await expect(page.getByTestId("bridge-status")).toContainText(":2999");
     await expect(page.getByTestId("player-row-local")).toContainText("Viktor");
     const initial = await readIngame(request);
