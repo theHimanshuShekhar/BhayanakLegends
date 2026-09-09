@@ -6,6 +6,7 @@ import base64
 import hashlib
 import json
 import re
+import tomllib
 from pathlib import Path
 
 from cryptography.exceptions import InvalidSignature
@@ -144,6 +145,46 @@ def test_updater_artifacts_enabled_in_tauri_config():
     assert isinstance(pubkey, str) and len(pubkey) > 100
 
 
+def test_all_release_version_sources_are_aligned():
+    expected = "0.1.1"
+    package = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))
+    tauri = json.loads(CONFIG.read_text(encoding="utf-8"))
+    backend = tomllib.loads(
+        (REPO_ROOT / "backend/pyproject.toml").read_text(encoding="utf-8")
+    )
+    cargo = tomllib.loads(
+        (REPO_ROOT / "src-tauri/Cargo.toml").read_text(encoding="utf-8")
+    )
+    backend_lock = tomllib.loads(
+        (REPO_ROOT / "backend/uv.lock").read_text(encoding="utf-8")
+    )
+    cargo_lock = tomllib.loads(
+        (REPO_ROOT / "src-tauri/Cargo.lock").read_text(encoding="utf-8")
+    )
+    backend_lock_version = next(
+        entry["version"]
+        for entry in backend_lock["package"]
+        if entry.get("name") == "bhayanak-legends"
+    )
+    cargo_lock_version = next(
+        entry["version"]
+        for entry in cargo_lock["package"]
+        if entry.get("name") == "bhayanak-legends"
+    )
+    from bhayanak_legends.version import APP_VERSION
+
+    versions = {
+        "package.json": package["version"],
+        "src-tauri/tauri.conf.json": tauri["version"],
+        "backend/pyproject.toml": backend["project"]["version"],
+        "backend/uv.lock": backend_lock_version,
+        "src-tauri/Cargo.toml": cargo["package"]["version"],
+        "src-tauri/Cargo.lock": cargo_lock_version,
+        "backend runtime": APP_VERSION,
+    }
+    assert versions == {source: expected for source in versions}
+
+
 def test_windows_run_steps_declare_explicit_shells():
     blocks = _workflow_blocks()
     run_steps = [block for block in blocks if re.search(r"^        run:", block, re.MULTILINE)]
@@ -194,7 +235,14 @@ def test_release_tag_gate_and_immutable_slot_precede_build():
     assert 'VERSION="${TAG#v}"' in gate
     assert 'Path("package.json")' in gate
     assert 'Path("src-tauri/tauri.conf.json")' in gate
-    assert "package_version != expected or tauri_version != expected" in gate
+    assert 'Path("src-tauri/Cargo.toml")' in gate
+    assert 'Path("src-tauri/Cargo.lock")' in gate
+    assert 'Path("backend/pyproject.toml")' in gate
+    assert 'Path("backend/uv.lock")' in gate
+    assert "from bhayanak_legends.version import APP_VERSION" in gate
+    assert "versions = {" in gate
+    assert "mismatches = {" in gate
+    assert "version != expected" in gate
 
     immutable = _workflow_step("Verify immutable release tag and empty release slot")
     assert "gh api" in immutable
@@ -223,8 +271,11 @@ def test_release_draft_is_verified_before_promotion():
 
     inventory_step = _workflow_step("Inventory exact updater assets before draft creation")
     assert "exactly one file" in inventory_step
-    assert "exactly one signed archive" in inventory_step
+    assert "exactly one signed updater candidate" in inventory_step
     assert "release-inventory.json" in inventory_step
+    assert "dict.fromkeys" in inventory_step
+    assert '"assets": asset_names' in inventory_step
+    assert "latest.json does not reference the unique updater archive" in inventory_step
 
     create_step = _workflow_step("Create signed release draft")
     assert "id: create" in create_step
@@ -255,6 +306,8 @@ def test_release_draft_is_verified_before_promotion():
     assert 'data-binary = "@${ASSET_PATH_CURL}"' in upload_step
     assert 'data-binary = "@${asset_path}"' not in upload_step
     assert 'url = "${UPLOAD_URL}?name=${asset_name}"' in upload_step
+    assert "inventory.get(\"assets\")" in upload_step
+    assert "len(set(assets)) != len(assets)" in upload_step
     assert "--method POST" not in upload_step
     assert 'releases/${RELEASE_ID}/assets?name=${asset_name}' not in upload_step
     assert "release identity or draft state changed before asset upload" in upload_step

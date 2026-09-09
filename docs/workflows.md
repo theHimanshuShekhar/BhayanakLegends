@@ -102,6 +102,15 @@ updater set, then sends a token-authenticated `POST` to the Releases API with
 the tag, target commit, and `draft=true`. The response is validated and its
 release ID is captured as the run's release identity.
 
+The Windows build may emit either the observed signed installer executable or
+a separate unsigned installer plus signed NSIS updater archive. Staging
+requires exactly one signed `.exe` or `.nsis.zip` candidate. A signed
+installer executable is staged once as
+`bhayanak-legends-${VERSION}-windows-x86_64-setup.exe` with its detached
+signature; a separate signed archive is staged alongside the canonical
+installer. The inventory records a unique asset list, so the signed-executable
+case cannot upload the same file twice.
+
 Every asset upload uses the draft response's validated `upload_url` base. The
 URL must be HTTPS on `uploads.github.com`, with the exact
 `/repos/<repository>/releases/<release-id>/assets{?name,label}` shape. The
@@ -172,13 +181,13 @@ set -euo pipefail
 fixture_root="$(mktemp -d)"
 trap 'rm -rf "$fixture_root"' EXIT
 bundle_dir="$fixture_root/bundle/nsis"
-archive="$bundle_dir/Bhayanak Legends_0.1.0_x64-setup.exe"
+archive="$bundle_dir/Bhayanak Legends_0.1.1_x64-setup.exe"
 signature="$archive.sig"
 mkdir -p "$bundle_dir" "$fixture_root/temp"
 printf 'fixture installer\n' > "$archive"
 printf 'fixture signature\n' > "$signature"
 export RUNNER_TEMP="$fixture_root/temp"
-export GITHUB_REF_NAME=v0.1.0
+export GITHUB_REF_NAME=v0.1.1
 export GITHUB_REPOSITORY=theHimanshuShekhar/BhayanakLegends
 
 VERSION="${GITHUB_REF_NAME#v}"
@@ -231,6 +240,10 @@ gates without creating or modifying a release.
 - `release.yml` invokes the same workflow for every `v*` tag and checks out
   `${{ github.sha }}` in both verification and publishing jobs. A tag therefore
   cannot bypass the branch checks or verify a different tree.
+- The version gate requires the tag to exactly match `package.json`,
+  `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`,
+  `backend/pyproject.toml`, `backend/uv.lock`, and the backend runtime
+  `APP_VERSION` declaration.
 - `publish` has `needs: [verify, packaged-smoke]` and only runs for a tag push
   after both reusable gates succeed. It is the only job that receives
   `GITHUB_TOKEN`, `TAURI_SIGNING_PRIVATE_KEY`, or

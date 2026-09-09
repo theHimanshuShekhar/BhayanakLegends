@@ -33,6 +33,7 @@ from .manifest_signing import (
 )
 from .pack import PackActivationTransaction, PackError, PackStore, validate_pack_directory
 from .pack_v2 import EXECUTABLE_MODEL_KEYS, FindingsPackV2
+from .version import APP_VERSION
 
 MANIFEST_MAX_BYTES = 256 * 1024
 COMPRESSED_ASSET_MAX_BYTES = 64 * 1024 * 1024
@@ -706,7 +707,7 @@ class ReleaseChannel:
         pack_dir: Path,
         *,
         manifest_url: str = DEFAULT_MANIFEST_URL,
-        app_version: str = "0.1.0",
+        app_version: str = APP_VERSION,
         timeout: float = 15.0,
         client: httpx.AsyncClient | None = None,
         allow_loopback_http: bool = False,

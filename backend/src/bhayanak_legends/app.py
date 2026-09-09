@@ -39,8 +39,8 @@ from .routers_events import build_events_router
 from .sse import Hub
 from .store import Store
 from .release_channel import DEFAULT_MANIFEST_URL, ReleaseChannel, ReleaseResult
+from .version import APP_VERSION
 
-APP_VERSION = "0.1.0"
 log = logging.getLogger("bhayanak_legends")
 
 PACK_VALIDATION_ERROR_DETAIL = "Findings Pack validation failed"

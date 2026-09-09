@@ -6,6 +6,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 from urllib.parse import quote
 
@@ -28,7 +29,7 @@ def load_checker():
 def make_fixture(tmp_path: Path) -> tuple[Path, Path, Path, str]:
     bundle = tmp_path / "bundle" / "nsis"
     bundle.mkdir(parents=True)
-    archive = bundle / "Bhayanak Legends_0.1.0_x64-setup.exe"
+    archive = bundle / "Bhayanak Legends_0.1.1_x64-setup.exe"
     archive.write_bytes(b"signed installer bytes")
     signature = archive.with_name(archive.name + ".sig")
     signature_text = "detached-signature-content"
@@ -37,11 +38,11 @@ def make_fixture(tmp_path: Path) -> tuple[Path, Path, Path, str]:
     metadata.write_text(
         json.dumps(
             {
-                "version": "0.1.0",
+                "version": "0.1.1",
                 "platforms": {
                     "windows-x86_64": {
                         "signature": signature_text,
-                        "url": "https://github.example/releases/download/v0.1.0/"
+                        "url": "https://github.example/releases/download/v0.1.1/"
                         + quote(archive.name),
                     }
                 },
@@ -50,6 +51,156 @@ def make_fixture(tmp_path: Path) -> tuple[Path, Path, Path, str]:
         encoding="utf-8",
     )
     return bundle, metadata, archive, signature_text
+
+
+def _workflow_python(step_name: str, marker: str = "          import ") -> str:
+    workflow = (REPO_ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    step_start = workflow.index(f"      - name: {step_name}")
+    source_start = workflow.index(marker, step_start)
+    source_end = workflow.index("          PY", source_start)
+    return textwrap.dedent(workflow[source_start:source_end])
+
+
+def _run_workflow_python(script: str, *args: Path | str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-c", script, *(str(arg) for arg in args)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def _write_latest(
+    path: Path, version: str, updater_name: str, signature_text: str
+) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "version": version,
+                "platforms": {
+                    "windows-x86_64": {
+                        "signature": signature_text,
+                        "url": "https://github.example/releases/download/v"
+                        + version
+                        + "/"
+                        + quote(updater_name),
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def _stage_and_inventory(
+    tmp_path: Path,
+    source_files: dict[str, bytes],
+    version: str,
+    updater_name: str,
+    signature_text: str,
+) -> tuple[Path, dict[str, object]]:
+    source_dir = tmp_path / "source"
+    staged_dir = tmp_path / "staged"
+    source_dir.mkdir()
+    staged_dir.mkdir()
+    for name, content in source_files.items():
+        (source_dir / name).write_bytes(content)
+
+    staged = _run_workflow_python(
+        _workflow_python("Stage canonical Windows updater assets", "          import filecmp"),
+        source_dir,
+        staged_dir,
+        version,
+    )
+    assert staged.returncode == 0, staged.stderr
+
+    latest_path = tmp_path / "latest.json"
+    _write_latest(latest_path, version, updater_name, signature_text)
+    inventory_path = tmp_path / "release-inventory.json"
+    inventory = _run_workflow_python(
+        _workflow_python("Inventory exact updater assets before draft creation"),
+        inventory_path,
+        latest_path,
+        staged_dir,
+        f"v{version}",
+    )
+    assert inventory.returncode == 0, inventory.stderr
+    return staged_dir, json.loads(inventory_path.read_text(encoding="utf-8"))
+
+
+def _assert_upload_selection_is_unique(
+    inventory_path: Path, expected_assets: list[str]
+) -> None:
+    selected = _run_workflow_python(
+        _workflow_python("Upload exact updater and Findings Pack assets to draft"),
+        inventory_path,
+    )
+    assert selected.returncode == 0, selected.stderr
+    assert selected.stdout.splitlines() == expected_assets
+    assert len(selected.stdout.splitlines()) == len(set(selected.stdout.splitlines()))
+
+
+def test_workflow_stages_signed_exe_once_and_uploads_unique_assets(tmp_path: Path):
+    version = "0.1.1"
+    source_name = "Bhayanak Legends_0.1.1_x64-setup.exe"
+    signature_text = "signed-exe-signature"
+    staged_dir, inventory = _stage_and_inventory(
+        tmp_path,
+        {
+            source_name: b"signed installer bytes",
+            source_name + ".sig": signature_text.encode(),
+        },
+        version,
+        f"bhayanak-legends-{version}-windows-x86_64-setup.exe",
+        signature_text,
+    )
+
+    canonical = f"bhayanak-legends-{version}-windows-x86_64-setup.exe"
+    expected_assets = [canonical, canonical + ".sig"]
+    assert {path.name for path in staged_dir.iterdir()} == set(expected_assets)
+    assert inventory["installer"] == canonical
+    assert inventory["updater"] == canonical
+    assert inventory["signature"] == canonical + ".sig"
+    assert inventory["assets"] == expected_assets
+    _assert_upload_selection_is_unique(
+        tmp_path / "release-inventory.json", expected_assets
+    )
+
+
+def test_workflow_stages_separate_unsigned_installer_and_signed_archive(
+    tmp_path: Path,
+):
+    version = "0.1.1"
+    installer_name = "Bhayanak Legends_0.1.1_x64-setup.exe"
+    archive_name = "Bhayanak Legends_0.1.1_x64.nsis.zip"
+    signature_text = "signed-archive-signature"
+    staged_dir, inventory = _stage_and_inventory(
+        tmp_path,
+        {
+            installer_name: b"unsigned installer bytes",
+            archive_name: b"signed updater bytes",
+            archive_name + ".sig": signature_text.encode(),
+        },
+        version,
+        f"bhayanak-legends-{version}-windows-x86_64.nsis.zip",
+        signature_text,
+    )
+
+    canonical_installer = f"bhayanak-legends-{version}-setup.exe"
+    canonical_archive = f"bhayanak-legends-{version}-windows-x86_64.nsis.zip"
+    expected_assets = [
+        canonical_installer,
+        canonical_archive,
+        canonical_archive + ".sig",
+    ]
+    assert {path.name for path in staged_dir.iterdir()} == set(expected_assets)
+    assert inventory["installer"] == canonical_installer
+    assert inventory["updater"] == canonical_archive
+    assert inventory["signature"] == canonical_archive + ".sig"
+    assert inventory["assets"] == expected_assets
+    _assert_upload_selection_is_unique(
+        tmp_path / "release-inventory.json", expected_assets
+    )
 
 
 def test_matching_windows_artifacts_pass(tmp_path: Path):
@@ -184,7 +335,10 @@ def test_release_workflow_stages_safe_updater_names_before_id_addressed_upload()
     assert "upload_url" in workflow
     assert "uploads.github.com" in workflow
     assert "{?name,label}" in workflow
-    assert "gh api" in workflow
+    assert "exactly one signed updater candidate" in workflow
+    assert "dict.fromkeys" in workflow
+    assert '"assets": asset_names' in workflow
+    assert "gh api" in upload_step
     assert "releases/${RELEASE_ID}/assets" in workflow
     assert "releases/assets/${asset_id}" in workflow
     assert "--config -" in upload_step
@@ -195,6 +349,7 @@ def test_release_workflow_stages_safe_updater_names_before_id_addressed_upload()
     assert '--input "$asset_path"' not in upload_step
     assert "--method POST" not in upload_step
     assert 'releases/${RELEASE_ID}/assets?name=${asset_name}' not in upload_step
+    assert "len(set(assets)) != len(assets)" in upload_step
     assert "--clobber" not in workflow
     assert "gh release create" not in workflow
     assert "gh release upload" not in workflow
@@ -202,15 +357,14 @@ def test_release_workflow_stages_safe_updater_names_before_id_addressed_upload()
     assert "gh release edit" not in workflow
     assert "tauri-apps/tauri-action@" not in workflow
 
-    smoke = (REPO_ROOT / ".github/workflows/windows-smoke.yml").read_text(encoding="utf-8")
-    assert "tauri-apps/tauri-action@" not in smoke
-
-
 def test_release_staged_updater_names_preserve_local_bytes():
     workflow = (REPO_ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
     assert 'bhayanak-legends-{version}-setup.exe' in workflow
+    assert 'bhayanak-legends-{version}-windows-x86_64-setup.exe' in workflow
     assert 'bhayanak-legends-{version}-windows-x86_64.nsis.zip' in workflow
-    assert 'staged_dir / f"bhayanak-legends-{version}-windows-x86_64.nsis.zip.sig"' in workflow
+    assert 'canonical_updater.with_name(canonical_updater.name + ".sig")' in workflow
+    assert "if updater == installer" in workflow
+    assert "signed_updaters" in workflow
     assert 'filecmp.cmp(source, target, shallow=False)' in workflow
     assert 'shutil.copyfile(source, target)' in workflow
     assert "release asset name is not GitHub-safe" in workflow

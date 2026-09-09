@@ -82,20 +82,61 @@ jobs:
           uv run --project backend --locked python - "$VERSION" <<'PY'
           import json
           import sys
+          import tomllib
           from pathlib import Path
+
+          from bhayanak_legends.version import APP_VERSION
 
           expected = sys.argv[1]
           if not expected:
               raise SystemExit("release tag must include a version after v")
           package = json.loads(Path("package.json").read_text(encoding="utf-8"))
           tauri = json.loads(Path("src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
-          package_version = package.get("version")
-          tauri_version = tauri.get("version")
-          if package_version != expected or tauri_version != expected:
+          backend = tomllib.loads(
+              Path("backend/pyproject.toml").read_text(encoding="utf-8")
+          )
+          cargo = tomllib.loads(Path("src-tauri/Cargo.toml").read_text(encoding="utf-8"))
+          backend_lock = tomllib.loads(
+              Path("backend/uv.lock").read_text(encoding="utf-8")
+          )
+          cargo_lock = tomllib.loads(
+              Path("src-tauri/Cargo.lock").read_text(encoding="utf-8")
+          )
+          backend_lock_version = next(
+              (
+                  entry.get("version")
+                  for entry in backend_lock.get("package", [])
+                  if entry.get("name") == "bhayanak-legends"
+              ),
+              None,
+          )
+          cargo_lock_version = next(
+              (
+                  entry.get("version")
+                  for entry in cargo_lock.get("package", [])
+                  if entry.get("name") == "bhayanak-legends"
+              ),
+              None,
+          )
+          versions = {
+              "package.json": package.get("version"),
+              "src-tauri/tauri.conf.json": tauri.get("version"),
+              "src-tauri/Cargo.toml": cargo.get("package", {}).get("version"),
+              "src-tauri/Cargo.lock": cargo_lock_version,
+              "backend/pyproject.toml": backend.get("project", {}).get("version"),
+              "backend/uv.lock": backend_lock_version,
+              "backend/src/bhayanak_legends/version.py": APP_VERSION,
+          }
+          mismatches = {
+              source: version for source, version in versions.items() if version != expected
+          }
+          if mismatches:
+              details = ", ".join(f"{source}={version!r}" for source, version in mismatches.items())
               raise SystemExit(
-                  "release tag version must exactly match package.json and tauri.conf.json"
+                  "release tag version must exactly match every application version source: "
+                  + details
               )
-          print("release tag version matches package.json and tauri.conf.json")
+          print("release tag version matches every application version source")
           PY
       - name: Verify immutable release tag and empty release slot
         shell: bash
@@ -316,26 +357,47 @@ jobs:
               for path in source_dir.iterdir()
               if path.is_file() and path.name.lower().endswith(".exe")
           )
-          archives = sorted(
+          candidates = sorted(
               path
               for path in source_dir.iterdir()
-              if path.is_file() and path.name.lower().endswith(".nsis.zip")
+              if path.is_file()
+              and (
+                  path.name.lower().endswith(".exe")
+                  or path.name.lower().endswith(".nsis.zip")
+              )
           )
-          signed_archives = [
-              path for path in archives if path.with_name(path.name + ".sig").is_file()
+          signed_updaters = [
+              path for path in candidates if path.with_name(path.name + ".sig").is_file()
           ]
           if len(installers) != 1:
               raise SystemExit("Windows NSIS installer inventory is not exactly one file")
-          if len(archives) != 1 or len(signed_archives) != 1:
-              raise SystemExit("Windows updater archive inventory is not exactly one signed archive")
+          if len(signed_updaters) != 1:
+              raise SystemExit(
+                  "Windows updater inventory is not exactly one signed updater candidate"
+              )
           installer = installers[0]
-          archive = signed_archives[0]
-          signature = archive.with_name(archive.name + ".sig")
-          targets = {
-              installer: staged_dir / f"bhayanak-legends-{version}-setup.exe",
-              archive: staged_dir / f"bhayanak-legends-{version}-windows-x86_64.nsis.zip",
-              signature: staged_dir / f"bhayanak-legends-{version}-windows-x86_64.nsis.zip.sig",
-          }
+          updater = signed_updaters[0]
+          if updater.name.lower().endswith(".exe") and updater != installer:
+              raise SystemExit(
+                  "signed Windows updater executable is not the unique installer"
+              )
+          signature = updater.with_name(updater.name + ".sig")
+          if updater == installer:
+              canonical_updater = staged_dir / f"bhayanak-legends-{version}-windows-x86_64-setup.exe"
+              targets = {
+                  installer: canonical_updater,
+                  signature: canonical_updater.with_name(canonical_updater.name + ".sig"),
+              }
+          else:
+              canonical_installer = staged_dir / f"bhayanak-legends-{version}-setup.exe"
+              canonical_updater = (
+                  staged_dir / f"bhayanak-legends-{version}-windows-x86_64.nsis.zip"
+              )
+              targets = {
+                  installer: canonical_installer,
+                  updater: canonical_updater,
+                  signature: canonical_updater.with_name(canonical_updater.name + ".sig"),
+              }
           for source, target in targets.items():
               shutil.copyfile(source, target)
               if not filecmp.cmp(source, target, shallow=False):
@@ -384,20 +446,31 @@ jobs:
               for path in bundle_dir.iterdir()
               if path.is_file() and path.name.lower().endswith(".exe")
           )
-          archives = sorted(
+          candidates = sorted(
               path
               for path in bundle_dir.iterdir()
-              if path.is_file() and path.name.lower().endswith(".nsis.zip")
+              if path.is_file()
+              and (
+                  path.name.lower().endswith(".exe")
+                  or path.name.lower().endswith(".nsis.zip")
+              )
           )
-          signatures = [
-              path for path in archives if path.with_name(path.name + ".sig").is_file()
+          signed_updaters = [
+              path for path in candidates if path.with_name(path.name + ".sig").is_file()
           ]
           if len(installers) != 1:
               raise SystemExit("Windows NSIS installer inventory is not exactly one file")
-          if len(archives) != 1 or len(signatures) != 1:
-              raise SystemExit("Windows updater archive inventory is not exactly one signed archive")
-          archive = archives[0]
-          signature = signatures[0].with_name(signatures[0].name + ".sig")
+          if len(signed_updaters) != 1:
+              raise SystemExit(
+                  "Windows updater inventory is not exactly one signed updater candidate"
+              )
+          installer = installers[0]
+          updater = signed_updaters[0]
+          if updater.name.lower().endswith(".exe") and updater != installer:
+              raise SystemExit(
+                  "signed Windows updater executable is not the unique installer"
+              )
+          signature = updater.with_name(updater.name + ".sig")
           latest = json.loads(latest_path.read_text(encoding="utf-8"))
           expected_version = tag.removeprefix("v")
           if latest.get("version") != expected_version:
@@ -405,19 +478,21 @@ jobs:
           platform = latest.get("platforms", {}).get("windows-x86_64")
           if not isinstance(platform, dict):
               raise SystemExit("latest.json Windows updater entry is missing")
-          if unquote(urlsplit(platform.get("url", "")).path.rsplit("/", 1)[-1]) != archive.name:
+          if unquote(urlsplit(platform.get("url", "")).path.rsplit("/", 1)[-1]) != updater.name:
               raise SystemExit("latest.json does not reference the unique updater archive")
           signature_text = signature.read_text(encoding="utf-8")
           if platform.get("signature") != signature_text:
               raise SystemExit("latest.json signature does not match the unique detached signature")
+          asset_names = list(dict.fromkeys((installer.name, updater.name, signature.name)))
           inventory_path.write_text(
               json.dumps(
                   {
                       "tag": tag,
                       "version": expected_version,
-                      "installer": installers[0].name,
-                      "updater": archive.name,
+                      "installer": installer.name,
+                      "updater": updater.name,
                       "signature": signature.name,
+                      "assets": asset_names,
                   },
                   sort_keys=True,
               )
@@ -538,18 +613,27 @@ jobs:
           from pathlib import Path
 
           inventory = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-          for key in ("installer", "updater", "signature"):
-              print(inventory[key])
+          assets = inventory.get("assets")
+          if (
+              not isinstance(assets, list)
+              or not 2 <= len(assets) <= 3
+              or any(not isinstance(name, str) or not name for name in assets)
+              or len(set(assets)) != len(assets)
+          ):
+              raise SystemExit("release inventory did not enumerate unique updater assets")
+          for name in assets:
+              print(name)
           PY
           )
-          if [[ "${#UPDATER_ASSETS[@]}" -ne 3 ]]; then
-            echo "release inventory did not enumerate exactly three updater assets" >&2
+          if [[ "${#UPDATER_ASSETS[@]}" -lt 2 || "${#UPDATER_ASSETS[@]}" -gt 3 ]]; then
+            echo "release inventory did not enumerate two or three unique updater assets" >&2
             exit 1
           fi
-          ASSET_PATHS=(
-            "$STAGED_BUNDLE_DIR/${UPDATER_ASSETS[0]}"
-            "$STAGED_BUNDLE_DIR/${UPDATER_ASSETS[1]}"
-            "$STAGED_BUNDLE_DIR/${UPDATER_ASSETS[2]}"
+          ASSET_PATHS=()
+          for asset_name in "${UPDATER_ASSETS[@]}"; do
+            ASSET_PATHS+=("$STAGED_BUNDLE_DIR/$asset_name")
+          done
+          ASSET_PATHS+=(
             "$RUNNER_TEMP/latest.json"
             "$RUNNER_TEMP/findings-pack.v2.zip"
             "$RUNNER_TEMP/findings-pack-manifest.json"
@@ -634,21 +718,48 @@ jobs:
           from pathlib import Path
 
           inventory = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-          for key in ("installer", "updater", "signature"):
-              print(inventory[key])
+          assets = inventory.get("assets")
+          updater = inventory.get("updater")
+          signature = inventory.get("signature")
+          if (
+              not isinstance(assets, list)
+              or not 2 <= len(assets) <= 3
+              or any(not isinstance(name, str) or not name for name in assets)
+              or len(set(assets)) != len(assets)
+              or not isinstance(updater, str)
+              or updater not in assets
+              or not isinstance(signature, str)
+              or signature not in assets
+          ):
+              raise SystemExit("release inventory did not enumerate unique updater assets")
+          for name in assets:
+              print(name)
           PY
           )
-          if [[ "${#EXPECTED_ASSETS[@]}" -ne 3 ]]; then
-            echo "release inventory did not enumerate exactly three updater assets" >&2
+          if [[ "${#EXPECTED_ASSETS[@]}" -lt 2 || "${#EXPECTED_ASSETS[@]}" -gt 3 ]]; then
+            echo "release inventory did not enumerate two or three unique updater assets" >&2
             exit 1
           fi
-          INSTALLER="${EXPECTED_ASSETS[0]}"
-          UPDATER_ARCHIVE="${EXPECTED_ASSETS[1]}"
+          mapfile -t UPDATER_DETAILS < <(
+            uv run --project backend --locked python - "$INVENTORY_PATH" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          inventory = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          print(inventory["updater"])
+          print(inventory["signature"])
+          PY
+          )
+          if [[ "${#UPDATER_DETAILS[@]}" -ne 2 ]]; then
+            echo "release inventory did not identify the signed updater and signature" >&2
+            exit 1
+          fi
+          UPDATER_ARCHIVE="${UPDATER_DETAILS[0]}"
+          UPDATER_SIGNATURE="${UPDATER_DETAILS[1]}"
           EXPECTED_NAMES=(
             latest.json
-            "$INSTALLER"
-            "$UPDATER_ARCHIVE"
-            "${EXPECTED_ASSETS[2]}"
+            "${EXPECTED_ASSETS[@]}"
             findings-pack.v2.zip
             findings-pack-manifest.json
             findings-pack-manifest.json.sig
@@ -719,22 +830,19 @@ jobs:
               "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}" > "$destination"
           }
           download_asset latest.json "$REMOTE_DIR/latest.json"
-          download_asset "$INSTALLER" "$REMOTE_DIR/$INSTALLER"
-          download_asset "$UPDATER_ARCHIVE" "$REMOTE_DIR/$UPDATER_ARCHIVE"
-          download_asset "${EXPECTED_ASSETS[2]}" "$REMOTE_DIR/${EXPECTED_ASSETS[2]}"
+          for asset_name in "${EXPECTED_ASSETS[@]}"; do
+            download_asset "$asset_name" "$REMOTE_DIR/$asset_name"
+          done
           download_asset findings-pack.v2.zip "$REMOTE_DIR/findings-pack.v2.zip"
           download_asset findings-pack-manifest.json "$REMOTE_DIR/findings-pack-manifest.json"
           download_asset findings-pack-manifest.json.sig "$REMOTE_DIR/findings-pack-manifest.json.sig"
           cp "$REMOTE_DIR/$UPDATER_ARCHIVE" "$REMOTE_DIR/updater-bundle/$UPDATER_ARCHIVE"
-          cp "$REMOTE_DIR/${EXPECTED_ASSETS[2]}" "$REMOTE_DIR/updater-bundle/${EXPECTED_ASSETS[2]}"
+          cp "$REMOTE_DIR/$UPDATER_SIGNATURE" "$REMOTE_DIR/updater-bundle/$UPDATER_SIGNATURE"
           uv run --project backend --locked python tools/check_windows_updater_artifacts.py \
             --bundle-dir "$REMOTE_DIR/updater-bundle" \
             --latest-json "$REMOTE_DIR/latest.json"
           for pair in \
             "latest.json:$RUNNER_TEMP/latest.json" \
-            "$INSTALLER:$RUNNER_TEMP/updater-bundle/$INSTALLER" \
-            "$UPDATER_ARCHIVE:$RUNNER_TEMP/updater-bundle/$UPDATER_ARCHIVE" \
-            "${EXPECTED_ASSETS[2]}:$RUNNER_TEMP/updater-bundle/${EXPECTED_ASSETS[2]}" \
             "findings-pack.v2.zip:$RUNNER_TEMP/findings-pack.v2.zip" \
             "findings-pack-manifest.json:$RUNNER_TEMP/findings-pack-manifest.json" \
             "findings-pack-manifest.json.sig:$RUNNER_TEMP/findings-pack-manifest.json.sig"
@@ -746,10 +854,19 @@ jobs:
               exit 1
             fi
           done
+          for asset_name in "${EXPECTED_ASSETS[@]}"; do
+            if ! cmp -s \
+              "$REMOTE_DIR/$asset_name" \
+              "$RUNNER_TEMP/updater-bundle/$asset_name"
+            then
+              echo "remote draft asset differs from the verified local asset: $asset_name" >&2
+              exit 1
+            fi
+          done
           uv run --project backend --locked python - \
             "$REMOTE_DIR/latest.json" \
             "$REMOTE_DIR/$UPDATER_ARCHIVE" \
-            "$REMOTE_DIR/$UPDATER_ARCHIVE.sig" \
+            "$REMOTE_DIR/$UPDATER_SIGNATURE" \
             "$REMOTE_DIR/findings-pack-manifest.json" \
             "$REMOTE_DIR/findings-pack-manifest.json.sig" \
             "$REMOTE_DIR/findings-pack.v2.zip" \
