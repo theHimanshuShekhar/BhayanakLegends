@@ -58,6 +58,7 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+        shell: pwsh
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
@@ -66,6 +67,59 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@bd01e18f51369d5a26f1651c3cb451d3417e3bba # v6.3.1
+
+
+      - name: Verify release tag version
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="$GITHUB_REF_NAME"
+          if [[ "$TAG" != v* || "${TAG#v}" == "$TAG" ]]; then
+            echo "release workflow requires a v* tag" >&2
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          uv run --project backend --locked python - "$VERSION" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          expected = sys.argv[1]
+          if not expected:
+              raise SystemExit("release tag must include a version after v")
+          package = json.loads(Path("package.json").read_text(encoding="utf-8"))
+          tauri = json.loads(Path("src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
+          package_version = package.get("version")
+          tauri_version = tauri.get("version")
+          if package_version != expected or tauri_version != expected:
+              raise SystemExit(
+                  "release tag version must exactly match package.json and tauri.conf.json"
+              )
+          print("release tag version matches package.json and tauri.conf.json")
+          PY
+      - name: Verify immutable release tag and empty release slot
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="$GITHUB_REF_NAME"
+          REF_PATH="repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}"
+          TAG_TYPE="$(gh api "$REF_PATH" --jq '.object.type')"
+          TAG_OBJECT="$(gh api "$REF_PATH" --jq '.object.sha')"
+          if [[ "$TAG_TYPE" == "tag" ]]; then
+            TAG_TYPE="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${TAG_OBJECT}" --jq '.object.type')"
+            TAG_OBJECT="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${TAG_OBJECT}" --jq '.object.sha')"
+          fi
+          if [[ "$TAG_TYPE" != "commit" || "$TAG_OBJECT" != "$GITHUB_SHA" ]]; then
+            echo "release tag does not resolve immutably to the checked-out commit" >&2
+            exit 1
+          fi
+          if gh release view "$TAG" --json id >/dev/null 2>&1; then
+            echo "release already exists; refusing to mutate immutable tag assets" >&2
+            exit 1
+          fi
+          echo "release tag resolves to the checked-out commit and has no existing release"
 
       - name: Build Python sidecar binary
         shell: bash
@@ -122,101 +176,972 @@ jobs:
 
       - name: Verify updater signing prerequisites
         shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          uv run --project backend --locked python - <<'PY'
+          set +x
+          set -euo pipefail
+          if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" || -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]]; then
+            echo "updater signing key/password secrets are not provisioned; refusing to publish unsigned updates" >&2
+            exit 1
+          fi
+          PROBE_FILE="$RUNNER_TEMP/updater-signing-probe"
+          PROBE_SIGNATURE="$PROBE_FILE.sig"
+          trap 'rm -f "$PROBE_FILE" "$PROBE_SIGNATURE"' EXIT
+          rm -f "$PROBE_FILE" "$PROBE_SIGNATURE"
+          printf 'Bhayanak Legends updater signing probe\n' > "$PROBE_FILE"
+          if ! pnpm tauri signer sign "$PROBE_FILE" >/dev/null 2>/dev/null
+          then
+            echo "updater signing probe failed; refusing to publish" >&2
+            exit 1
+          fi
+          uv run --project backend --locked python - "$PROBE_FILE" "$PROBE_SIGNATURE" <<'PY'
+          import base64
+          import binascii
+          import hashlib
           import json
-          import os
           import sys
           from pathlib import Path
 
-          config_path = Path("src-tauri/tauri.conf.json")
-          try:
-              config = json.loads(config_path.read_text(encoding="utf-8"))
-          except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-              sys.exit(f"tauri config cannot be read: {exc}")
-          if not isinstance(config, dict):
-              sys.exit("tauri config must be a JSON object")
+          from cryptography.exceptions import InvalidSignature
+          from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
+          probe_path = Path(sys.argv[1])
+          signature_path = Path(sys.argv[2])
+          config = json.loads(
+              Path("src-tauri/tauri.conf.json").read_text(encoding="utf-8")
+          )
           bundle = config.get("bundle")
           if not isinstance(bundle, dict) or bundle.get("createUpdaterArtifacts") is not True:
-              sys.exit("createUpdaterArtifacts must be true before publishing")
-
-          plugins = config.get("plugins")
-          updater = plugins.get("updater") if isinstance(plugins, dict) else None
+              raise SystemExit("createUpdaterArtifacts must be true before publishing")
+          updater = config.get("plugins", {}).get("updater")
           if not isinstance(updater, dict) or not updater.get("pubkey"):
-              sys.exit("updater pubkey must be configured before publishing")
+              raise SystemExit("pinned updater public key is missing")
+          encoded_public = updater["pubkey"]
 
-          if not os.environ.get("TAURI_SIGNING_PRIVATE_KEY"):
-              sys.exit("TAURI_SIGNING_PRIVATE_KEY secret is not provisioned; refusing to publish unsigned updates")
+          def payload_line(text: str) -> str:
+              for line in text.splitlines():
+                  line = line.strip()
+                  if line and not line.endswith("comment:") and not line.startswith(
+                      ("untrusted comment:", "trusted comment:")
+                  ):
+                      return line
+              raise ValueError("minisign payload is missing")
+
+          def minisign_payload(text: str, label: str) -> bytes:
+              try:
+                  return base64.b64decode(payload_line(text), validate=True)
+              except (ValueError, binascii.Error) as exc:
+                  raise SystemExit(f"{label} has an invalid minisign payload") from exc
+
+          def minisign_signature(text: str, label: str) -> tuple[bytes, bytes, bytes]:
+              lines = text.splitlines()
+              if (
+                  len(lines) != 4
+                  or not lines[0].startswith("untrusted comment: ")
+                  or not lines[2].startswith("trusted comment: ")
+                  or not lines[2][len("trusted comment: ") :].strip()
+              ):
+                  raise SystemExit(f"{label} is missing a Minisign comment or signature")
+              try:
+                  primary = base64.b64decode(lines[1].strip(), validate=True)
+                  global_signature = base64.b64decode(lines[3].strip(), validate=True)
+                  trusted_comment = lines[2][len("trusted comment: ") :].strip().encode("ascii")
+              except (UnicodeError, ValueError, binascii.Error) as exc:
+                  raise SystemExit(f"{label} has an invalid Minisign signature") from exc
+              if len(primary) != 74 or len(global_signature) != 64:
+                  raise SystemExit(f"{label} has an invalid Minisign signature size")
+              return primary, global_signature, trusted_comment
+
+          try:
+              public_text = base64.b64decode(encoded_public.strip(), validate=True).decode("ascii")
+              public_blob = minisign_payload(public_text, "pinned public key")
+              signature_wrapper = signature_path.read_bytes()
+              signature_text = base64.b64decode(
+                  signature_wrapper.strip(), validate=True
+              ).decode("ascii")
+              signature_blob, global_signature, trusted_comment = minisign_signature(
+                  signature_text, "updater signing probe"
+              )
+          except (UnicodeError, OSError, ValueError, binascii.Error) as exc:
+              raise SystemExit("updater signing probe payload is malformed") from exc
+          if len(public_blob) != 42:
+              raise SystemExit("pinned updater public key has an invalid Minisign payload")
+          if public_blob[:2] != b"Ed" or signature_blob[:2] != b"ED":
+              raise SystemExit("updater signing probe uses an unsupported minisign algorithm")
+          if public_blob[2:10] != signature_blob[2:10]:
+              raise SystemExit("updater signing probe used a key different from the pinned public key")
+          probe_bytes = probe_path.read_bytes()
+          probe_digest = hashlib.blake2b(probe_bytes, digest_size=64).digest()
+          try:
+              verifier = Ed25519PublicKey.from_public_bytes(public_blob[10:])
+              verifier.verify(signature_blob[10:], probe_digest)
+              verifier.verify(global_signature, signature_blob[10:] + trusted_comment)
+          except (InvalidSignature, ValueError) as exc:
+              raise SystemExit("updater signing probe does not verify with the pinned public key") from exc
+          print("updater signing key and password verified against the pinned public key")
           PY
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-
       - name: Build Windows updater bundle
+        shell: pwsh
         run: pnpm tauri build --bundles nsis
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
+      - name: Stage canonical Windows updater assets
+        shell: bash
+        env:
+          STAGED_BUNDLE_DIR: ${{ runner.temp }}/updater-bundle
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          SOURCE_BUNDLE_DIR="src-tauri/target/release/bundle/nsis"
+          rm -rf "$STAGED_BUNDLE_DIR"
+          mkdir -p "$STAGED_BUNDLE_DIR"
+          uv run --project backend --locked python - \
+            "$SOURCE_BUNDLE_DIR" \
+            "$STAGED_BUNDLE_DIR" \
+            "$VERSION" <<'PY'
+          import filecmp
+          import shutil
+          import sys
+          from pathlib import Path
+
+          source_dir = Path(sys.argv[1])
+          staged_dir = Path(sys.argv[2])
+          version = sys.argv[3]
+          installers = sorted(
+              path
+              for path in source_dir.iterdir()
+              if path.is_file() and path.name.lower().endswith(".exe")
+          )
+          archives = sorted(
+              path
+              for path in source_dir.iterdir()
+              if path.is_file() and path.name.lower().endswith(".nsis.zip")
+          )
+          signed_archives = [
+              path for path in archives if path.with_name(path.name + ".sig").is_file()
+          ]
+          if len(installers) != 1:
+              raise SystemExit("Windows NSIS installer inventory is not exactly one file")
+          if len(archives) != 1 or len(signed_archives) != 1:
+              raise SystemExit("Windows updater archive inventory is not exactly one signed archive")
+          installer = installers[0]
+          archive = signed_archives[0]
+          signature = archive.with_name(archive.name + ".sig")
+          targets = {
+              installer: staged_dir / f"bhayanak-legends-{version}-setup.exe",
+              archive: staged_dir / f"bhayanak-legends-{version}-windows-x86_64.nsis.zip",
+              signature: staged_dir / f"bhayanak-legends-{version}-windows-x86_64.nsis.zip.sig",
+          }
+          for source, target in targets.items():
+              shutil.copyfile(source, target)
+              if not filecmp.cmp(source, target, shallow=False):
+                  raise SystemExit(f"staged updater asset bytes differ: {source.name}")
+          PY
+
       - name: Check Windows updater artifacts
         shell: bash
+        env:
+          STAGED_BUNDLE_DIR: ${{ runner.temp }}/updater-bundle
+          LATEST_JSON_PATH: ${{ runner.temp }}/latest.json
         run: |
+          set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
-          LATEST_JSON="$RUNNER_TEMP/latest.json"
           uv run --project backend --locked python tools/check_windows_updater_artifacts.py \
-            --bundle-dir src-tauri/target/release/bundle/nsis \
-            --latest-json "$LATEST_JSON" \
+            --bundle-dir "$STAGED_BUNDLE_DIR" \
+            --latest-json "$LATEST_JSON_PATH" \
             --write-latest-json \
             --base-url "https://github.com/${{ github.repository }}/releases/download/v${VERSION}" \
             --version "$VERSION"
 
-      - name: Build and publish signed release
-        uses: tauri-apps/tauri-action@564aea5a8075c7a54c167bb0cf5b3255314a7f9d # v0.5.22
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          tagName: v__VERSION__
-          releaseName: "Bhayanak Legends v__VERSION__"
-          releaseBody: "Installer + auto-update feed. The Findings Pack is bundled; newer packs arrive via LoLTrends release sync (docs/adr/0005)."
-          releaseDraft: false
-          prerelease: false
-          includeUpdaterJson: true
-          updaterJsonPreferNsis: true
-      - name: Publish Findings Pack channel assets
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Inventory exact updater assets before draft creation
         shell: bash
+        env:
+          INVENTORY_PATH: ${{ runner.temp }}/release-inventory.json
+          LATEST_JSON_PATH: ${{ runner.temp }}/latest.json
+          STAGED_BUNDLE_DIR: ${{ runner.temp }}/updater-bundle
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          TAG="v${VERSION}"
-          gh release upload "$TAG" \
-            "$RUNNER_TEMP/findings-pack.v2.zip" \
-            "$RUNNER_TEMP/findings-pack-manifest.json" \
-            "$RUNNER_TEMP/findings-pack-manifest.json.sig" \
-            --clobber
+          set -euo pipefail
+          uv run --project backend --locked python - \
+            "$INVENTORY_PATH" \
+            "$LATEST_JSON_PATH" \
+            "$STAGED_BUNDLE_DIR" \
+            "$GITHUB_REF_NAME" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          from urllib.parse import unquote, urlsplit
 
-      - name: Verify emitted updater artifacts
-        if: ${{ !inputs.dry_run }}
+          inventory_path = Path(sys.argv[1])
+          latest_path = Path(sys.argv[2])
+          bundle_dir = Path(sys.argv[3])
+          tag = sys.argv[4]
+          installers = sorted(
+              path
+              for path in bundle_dir.iterdir()
+              if path.is_file() and path.name.lower().endswith(".exe")
+          )
+          archives = sorted(
+              path
+              for path in bundle_dir.iterdir()
+              if path.is_file() and path.name.lower().endswith(".nsis.zip")
+          )
+          signatures = [
+              path for path in archives if path.with_name(path.name + ".sig").is_file()
+          ]
+          if len(installers) != 1:
+              raise SystemExit("Windows NSIS installer inventory is not exactly one file")
+          if len(archives) != 1 or len(signatures) != 1:
+              raise SystemExit("Windows updater archive inventory is not exactly one signed archive")
+          archive = archives[0]
+          signature = signatures[0].with_name(signatures[0].name + ".sig")
+          latest = json.loads(latest_path.read_text(encoding="utf-8"))
+          expected_version = tag.removeprefix("v")
+          if latest.get("version") != expected_version:
+              raise SystemExit("latest.json version does not match the release tag")
+          platform = latest.get("platforms", {}).get("windows-x86_64")
+          if not isinstance(platform, dict):
+              raise SystemExit("latest.json Windows updater entry is missing")
+          if unquote(urlsplit(platform.get("url", "")).path.rsplit("/", 1)[-1]) != archive.name:
+              raise SystemExit("latest.json does not reference the unique updater archive")
+          signature_text = signature.read_text(encoding="utf-8")
+          if platform.get("signature") != signature_text:
+              raise SystemExit("latest.json signature does not match the unique detached signature")
+          inventory_path.write_text(
+              json.dumps(
+                  {
+                      "tag": tag,
+                      "version": expected_version,
+                      "installer": installers[0].name,
+                      "updater": archive.name,
+                      "signature": signature.name,
+                  },
+                  sort_keys=True,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Create signed release draft
+        id: create
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          TAG="v${VERSION}"
-          ASSETS_FILE="$RUNNER_TEMP/assets.txt"
-          gh release view "$TAG" --json assets --jq '.assets[].name' > "$ASSETS_FILE"
-          for REQUIRED_ASSET in \
-            latest.json \
-            findings-pack.v2.zip \
-            findings-pack-manifest.json \
+          set -euo pipefail
+          TAG="$GITHUB_REF_NAME"
+          VERSION="${TAG#v}"
+          CREATE_RESPONSE="$RUNNER_TEMP/release-create-response.json"
+          gh api \
+            --method POST \
+            --header "Accept: application/vnd.github+json" \
+            --field "tag_name=$TAG" \
+            --field "target_commitish=$GITHUB_SHA" \
+            --field "name=Bhayanak Legends v${VERSION}" \
+            --field "body=Installer + auto-update feed. The Findings Pack is bundled; newer packs arrive via LoLTrends release sync (docs/adr/0005)." \
+            --field "draft=true" \
+            --field "prerelease=false" \
+            "repos/${GITHUB_REPOSITORY}/releases" > "$CREATE_RESPONSE"
+          RELEASE_ID_AND_UPLOAD_URL="$(uv run --project backend --locked python - \
+            "$CREATE_RESPONSE" "$TAG" "$GITHUB_REPOSITORY" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          from urllib.parse import urlsplit
+
+          payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          expected_tag = sys.argv[2]
+          expected_repository = sys.argv[3]
+          if payload.get("tag_name") != expected_tag or payload.get("draft") is not True:
+              raise SystemExit("GitHub did not create the requested draft release")
+          release_id = payload.get("id")
+          if not isinstance(release_id, int) or release_id <= 0:
+              raise SystemExit("GitHub draft response did not contain a valid release ID")
+          upload_url = payload.get("upload_url")
+          template = "{?name,label}"
+          if not isinstance(upload_url, str) or not upload_url.endswith(template):
+              raise SystemExit("GitHub draft response has an invalid upload URL template")
+          upload_base = upload_url[: -len(template)]
+          parsed = urlsplit(upload_base)
+          expected_path = f"/repos/{expected_repository}/releases/{release_id}/assets"
+          if (
+              parsed.scheme != "https"
+              or parsed.netloc != "uploads.github.com"
+              or parsed.path != expected_path
+              or parsed.query
+              or parsed.fragment
+          ):
+              raise SystemExit("GitHub draft response has an invalid upload URL")
+          print(f"{release_id}\t{upload_base}")
+          PY
+          )"
+          IFS=$'\t' read -r RELEASE_ID UPLOAD_URL <<< "$RELEASE_ID_AND_UPLOAD_URL"
+          if [[ ! "$RELEASE_ID" =~ ^[0-9]+$ || -z "$UPLOAD_URL" ]]; then
+            echo "GitHub draft response did not yield a valid release identity" >&2
+            exit 1
+          fi
+          printf '%s\n%s\n%s\n' "$TAG" "$RELEASE_ID" "$UPLOAD_URL" > "$RUNNER_TEMP/release-identity"
+
+      - name: Upload exact updater and Findings Pack assets to draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INVENTORY_PATH: ${{ runner.temp }}/release-inventory.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="$GITHUB_REF_NAME"
+          ID_FILE="$RUNNER_TEMP/release-identity"
+          STAGED_BUNDLE_DIR="$RUNNER_TEMP/updater-bundle"
+          if [[ ! -s "$ID_FILE" || "$(sed -n '1p' "$ID_FILE")" != "$TAG" ]]; then
+            echo "release identity marker is missing or points to another tag" >&2
+            exit 1
+          fi
+          RELEASE_ID="$(sed -n '2p' "$ID_FILE")"
+          UPLOAD_URL="$(sed -n '3p' "$ID_FILE")"
+          if [[ ! "$RELEASE_ID" =~ ^[0-9]+$ ]]; then
+            echo "release identity marker has an invalid release ID" >&2
+            exit 1
+          fi
+          EXPECTED_UPLOAD_URL="https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets"
+          if [[ "$UPLOAD_URL" != "$EXPECTED_UPLOAD_URL" ]]; then
+            echo "release identity marker has an invalid upload URL" >&2
+            exit 1
+          fi
+          RELEASE_STATE="$(gh api \
+            --header "Accept: application/vnd.github+json" \
+            "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
+            --jq '[.id, .tag_name, .draft] | @tsv')"
+          IFS=$'\t' read -r CURRENT_ID CURRENT_TAG CURRENT_DRAFT <<< "$RELEASE_STATE"
+          if [[ "$CURRENT_ID" != "$RELEASE_ID" || "$CURRENT_TAG" != "$TAG" || "$CURRENT_DRAFT" != "true" ]]; then
+            echo "release identity or draft state changed before asset upload" >&2
+            exit 1
+          fi
+          mapfile -t EXISTING_ASSETS < <(
+            gh api \
+              --header "Accept: application/vnd.github+json" \
+              --paginate \
+              "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets?per_page=100" \
+              --jq '.[].name'
+          )
+          if [[ "${#EXISTING_ASSETS[@]}" -ne 0 ]]; then
+            echo "new release unexpectedly already has assets; refusing to overwrite" >&2
+            exit 1
+          fi
+          mapfile -t UPDATER_ASSETS < <(
+            uv run --project backend --locked python - "$INVENTORY_PATH" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          inventory = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          for key in ("installer", "updater", "signature"):
+              print(inventory[key])
+          PY
+          )
+          if [[ "${#UPDATER_ASSETS[@]}" -ne 3 ]]; then
+            echo "release inventory did not enumerate exactly three updater assets" >&2
+            exit 1
+          fi
+          ASSET_PATHS=(
+            "$STAGED_BUNDLE_DIR/${UPDATER_ASSETS[0]}"
+            "$STAGED_BUNDLE_DIR/${UPDATER_ASSETS[1]}"
+            "$STAGED_BUNDLE_DIR/${UPDATER_ASSETS[2]}"
+            "$RUNNER_TEMP/latest.json"
+            "$RUNNER_TEMP/findings-pack.v2.zip"
+            "$RUNNER_TEMP/findings-pack-manifest.json"
+            "$RUNNER_TEMP/findings-pack-manifest.json.sig"
+          )
+          for asset_path in "${ASSET_PATHS[@]}"; do
+            if [[ ! -f "$asset_path" ]]; then
+              echo "required local release asset is missing: $asset_path" >&2
+              exit 1
+            fi
+            asset_name="${asset_path##*/}"
+            if [[ "$asset_name" =~ [^A-Za-z0-9._-] ]]; then
+              echo "release asset name is not GitHub-safe: $asset_name" >&2
+              exit 1
+            fi
+            ASSET_PATH_CURL="$(cygpath -m "$asset_path")"
+            if [[ -z "$ASSET_PATH_CURL" || "$ASSET_PATH_CURL" == *\\* ]]; then
+              echo "release asset path could not be normalized for curl: $asset_path" >&2
+              exit 1
+            fi
+            curl \
+              --fail \
+              --silent \
+              --show-error \
+              --config - \
+              >/dev/null <<EOF
+          header = "Accept: application/vnd.github+json"
+          header = "Authorization: Bearer ${GH_TOKEN}"
+          header = "Content-Type: application/octet-stream"
+          data-binary = "@${ASSET_PATH_CURL}"
+          url = "${UPLOAD_URL}?name=${asset_name}"
+          EOF
+          done
+
+
+      - name: Verify draft release contents before promotion
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="$GITHUB_REF_NAME"
+          VERSION="${TAG#v}"
+          ID_FILE="$RUNNER_TEMP/release-identity"
+          INVENTORY_PATH="$RUNNER_TEMP/release-inventory.json"
+          REMOTE_DIR="$RUNNER_TEMP/remote-release"
+          ASSET_MAP="$RUNNER_TEMP/release-assets.json"
+          rm -rf "$REMOTE_DIR"
+          mkdir -p "$REMOTE_DIR/updater-bundle"
+          if [[ ! -s "$ID_FILE" || "$(sed -n '1p' "$ID_FILE")" != "$TAG" ]]; then
+            echo "release identity marker is missing or points to another tag" >&2
+            exit 1
+          fi
+          RELEASE_ID="$(sed -n '2p' "$ID_FILE")"
+          if [[ ! "$RELEASE_ID" =~ ^[0-9]+$ ]]; then
+            echo "release identity marker has an invalid release ID" >&2
+            exit 1
+          fi
+          RELEASE_JSON="$RUNNER_TEMP/release-before-verification.json"
+          gh api \
+            --header "Accept: application/vnd.github+json" \
+            "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" > "$RELEASE_JSON"
+          uv run --project backend --locked python - "$RELEASE_JSON" "$TAG" "$RELEASE_ID" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          expected_tag = sys.argv[2]
+          expected_id = int(sys.argv[3])
+          if (
+              payload.get("id") != expected_id
+              or payload.get("tag_name") != expected_tag
+              or payload.get("draft") is not True
+          ):
+              raise SystemExit("release identity or draft state changed before verification")
+          PY
+          mapfile -t EXPECTED_ASSETS < <(
+            uv run --project backend --locked python - "$INVENTORY_PATH" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          inventory = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          for key in ("installer", "updater", "signature"):
+              print(inventory[key])
+          PY
+          )
+          if [[ "${#EXPECTED_ASSETS[@]}" -ne 3 ]]; then
+            echo "release inventory did not enumerate exactly three updater assets" >&2
+            exit 1
+          fi
+          INSTALLER="${EXPECTED_ASSETS[0]}"
+          UPDATER_ARCHIVE="${EXPECTED_ASSETS[1]}"
+          EXPECTED_NAMES=(
+            latest.json
+            "$INSTALLER"
+            "$UPDATER_ARCHIVE"
+            "${EXPECTED_ASSETS[2]}"
+            findings-pack.v2.zip
+            findings-pack-manifest.json
             findings-pack-manifest.json.sig
+          )
+          ASSETS_JSON="$RUNNER_TEMP/release-assets-response.json"
+          gh api \
+            --header "Accept: application/vnd.github+json" \
+            --paginate \
+            --slurp \
+            "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets?per_page=100" > "$ASSETS_JSON"
+          uv run --project backend --locked python - \
+            "$ASSETS_JSON" \
+            "$ASSET_MAP" \
+            "$RELEASE_ID" \
+            "${EXPECTED_NAMES[@]}" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          pages = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          if pages and isinstance(pages[0], list):
+              assets = [asset for page in pages for asset in page]
+          else:
+              assets = pages
+          expected_id = int(sys.argv[3])
+          expected_names = sys.argv[4:]
+          by_name = {}
+          for asset in assets:
+              if asset.get("release", {}).get("id", expected_id) != expected_id:
+                  raise SystemExit("release asset belongs to another release")
+              name = asset.get("name")
+              asset_id = asset.get("id")
+              if not isinstance(name, str) or not isinstance(asset_id, int) or asset_id <= 0:
+                  raise SystemExit("release asset response is malformed")
+              if name in by_name:
+                  raise SystemExit(f"release contains duplicate asset name: {name}")
+              by_name[name] = asset_id
+          if set(by_name) != set(expected_names):
+              raise SystemExit("release asset set differs from the exact expected inventory")
+          Path(sys.argv[2]).write_text(
+              json.dumps(by_name, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+          download_asset() {
+            local asset_name="$1"
+            local destination="$2"
+            local asset_id
+            asset_id="$(uv run --project backend --locked python - "$ASSET_MAP" "$asset_name" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          assets = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          try:
+              asset_id = assets[sys.argv[2]]
+          except KeyError as exc:
+              raise SystemExit(f"release asset is missing from the verified map: {sys.argv[2]}") from exc
+          print(asset_id)
+          PY
+            )"
+            if [[ ! "$asset_id" =~ ^[0-9]+$ ]]; then
+              echo "release asset map contains an invalid asset ID: $asset_name" >&2
+              exit 1
+            fi
+            gh api \
+              --header "Accept: application/octet-stream" \
+              "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}" > "$destination"
+          }
+          download_asset latest.json "$REMOTE_DIR/latest.json"
+          download_asset "$INSTALLER" "$REMOTE_DIR/$INSTALLER"
+          download_asset "$UPDATER_ARCHIVE" "$REMOTE_DIR/$UPDATER_ARCHIVE"
+          download_asset "${EXPECTED_ASSETS[2]}" "$REMOTE_DIR/${EXPECTED_ASSETS[2]}"
+          download_asset findings-pack.v2.zip "$REMOTE_DIR/findings-pack.v2.zip"
+          download_asset findings-pack-manifest.json "$REMOTE_DIR/findings-pack-manifest.json"
+          download_asset findings-pack-manifest.json.sig "$REMOTE_DIR/findings-pack-manifest.json.sig"
+          cp "$REMOTE_DIR/$UPDATER_ARCHIVE" "$REMOTE_DIR/updater-bundle/$UPDATER_ARCHIVE"
+          cp "$REMOTE_DIR/${EXPECTED_ASSETS[2]}" "$REMOTE_DIR/updater-bundle/${EXPECTED_ASSETS[2]}"
+          uv run --project backend --locked python tools/check_windows_updater_artifacts.py \
+            --bundle-dir "$REMOTE_DIR/updater-bundle" \
+            --latest-json "$REMOTE_DIR/latest.json"
+          for pair in \
+            "latest.json:$RUNNER_TEMP/latest.json" \
+            "$INSTALLER:$RUNNER_TEMP/updater-bundle/$INSTALLER" \
+            "$UPDATER_ARCHIVE:$RUNNER_TEMP/updater-bundle/$UPDATER_ARCHIVE" \
+            "${EXPECTED_ASSETS[2]}:$RUNNER_TEMP/updater-bundle/${EXPECTED_ASSETS[2]}" \
+            "findings-pack.v2.zip:$RUNNER_TEMP/findings-pack.v2.zip" \
+            "findings-pack-manifest.json:$RUNNER_TEMP/findings-pack-manifest.json" \
+            "findings-pack-manifest.json.sig:$RUNNER_TEMP/findings-pack-manifest.json.sig"
           do
-            if ! grep -Fxq "$REQUIRED_ASSET" "$ASSETS_FILE"; then
-              echo "$REQUIRED_ASSET missing from release assets"
+            remote="${pair%%:*}"
+            local="${pair#*:}"
+            if ! cmp -s "$REMOTE_DIR/$remote" "$local"; then
+              echo "remote draft asset differs from the verified local asset: $remote" >&2
               exit 1
             fi
           done
-          grep -q '\.sig$' "$ASSETS_FILE" || { echo "no updater signature in release assets"; exit 1; }
-          echo "updater and Findings Pack channel assets verified"
+          uv run --project backend --locked python - \
+            "$REMOTE_DIR/latest.json" \
+            "$REMOTE_DIR/$UPDATER_ARCHIVE" \
+            "$REMOTE_DIR/$UPDATER_ARCHIVE.sig" \
+            "$REMOTE_DIR/findings-pack-manifest.json" \
+            "$REMOTE_DIR/findings-pack-manifest.json.sig" \
+            "$REMOTE_DIR/findings-pack.v2.zip" \
+            "$VERSION" \
+            "$TAG" \
+            "$GITHUB_REPOSITORY" <<'PY'
+          import base64
+          import binascii
+          import hashlib
+          import json
+          import sys
+          from pathlib import Path
+          from urllib.parse import unquote, urlsplit
+
+          from bhayanak_legends.manifest_signing import verify_manifest_signature
+          from cryptography.exceptions import InvalidSignature
+          from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+          latest_path = Path(sys.argv[1])
+          updater_path = Path(sys.argv[2])
+          updater_signature_path = Path(sys.argv[3])
+          manifest_path = Path(sys.argv[4])
+          manifest_signature_path = Path(sys.argv[5])
+          asset_path = Path(sys.argv[6])
+          expected_version, expected_tag, expected_repo = sys.argv[7:10]
+
+          latest = json.loads(latest_path.read_text(encoding="utf-8"))
+          if latest.get("version") != expected_version:
+              raise SystemExit("draft latest.json version does not match the release tag")
+          platform = latest.get("platforms", {}).get("windows-x86_64")
+          if not isinstance(platform, dict):
+              raise SystemExit("draft latest.json Windows updater entry is missing")
+          url = platform.get("url")
+          expected_prefix = (
+              f"https://github.com/{expected_repo}/releases/download/{expected_tag}/"
+          )
+          if not isinstance(url, str) or not url.startswith(expected_prefix):
+              raise SystemExit("draft latest.json updater URL is not pinned to the release tag")
+          if unquote(urlsplit(url).path.rsplit("/", 1)[-1]) != updater_path.name:
+              raise SystemExit("draft latest.json updater URL names the wrong asset")
+          updater_signature = updater_signature_path.read_text(encoding="utf-8")
+          if platform.get("signature") != updater_signature:
+              raise SystemExit("draft latest.json signature differs from the detached signature")
+
+          def payload_line(text: str) -> str:
+              for line in text.splitlines():
+                  line = line.strip()
+                  if line and not line.startswith(("untrusted comment:", "trusted comment:")):
+                      return line
+              raise ValueError("minisign payload is missing")
+
+          def minisign_payload(text: str, label: str) -> bytes:
+              try:
+                  return base64.b64decode(payload_line(text), validate=True)
+              except (ValueError, binascii.Error) as exc:
+                  raise SystemExit(f"{label} has an invalid minisign payload") from exc
+
+          def minisign_signature(text: str, label: str) -> tuple[bytes, bytes, bytes]:
+              lines = text.splitlines()
+              if (
+                  len(lines) != 4
+                  or not lines[0].startswith("untrusted comment: ")
+                  or not lines[2].startswith("trusted comment: ")
+                  or not lines[2][len("trusted comment: ") :].strip()
+              ):
+                  raise SystemExit(f"{label} is missing a Minisign comment or signature")
+              try:
+                  primary = base64.b64decode(lines[1].strip(), validate=True)
+                  global_signature = base64.b64decode(lines[3].strip(), validate=True)
+                  trusted_comment = lines[2][len("trusted comment: ") :].strip().encode("ascii")
+              except (UnicodeError, ValueError, binascii.Error) as exc:
+                  raise SystemExit(f"{label} has an invalid Minisign signature") from exc
+              if len(primary) != 74 or len(global_signature) != 64:
+                  raise SystemExit(f"{label} has an invalid Minisign signature size")
+              return primary, global_signature, trusted_comment
+
+          config = json.loads(Path("src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
+          try:
+              public_text = base64.b64decode(
+                  config["plugins"]["updater"]["pubkey"].encode("ascii"),
+                  validate=True,
+              ).decode("ascii")
+              public_blob = minisign_payload(public_text, "pinned public key")
+              signature_text = base64.b64decode(
+                  updater_signature.encode("ascii").strip(), validate=True
+              ).decode("ascii")
+              signature_blob, global_signature, trusted_comment = minisign_signature(
+                  signature_text, "draft updater signature"
+              )
+          except (KeyError, UnicodeError, OSError, ValueError, binascii.Error) as exc:
+              raise SystemExit("draft updater signing payload is malformed") from exc
+          if len(public_blob) != 42:
+              raise SystemExit("pinned updater public key has an invalid Minisign payload")
+          if public_blob[:2] != b"Ed" or signature_blob[:2] != b"ED":
+              raise SystemExit("draft updater signature uses an unsupported Minisign algorithm")
+          if public_blob[2:10] != signature_blob[2:10]:
+              raise SystemExit("draft updater signature uses a different pinned key")
+          updater_bytes = updater_path.read_bytes()
+          updater_digest = hashlib.blake2b(updater_bytes, digest_size=64).digest()
+          try:
+              verifier = Ed25519PublicKey.from_public_bytes(public_blob[10:])
+              verifier.verify(signature_blob[10:], updater_digest)
+              verifier.verify(global_signature, signature_blob[10:] + trusted_comment)
+          except (InvalidSignature, ValueError) as exc:
+              raise SystemExit("draft updater signature does not verify with the pinned public key") from exc
+
+          manifest_bytes = manifest_path.read_bytes()
+          manifest = json.loads(manifest_bytes.decode("utf-8"))
+          asset = asset_path.read_bytes()
+          if manifest.get("schema_version") != 2:
+              raise SystemExit("draft Findings Pack manifest is not schema v2")
+          if manifest.get("download_url") != "findings-pack.v2.zip":
+              raise SystemExit("draft Findings Pack manifest points to an unexpected asset")
+          if manifest.get("size") != len(asset):
+              raise SystemExit("draft Findings Pack manifest size is stale")
+          if manifest.get("sha256") != hashlib.sha256(asset).hexdigest():
+              raise SystemExit("draft Findings Pack manifest hash is stale")
+          verify_manifest_signature(manifest_bytes, manifest_signature_path.read_bytes())
+          print("draft release updater signature, version, hash, and bytes verified")
+          PY
+
+      - name: Promote verified release draft
+        id: promote
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="$GITHUB_REF_NAME"
+          ID_FILE="$RUNNER_TEMP/release-identity"
+          if [[ ! -s "$ID_FILE" || "$(sed -n '1p' "$ID_FILE")" != "$TAG" ]]; then
+            echo "release identity marker is missing or points to another tag" >&2
+            exit 1
+          fi
+          EXPECTED_RELEASE_ID="$(sed -n '2p' "$ID_FILE")"
+          if [[ ! "$EXPECTED_RELEASE_ID" =~ ^[0-9]+$ ]]; then
+            echo "release identity marker has an invalid release ID" >&2
+            exit 1
+          fi
+          RELEASE_STATE="$(gh api \
+            --header "Accept: application/vnd.github+json" \
+            "repos/${GITHUB_REPOSITORY}/releases/${EXPECTED_RELEASE_ID}" \
+            --jq '[.id, .tag_name, .draft] | @tsv')"
+          IFS=$'\t' read -r CURRENT_RELEASE_ID CURRENT_TAG CURRENT_DRAFT <<< "$RELEASE_STATE"
+          if [[ "$CURRENT_RELEASE_ID" != "$EXPECTED_RELEASE_ID" || "$CURRENT_TAG" != "$TAG" || "$CURRENT_DRAFT" != "true" ]]; then
+            echo "refusing to promote a release that is not the verified owned draft" >&2
+            exit 1
+          fi
+          PROMOTION_ATTEMPT="$RUNNER_TEMP/release-promotion-attempt"
+          printf '%s\n%s\n' "$TAG" "$EXPECTED_RELEASE_ID" > "$PROMOTION_ATTEMPT"
+          gh api \
+            --method PATCH \
+            --header "Accept: application/vnd.github+json" \
+            --field "draft=false" \
+            "repos/${GITHUB_REPOSITORY}/releases/${EXPECTED_RELEASE_ID}" \
+            >/dev/null
+          PROMOTION_MARKER="$RUNNER_TEMP/release-promotion-marker"
+          printf '%s\n%s\n' "$TAG" "$EXPECTED_RELEASE_ID" > "$PROMOTION_MARKER"
+
+      - name: Verify anonymous latest release endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="$GITHUB_REF_NAME"
+          VERSION="${TAG#v}"
+          PUBLIC_DIR="$RUNNER_TEMP/anonymous-release"
+          rm -rf "$PUBLIC_DIR"
+          mkdir -p "$PUBLIC_DIR/updater-bundle"
+          trap 'rm -rf "$PUBLIC_DIR"' EXIT
+          PUBLIC_BASE="https://github.com/${GITHUB_REPOSITORY}/releases/latest/download"
+          download_anonymous() {
+            curl \
+              --fail \
+              --silent \
+              --show-error \
+              --location \
+              --max-redirs 5 \
+              --proto '=https' \
+              --proto-redir '=https' \
+              "$1" \
+              --output "$2"
+          }
+          download_anonymous "$PUBLIC_BASE/latest.json" "$PUBLIC_DIR/latest.json"
+          download_anonymous "$PUBLIC_BASE/findings-pack.v2.zip" "$PUBLIC_DIR/findings-pack.v2.zip"
+          download_anonymous \
+            "$PUBLIC_BASE/findings-pack-manifest.json" \
+            "$PUBLIC_DIR/findings-pack-manifest.json"
+          download_anonymous \
+            "$PUBLIC_BASE/findings-pack-manifest.json.sig" \
+            "$PUBLIC_DIR/findings-pack-manifest.json.sig"
+          UPDATER_ASSET_URL="$(uv run --project backend --locked python - "$PUBLIC_DIR/latest.json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          print(json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["platforms"]["windows-x86_64"]["url"])
+          PY
+          )"
+          UPDATER_ARCHIVE="$(uv run --project backend --locked python - "$PUBLIC_DIR/latest.json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          from urllib.parse import unquote, urlsplit
+
+          payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          print(unquote(urlsplit(payload["platforms"]["windows-x86_64"]["url"]).path.rsplit("/", 1)[-1]))
+          PY
+          )"
+          if [[ -z "$UPDATER_ARCHIVE" || "$UPDATER_ARCHIVE" == */* ]]; then
+            echo "public latest.json references an invalid updater archive name" >&2
+            exit 1
+          fi
+          download_anonymous \
+            "$UPDATER_ASSET_URL" \
+            "$PUBLIC_DIR/updater-bundle/$UPDATER_ARCHIVE"
+          download_anonymous \
+            "${UPDATER_ASSET_URL}.sig" \
+            "$PUBLIC_DIR/updater-bundle/$UPDATER_ARCHIVE.sig"
+          uv run --project backend --locked python tools/check_windows_updater_artifacts.py \
+            --bundle-dir "$PUBLIC_DIR/updater-bundle" \
+            --latest-json "$PUBLIC_DIR/latest.json"
+          uv run --project backend --locked python - \
+            "$PUBLIC_DIR/latest.json" \
+            "$PUBLIC_DIR/updater-bundle/$UPDATER_ARCHIVE" \
+            "$PUBLIC_DIR/updater-bundle/$UPDATER_ARCHIVE.sig" \
+            "$PUBLIC_DIR/findings-pack-manifest.json" \
+            "$PUBLIC_DIR/findings-pack-manifest.json.sig" \
+            "$PUBLIC_DIR/findings-pack.v2.zip" \
+            "$VERSION" \
+            "$TAG" \
+            "$GITHUB_REPOSITORY" <<'PY'
+          import base64
+          import binascii
+          import hashlib
+          import json
+          import sys
+          from pathlib import Path
+          from urllib.parse import unquote, urlsplit
+
+          from bhayanak_legends.manifest_signing import verify_manifest_signature
+          from cryptography.exceptions import InvalidSignature
+          from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+          latest_path = Path(sys.argv[1])
+          updater_path = Path(sys.argv[2])
+          updater_signature_path = Path(sys.argv[3])
+          manifest_path = Path(sys.argv[4])
+          manifest_signature_path = Path(sys.argv[5])
+          asset_path = Path(sys.argv[6])
+          expected_version, expected_tag, expected_repo = sys.argv[7:10]
+
+          latest = json.loads(latest_path.read_text(encoding="utf-8"))
+          if latest.get("version") != expected_version:
+              raise SystemExit("anonymous latest.json version does not match the release tag")
+          platform = latest.get("platforms", {}).get("windows-x86_64")
+          if not isinstance(platform, dict):
+              raise SystemExit("anonymous latest.json Windows updater entry is missing")
+          url = platform.get("url")
+          expected_prefix = (
+              f"https://github.com/{expected_repo}/releases/download/{expected_tag}/"
+          )
+          if not isinstance(url, str) or not url.startswith(expected_prefix):
+              raise SystemExit("anonymous latest.json updater URL is not pinned to the release tag")
+          if unquote(urlsplit(url).path.rsplit("/", 1)[-1]) != updater_path.name:
+              raise SystemExit("anonymous latest.json updater URL names the wrong asset")
+          updater_signature = updater_signature_path.read_text(encoding="utf-8")
+          if platform.get("signature") != updater_signature:
+              raise SystemExit("anonymous latest.json signature differs from the detached signature")
+
+          def payload_line(text: str) -> str:
+              for line in text.splitlines():
+                  line = line.strip()
+                  if line and not line.startswith(("untrusted comment:", "trusted comment:")):
+                      return line
+              raise ValueError("minisign payload is missing")
+
+          def minisign_payload(text: str, label: str) -> bytes:
+              try:
+                  return base64.b64decode(payload_line(text), validate=True)
+              except (ValueError, binascii.Error) as exc:
+                  raise SystemExit(f"{label} has an invalid minisign payload") from exc
+
+          def minisign_signature(text: str, label: str) -> tuple[bytes, bytes, bytes]:
+              lines = text.splitlines()
+              if (
+                  len(lines) != 4
+                  or not lines[0].startswith("untrusted comment: ")
+                  or not lines[2].startswith("trusted comment: ")
+                  or not lines[2][len("trusted comment: ") :].strip()
+              ):
+                  raise SystemExit(f"{label} is missing a Minisign comment or signature")
+              try:
+                  primary = base64.b64decode(lines[1].strip(), validate=True)
+                  global_signature = base64.b64decode(lines[3].strip(), validate=True)
+                  trusted_comment = lines[2][len("trusted comment: ") :].strip().encode("ascii")
+              except (UnicodeError, ValueError, binascii.Error) as exc:
+                  raise SystemExit(f"{label} has an invalid Minisign signature") from exc
+              if len(primary) != 74 or len(global_signature) != 64:
+                  raise SystemExit(f"{label} has an invalid Minisign signature size")
+              return primary, global_signature, trusted_comment
+
+          config = json.loads(Path("src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
+          try:
+              public_text = base64.b64decode(
+                  config["plugins"]["updater"]["pubkey"].encode("ascii"),
+                  validate=True,
+              ).decode("ascii")
+              public_blob = minisign_payload(public_text, "pinned public key")
+              signature_text = base64.b64decode(
+                  updater_signature.encode("ascii").strip(), validate=True
+              ).decode("ascii")
+              signature_blob, global_signature, trusted_comment = minisign_signature(
+                  signature_text, "anonymous updater signature"
+              )
+          except (KeyError, UnicodeError, OSError, ValueError, binascii.Error) as exc:
+              raise SystemExit("anonymous updater signing payload is malformed") from exc
+          if len(public_blob) != 42:
+              raise SystemExit("pinned updater public key has an invalid Minisign payload")
+          if public_blob[:2] != b"Ed" or signature_blob[:2] != b"ED":
+              raise SystemExit("anonymous updater signature uses an unsupported Minisign algorithm")
+          if public_blob[2:10] != signature_blob[2:10]:
+              raise SystemExit("anonymous updater signature uses a different pinned key")
+          updater_bytes = updater_path.read_bytes()
+          updater_digest = hashlib.blake2b(updater_bytes, digest_size=64).digest()
+          try:
+              verifier = Ed25519PublicKey.from_public_bytes(public_blob[10:])
+              verifier.verify(signature_blob[10:], updater_digest)
+              verifier.verify(global_signature, signature_blob[10:] + trusted_comment)
+          except (InvalidSignature, ValueError) as exc:
+              raise SystemExit("anonymous updater signature does not verify with the pinned public key") from exc
+
+          manifest_bytes = manifest_path.read_bytes()
+          manifest = json.loads(manifest_bytes.decode("utf-8"))
+          asset = asset_path.read_bytes()
+          if manifest.get("schema_version") != 2:
+              raise SystemExit("anonymous Findings Pack manifest is not schema v2")
+          if manifest.get("download_url") != "findings-pack.v2.zip":
+              raise SystemExit("anonymous Findings Pack manifest points to an unexpected asset")
+          if manifest.get("size") != len(asset):
+              raise SystemExit("anonymous Findings Pack manifest size is stale")
+          if manifest.get("sha256") != hashlib.sha256(asset).hexdigest():
+              raise SystemExit("anonymous Findings Pack manifest hash is stale")
+          verify_manifest_signature(manifest_bytes, manifest_signature_path.read_bytes())
+          print("anonymous latest updater signature and Findings Pack endpoints verified")
+          PY
+
+      - name: Re-draft release after a failed publication check
+        if: ${{ failure() && steps.create.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="$GITHUB_REF_NAME"
+          PROMOTION_ATTEMPT="$RUNNER_TEMP/release-promotion-attempt"
+          PROMOTION_MARKER="$RUNNER_TEMP/release-promotion-marker"
+          ID_FILE="$RUNNER_TEMP/release-identity"
+          trap 'rm -f "$PROMOTION_ATTEMPT" "$PROMOTION_MARKER"' EXIT
+          if [[ ! -s "$PROMOTION_ATTEMPT" ]]; then
+            echo "this run did not attempt promotion; nothing to roll back"
+            exit 0
+          fi
+          EXPECTED_TAG="$(sed -n '1p' "$PROMOTION_ATTEMPT")"
+          EXPECTED_RELEASE_ID="$(sed -n '2p' "$PROMOTION_ATTEMPT")"
+          if [[ "$EXPECTED_TAG" != "$TAG" || ! "$EXPECTED_RELEASE_ID" =~ ^[0-9]+$ ]]; then
+            echo "promotion attempt marker does not identify this release; refusing rollback" >&2
+            exit 1
+          fi
+          if [[ ! -s "$ID_FILE" || "$(sed -n '1p' "$ID_FILE")" != "$TAG" || "$(sed -n '2p' "$ID_FILE")" != "$EXPECTED_RELEASE_ID" ]]; then
+            echo "promotion attempt is not owned by this run; refusing rollback" >&2
+            exit 1
+          fi
+          if ! RELEASE_STATE="$(gh api \
+            --header "Accept: application/vnd.github+json" \
+            "repos/${GITHUB_REPOSITORY}/releases/${EXPECTED_RELEASE_ID}" \
+            --jq '[.id, .tag_name, .draft] | @tsv' 2>/dev/null)"; then
+            echo "owned release is unavailable; refusing rollback" >&2
+            exit 1
+          fi
+          IFS=$'\t' read -r CURRENT_RELEASE_ID CURRENT_TAG CURRENT_IS_DRAFT <<< "$RELEASE_STATE"
+          if [[ "$CURRENT_RELEASE_ID" != "$EXPECTED_RELEASE_ID" || "$CURRENT_TAG" != "$TAG" ]]; then
+            echo "current release identity differs from this run; refusing rollback" >&2
+            exit 1
+          fi
+          if [[ "$CURRENT_IS_DRAFT" == "true" ]]; then
+            echo "failed release is already a draft"
+            exit 0
+          fi
+          gh api \
+            --method PATCH \
+            --header "Accept: application/vnd.github+json" \
+            --field "draft=true" \
+            "repos/${GITHUB_REPOSITORY}/releases/${EXPECTED_RELEASE_ID}" \
+            >/dev/null
+          echo "failed release returned to draft state"

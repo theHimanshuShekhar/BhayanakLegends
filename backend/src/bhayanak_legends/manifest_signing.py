@@ -11,7 +11,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 # This key is part of the application release. Rotate it only as part of an
 # application release, together with the publishing secret and delivery ADR.
-PINNED_MANIFEST_PUBLIC_KEY_B64: Final = "yHtpqTMZhbCf2l61USHtx2bShhM1x7PVttXDs86jtDI="
+PINNED_MANIFEST_PUBLIC_KEY_B64: Final = "J4UA5Sel0TfPdU+Nryc/FKD1dNvRqO1TDgDA9geZKD0="
 PINNED_MANIFEST_PUBLIC_KEY: Final = base64.b64decode(PINNED_MANIFEST_PUBLIC_KEY_B64)
 
 

@@ -95,13 +95,48 @@ conditionally skipped because a stale checked-in manifest cannot describe a
 new pack. The manifest is signed over its exact bytes with the
 owner-provisioned `FINDINGS_PACK_MANIFEST_SIGNING_KEY`; the key is not bundled.
 
-`tauri-action` first publishes the signed Windows updater release and its
-`latest.json`. A following token-authenticated CI upload adds
-`findings-pack.v2.zip`, `findings-pack-manifest.json`, and
-`findings-pack-manifest.json.sig` to the same tag. Installed clients use only
-the public `releases/latest/download/findings-pack-manifest.json` locator;
-they carry no GitHub token. The sidecar resolves `latest` through a bounded
-same-repository `github.com` tag redirect, pins the logical tag URL, and
+The release job first checks that the `v*` tag resolves to the checked-out
+commit, that its version matches both package manifests, and that no release
+already exists for the immutable tag. It inventories the complete generated
+updater set, then sends a token-authenticated `POST` to the Releases API with
+the tag, target commit, and `draft=true`. The response is validated and its
+release ID is captured as the run's release identity.
+
+Every asset upload uses the draft response's validated `upload_url` base. The
+URL must be HTTPS on `uploads.github.com`, with the exact
+`/repos/<repository>/releases/<release-id>/assets{?name,label}` shape. The
+workflow normalizes each Windows asset path with `cygpath -m` before putting
+only the forward-slash path in the config, then sends each exact local file as
+raw bytes through a curl config supplied on stdin; the bearer token therefore
+never appears in the curl process arguments. It never sends an asset `POST` to
+the default API host. The installer, updater archive and detached signature,
+`latest.json`, and `findings-pack.v2.zip`, `findings-pack-manifest.json`, and
+`findings-pack-manifest.json.sig` are explicitly enumerated; the workflow never
+uses `--clobber`, so an existing asset is a failure rather than an overwrite.
+
+Before promotion, the workflow keeps the release private as a draft and queries
+the captured release ID and its complete asset list. It records every remote
+asset ID, then downloads the exact draft assets through the asset-ID endpoint.
+The existing updater checker validates the remote archive relationship, while
+the workflow verifies the pinned updater Minisign key, the complete four-line
+detached-signature box (including its prehashed primary and global signature),
+release-tag URL, version, manifest signature, payload hash, and exact
+local/remote Findings Pack bytes. Only that complete verification permits a
+`PATCH` to the captured release ID with `draft=false`. No post-creation release
+mutation is addressed by tag.
+
+The final step fetches the stable `latest` updater and Findings Pack endpoints
+anonymously over HTTPS, cryptographically re-verifies the updater signature
+against the pinned key, and repeats the consumer-facing version, signature,
+and hash checks. If any later step fails after this run creates the owned
+draft—including an ambiguous response from the promotion request—the recovery
+step requires the pre-mutation promotion-attempt marker, verifies the current
+release ID, and re-drafts only that same release when it is public; it no-ops
+while the release is still a draft.
+Installed clients use only the public
+`releases/latest/download/findings-pack-manifest.json` locator; they carry no
+GitHub token. The sidecar resolves `latest` through a bounded same-repository
+`github.com` tag redirect, pins the logical tag URL, and
 fetches the tagged manifest/signature/payload (allowing only GitHub's bounded
 CDN transfer redirect). It authenticates the raw manifest before parsing it and
 validates the complete candidate before PackStore atomically swaps its
@@ -109,23 +144,28 @@ generation pointer.
 
 ## Windows release shell map
 
-The `publish` job runs on `windows-latest`. Its Bash-targeted `run` steps
-(`Build Python sidecar binary`, `Build canonical Findings Pack release
-payload`, `Sign Findings Pack manifest`, `Verify generated Findings Pack
-payload`, `Verify updater signing prerequisites`, `Check Windows updater
-artifacts`, `Publish Findings Pack channel assets`, and `Verify emitted updater
-artifacts`) each declare `shell: bash`, so heredocs, continuations, assignments,
-and `${GITHUB_REF_NAME#v}` are interpreted by Git for Windows Bash rather than
-PowerShell. The other `run` steps in that job (`pnpm install` and `pnpm tauri
-build --bundles nsis`) intentionally use the Windows runner's default `pwsh`;
-`tauri-action` is an action and has no step shell. The prerequisite,
-packaging, signing, and artifact-check commands use the provisioned
-`uv run --project backend --locked python` environment, write temporary files
-beneath `$RUNNER_TEMP`, and derive one `VERSION` value from the `v*` tag.
+The `publish` job runs on `windows-latest`. Every `run` step declares its
+shell. Bash-targeted steps (`Verify release tag version`, `Verify immutable
+release tag and empty release slot`, `Build Python sidecar binary`, `Build
+canonical Findings Pack release payload`, `Sign Findings Pack manifest`,
+`Verify generated Findings Pack payload`, `Verify updater signing
+prerequisites`, `Check Windows updater artifacts`, `Inventory exact updater
+assets before draft creation`, `Create signed release draft`, `Upload exact
+updater and Findings Pack assets to draft`, `Verify draft release contents
+before promotion`, `Promote verified release draft`, `Verify anonymous latest
+release endpoints`, and `Re-draft release after a failed publication check`)
+use `shell: bash`; explicit `shell: pwsh` is used for the package install and
+Tauri build steps. Heredocs, continuations, assignments, and
+`${GITHUB_REF_NAME#v}` therefore run under the intended interpreter rather than
+the runner default. The prerequisite, packaging, signing, and artifact-check
+commands use the provisioned `uv run --project backend --locked python`
+environment. Signing probes and downloaded endpoint fixtures live beneath
+`$RUNNER_TEMP`; the updater signing probe has an exit trap that removes both
+the probe and detached signature without printing private values.
 
-To exercise the corrected prerequisite and artifact-check commands without
-publishing, use a native Git Bash session on Windows from a checkout. This
-fixture uses no GitHub token, release action, or real signing key:
+To exercise only the local updater artifact checker without publishing, use a
+native Git Bash session on Windows from a checkout. This fixture uses no
+GitHub token, release API, or signing material:
 
 ```bash
 set -euo pipefail
@@ -140,39 +180,6 @@ printf 'fixture signature\n' > "$signature"
 export RUNNER_TEMP="$fixture_root/temp"
 export GITHUB_REF_NAME=v0.1.0
 export GITHUB_REPOSITORY=theHimanshuShekhar/BhayanakLegends
-export TAURI_SIGNING_PRIVATE_KEY=fixture-only-key
-
-verify_prerequisites() {
-  uv run --project backend --locked python - <<'PY'
-import json
-import os
-import sys
-from pathlib import Path
-
-config_path = Path("src-tauri/tauri.conf.json")
-try:
-    config = json.loads(config_path.read_text(encoding="utf-8"))
-except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-    sys.exit(f"tauri config cannot be read: {exc}")
-if not isinstance(config, dict):
-    sys.exit("tauri config must be a JSON object")
-bundle = config.get("bundle")
-if not isinstance(bundle, dict) or bundle.get("createUpdaterArtifacts") is not True:
-    sys.exit("createUpdaterArtifacts must be true before publishing")
-plugins = config.get("plugins")
-updater = plugins.get("updater") if isinstance(plugins, dict) else None
-if not isinstance(updater, dict) or not updater.get("pubkey"):
-    sys.exit("updater pubkey must be configured before publishing")
-if not os.environ.get("TAURI_SIGNING_PRIVATE_KEY"):
-    sys.exit("TAURI_SIGNING_PRIVATE_KEY secret is not provisioned; refusing to publish unsigned updates")
-PY
-}
-
-verify_prerequisites
-if (unset TAURI_SIGNING_PRIVATE_KEY; verify_prerequisites); then
-  echo "missing signing material unexpectedly passed" >&2
-  exit 1
-fi
 
 VERSION="${GITHUB_REF_NAME#v}"
 uv run --project backend --locked python tools/check_windows_updater_artifacts.py \
@@ -214,9 +221,9 @@ if uv run --project backend --locked python tools/check_windows_updater_artifact
 fi
 ```
 
-All commands above stop before Tauri build, `gh release`, and
-`tauri-action`; the expected nonzero checks prove the failure gates without
-creating or modifying a release.
+All commands above stop before Tauri build and all release API creation, asset
+upload, or promotion operations; the expected nonzero checks prove the failure
+gates without creating or modifying a release.
 
 ## Release and tag policy
 
@@ -228,6 +235,15 @@ creating or modifying a release.
   after both reusable gates succeed. It is the only job that receives
   `GITHUB_TOKEN`, `TAURI_SIGNING_PRIVATE_KEY`, or
   `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+- The release publisher fails closed if the remote tag does not resolve to
+  `${{ github.sha }}` or a release already exists for that tag. It creates a
+  draft through the Releases API and captures the returned release ID, uploads
+  immutable assets through that ID without replacement, authenticates and
+  validates every draft asset by its captured asset ID before promotion,
+  performs anonymous `releases/latest/download` endpoint checks only after
+  promotion, and re-drafts only the release ID created by this run when a
+  post-creation step fails after the pre-mutation promotion-attempt marker is
+  written. No post-creation release mutation is addressed by tag.
 - All third-party actions are referenced by immutable commit SHA with a version
   comment. Local reusable workflow references are not third-party actions.
 

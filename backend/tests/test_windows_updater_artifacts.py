@@ -164,20 +164,56 @@ def test_invalid_windows_artifacts_fail_before_publication(
         checker.check_artifacts(bundle, metadata)
 
 
-def test_release_workflow_checks_generated_inventory_before_publishing():
+def test_release_workflow_stages_safe_updater_names_before_id_addressed_upload():
     workflow = (REPO_ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
     build = workflow.index("pnpm tauri build --bundles nsis")
+    stage = workflow.index("Stage canonical Windows updater assets")
     check = workflow.index("check_windows_updater_artifacts.py")
-    publish = workflow.index("tauri-apps/tauri-action@")
+    draft = workflow.index('releases" > "$CREATE_RESPONSE"')
+    upload = workflow.index('url = "${UPLOAD_URL}?name=${asset_name}"')
+    upload_start = workflow.index("Upload exact updater and Findings Pack assets to draft")
+    verify_start = workflow.index("Verify draft release contents before promotion")
+    upload_step = workflow[upload_start:verify_start]
 
-    assert build < check < publish
+    assert build < stage < check < draft < upload
     assert "--write-latest-json" in workflow
-    assert "includeUpdaterJson: true" in workflow
-    assert "updaterJsonPreferNsis: true" in workflow
+    assert "release-inventory.json" in workflow
+    assert "release-create-response.json" in workflow
+    assert '--field "draft=true"' in workflow
+    assert "target_commitish" in workflow
+    assert "upload_url" in workflow
+    assert "uploads.github.com" in workflow
+    assert "{?name,label}" in workflow
+    assert "gh api" in workflow
+    assert "releases/${RELEASE_ID}/assets" in workflow
+    assert "releases/assets/${asset_id}" in workflow
+    assert "--config -" in upload_step
+    assert 'Authorization: Bearer ${GH_TOKEN}' in upload_step
+    assert 'ASSET_PATH_CURL="$(cygpath -m "$asset_path")"' in upload_step
+    assert 'data-binary = "@${ASSET_PATH_CURL}"' in upload_step
+    assert 'data-binary = "@${asset_path}"' not in upload_step
+    assert '--input "$asset_path"' not in upload_step
+    assert "--method POST" not in upload_step
+    assert 'releases/${RELEASE_ID}/assets?name=${asset_name}' not in upload_step
+    assert "--clobber" not in workflow
+    assert "gh release create" not in workflow
+    assert "gh release upload" not in workflow
+    assert "gh release download" not in workflow
+    assert "gh release edit" not in workflow
+    assert "tauri-apps/tauri-action@" not in workflow
 
     smoke = (REPO_ROOT / ".github/workflows/windows-smoke.yml").read_text(encoding="utf-8")
     assert "tauri-apps/tauri-action@" not in smoke
 
+
+def test_release_staged_updater_names_preserve_local_bytes():
+    workflow = (REPO_ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    assert 'bhayanak-legends-{version}-setup.exe' in workflow
+    assert 'bhayanak-legends-{version}-windows-x86_64.nsis.zip' in workflow
+    assert 'staged_dir / f"bhayanak-legends-{version}-windows-x86_64.nsis.zip.sig"' in workflow
+    assert 'filecmp.cmp(source, target, shallow=False)' in workflow
+    assert 'shutil.copyfile(source, target)' in workflow
+    assert "release asset name is not GitHub-safe" in workflow
 
 def test_tauri_config_enables_signed_updater_artifacts():
     config = json.loads((REPO_ROOT / "src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
