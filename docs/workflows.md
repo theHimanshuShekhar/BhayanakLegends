@@ -114,15 +114,15 @@ case cannot upload the same file twice.
 Every asset upload uses the draft response's validated `upload_url` base. The
 URL must be HTTPS on `uploads.github.com`, with the exact
 `/repos/<repository>/releases/<release-id>/assets{?name,label}` shape. The
-workflow first normalizes the native Windows runner-temp roots to POSIX
-paths with `cygpath -u` for Git Bash filesystem checks, then normalizes each
-asset path with `cygpath -m` before putting only the forward-slash path in the
-raw bytes through a curl config supplied on stdin; the bearer token therefore
-never appears in the curl process arguments. It never sends an asset `POST` to
-the default API host. The installer, updater archive and detached signature,
-`latest.json`, and `findings-pack.v2.zip`, `findings-pack-manifest.json`, and
-`findings-pack-manifest.json.sig` are explicitly enumerated; the workflow never
-uses `--clobber`, so an existing asset is a failure rather than an overwrite.
+workflow defines one canonical MSYS path per Bash step for filesystem checks,
+then converts each path explicitly to a Windows-native form before passing it
+to native Python/uv and to curl where it is a native executable. The bearer
+token therefore never appears in the curl process arguments. It never sends an
+asset `POST` to the default API host. The installer, updater archive and
+detached signature, `latest.json`, and `findings-pack.v2.zip`,
+`findings-pack-manifest.json`, and `findings-pack-manifest.json.sig` are
+explicitly enumerated; the workflow never uses `--clobber`, so an existing
+asset is a failure rather than an overwrite.
 
 Before promotion, the workflow keeps the release private as a draft and queries
 the captured release ID and its complete asset list. It records every remote
@@ -182,23 +182,30 @@ set -euo pipefail
 fixture_root="$(mktemp -d)"
 trap 'rm -rf "$fixture_root"' EXIT
 bundle_dir="$fixture_root/bundle/nsis"
-archive="$bundle_dir/Bhayanak Legends_0.1.8_x64-setup.exe"
+archive="$bundle_dir/Bhayanak Legends_0.1.9_x64-setup.exe"
 signature="$archive.sig"
 mkdir -p "$bundle_dir" "$fixture_root/temp"
 printf 'fixture installer\n' > "$archive"
 printf 'fixture signature\n' > "$signature"
 export RUNNER_TEMP="$fixture_root/temp"
-export GITHUB_REF_NAME=v0.1.8
+export GITHUB_REF_NAME=v0.1.9
 export GITHUB_REPOSITORY=theHimanshuShekhar/BhayanakLegends
 
+RUNNER_TEMP_MSYS="$(cygpath -u "$RUNNER_TEMP")"
+BUNDLE_DIR_NATIVE="$(cygpath -m "$bundle_dir")"
+ARCHIVE_NATIVE="$(cygpath -m "$archive")"
+LATEST_JSON_PATH_MSYS="$RUNNER_TEMP_MSYS/latest.json"
+LATEST_JSON_PATH_NATIVE="$(cygpath -m "$LATEST_JSON_PATH_MSYS")"
+MATCHING_LATEST_PATH_MSYS="$RUNNER_TEMP_MSYS/matching-latest.json"
+MATCHING_LATEST_PATH_NATIVE="$(cygpath -m "$MATCHING_LATEST_PATH_MSYS")"
 VERSION="${GITHUB_REF_NAME#v}"
 uv run --project backend --locked python tools/check_windows_updater_artifacts.py \
-  --bundle-dir "$bundle_dir" \
-  --latest-json "$RUNNER_TEMP/latest.json" \
+  --bundle-dir "$BUNDLE_DIR_NATIVE" \
+  --latest-json "$LATEST_JSON_PATH_NATIVE" \
   --write-latest-json \
   --base-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}" \
   --version "$VERSION"
-uv run --project backend --locked python - "$RUNNER_TEMP/latest.json" "$VERSION" "$archive" <<'PY'
+uv run --project backend --locked python - "$LATEST_JSON_PATH_NATIVE" "$VERSION" "$ARCHIVE_NATIVE" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -216,20 +223,19 @@ assert payload["platforms"]["windows-x86_64"]["url"] == (
 assert "${GITHUB_REF_NAME#v}" not in Path(path).read_text(encoding="utf-8")
 PY
 
-cp "$RUNNER_TEMP/latest.json" "$fixture_root/matching-latest.json"
+cp "$LATEST_JSON_PATH_MSYS" "$MATCHING_LATEST_PATH_MSYS"
 rm "$signature"
 if uv run --project backend --locked python tools/check_windows_updater_artifacts.py \
-  --bundle-dir "$bundle_dir" --latest-json "$fixture_root/matching-latest.json"; then
+  --bundle-dir "$BUNDLE_DIR_NATIVE" --latest-json "$MATCHING_LATEST_PATH_NATIVE"; then
   echo "missing detached signature unexpectedly passed" >&2
   exit 1
 fi
 printf 'wrong signature\n' > "$signature"
 if uv run --project backend --locked python tools/check_windows_updater_artifacts.py \
-  --bundle-dir "$bundle_dir" --latest-json "$fixture_root/matching-latest.json"; then
+  --bundle-dir "$BUNDLE_DIR_NATIVE" --latest-json "$MATCHING_LATEST_PATH_NATIVE"; then
   echo "mismatched signature unexpectedly passed" >&2
   exit 1
 fi
-```
 
 All commands above stop before Tauri build and all release API creation, asset
 upload, or promotion operations; the expected nonzero checks prove the failure

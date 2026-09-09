@@ -146,7 +146,7 @@ def test_updater_artifacts_enabled_in_tauri_config():
 
 
 def test_all_release_version_sources_are_aligned():
-    expected = "0.1.8"
+    expected = "0.1.9"
     package = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))
     tauri = json.loads(CONFIG.read_text(encoding="utf-8"))
     backend = tomllib.loads(
@@ -196,8 +196,10 @@ def test_windows_run_steps_declare_explicit_shells():
 
     checker = _workflow_step("Check Windows updater artifacts")
     assert "LATEST_JSON_PATH: ${{ runner.temp }}/latest.json" in checker
+    assert 'RUNNER_TEMP_MSYS="$(cygpath -u "$RUNNER_TEMP")"' in checker
+    assert 'STAGED_BUNDLE_DIR_NATIVE="$(cygpath -m "$STAGED_BUNDLE_DIR_MSYS")"' in checker
     assert 'VERSION="${GITHUB_REF_NAME#v}"' in checker
-    assert '--latest-json "$LATEST_JSON_PATH"' in checker
+    assert '--latest-json "$LATEST_JSON_PATH_NATIVE"' in checker
     assert '--version "$VERSION"' in checker
 
     signing = _workflow_step("Verify updater signing prerequisites")
@@ -211,7 +213,7 @@ def test_release_job_requires_signing_secret_and_cryptographic_prerequisites():
     assert "TAURI_SIGNING_PRIVATE_KEY:" in prerequisites
     assert "TAURI_SIGNING_PRIVATE_KEY_PASSWORD:" in prerequisites
     assert "createUpdaterArtifacts" in prerequisites
-    assert 'pnpm tauri signer sign "$PROBE_FILE"' in prerequisites
+    assert 'pnpm tauri signer sign "$PROBE_FILE_NATIVE"' in prerequisites
     assert "--private-key" not in prerequisites
     assert "--password" not in prerequisites
     assert "Ed25519PublicKey" in prerequisites
@@ -281,7 +283,7 @@ def test_release_draft_is_verified_before_promotion():
     assert "id: create" in create_step
     assert "gh api" in create_step
     assert "--method POST" in create_step
-    assert 'releases" > "$CREATE_RESPONSE"' in create_step
+    assert 'releases" > "$CREATE_RESPONSE_MSYS"' in create_step
     assert '--field "draft=true"' in create_step
     assert "target_commitish" in create_step
     assert "upload_url" in create_step
@@ -300,9 +302,10 @@ def test_release_draft_is_verified_before_promotion():
     assert 'EXPECTED_UPLOAD_URL="https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets"' in upload_step
     assert "UPLOAD_URL" in upload_step
     assert 'ASSET_PATH_CURL="$(cygpath -m "$asset_path")"' in upload_step
-    assert 'RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"' in upload_step
-    assert 'STAGED_BUNDLE_DIR="$(cygpath -u "$RUNNER_TEMP/updater-bundle")"' in upload_step
-    assert 'INVENTORY_PATH="$(cygpath -u "$INVENTORY_PATH")"' in upload_step
+    assert 'RUNNER_TEMP_MSYS="$(cygpath -u "$RUNNER_TEMP")"' in upload_step
+    assert 'STAGED_BUNDLE_DIR_MSYS="$RUNNER_TEMP_MSYS/updater-bundle"' in upload_step
+    assert 'INVENTORY_PATH_MSYS="$RUNNER_TEMP_MSYS/release-inventory.json"' in upload_step
+    assert 'INVENTORY_PATH_NATIVE="$(cygpath -m "$INVENTORY_PATH_MSYS")"' in upload_step
     for name in (
         "Build canonical Findings Pack release payload",
         "Sign Findings Pack manifest",
@@ -317,7 +320,7 @@ def test_release_draft_is_verified_before_promotion():
         "Verify anonymous latest release endpoints",
         "Re-draft release after a failed publication check",
     ):
-        assert 'RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"' in _workflow_step(name)
+        assert 'RUNNER_TEMP_MSYS="$(cygpath -u "$RUNNER_TEMP")"' in _workflow_step(name)
     assert "ASSET_PATH_CURL" in upload_step
     assert "--config -" in upload_step
     assert 'Authorization: Bearer ${GH_TOKEN}' in upload_step

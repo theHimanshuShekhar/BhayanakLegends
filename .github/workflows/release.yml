@@ -168,12 +168,13 @@ jobs:
       - name: Build canonical Findings Pack release payload
         shell: bash
         run: |
-          RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"
+          RUNNER_TEMP_MSYS="$(cygpath -u "$RUNNER_TEMP")"
+          RUNNER_TEMP_NATIVE="$(cygpath -m "$RUNNER_TEMP_MSYS")"
           VERSION="${GITHUB_REF_NAME#v}"
           uv run --project backend --locked python tools/build_findings_pack_release.py \
             --pack-dir pack \
-            --asset "$RUNNER_TEMP/findings-pack.v2.zip" \
-            --manifest "$RUNNER_TEMP/findings-pack-manifest.json" \
+            --asset "$RUNNER_TEMP_NATIVE/findings-pack.v2.zip" \
+            --manifest "$RUNNER_TEMP_NATIVE/findings-pack-manifest.json" \
             --download-url "findings-pack.v2.zip" \
             --min-app-version "0.1.0"
 
@@ -183,10 +184,11 @@ jobs:
           FINDINGS_PACK_MANIFEST_SIGNING_KEY: ${{ secrets.FINDINGS_PACK_MANIFEST_SIGNING_KEY }}
         run: |
           set -euo pipefail
-          RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"
+          RUNNER_TEMP_MSYS="$(cygpath -u "$RUNNER_TEMP")"
+          RUNNER_TEMP_NATIVE="$(cygpath -m "$RUNNER_TEMP_MSYS")"
           uv run --project backend --locked python tools/sign_findings_pack_manifest.py \
-            "$RUNNER_TEMP/findings-pack-manifest.json" \
-            --output "$RUNNER_TEMP/findings-pack-manifest.json.sig"
+            "$RUNNER_TEMP_NATIVE/findings-pack-manifest.json" \
+            --output "$RUNNER_TEMP_NATIVE/findings-pack-manifest.json.sig"
       - name: Verify generated Findings Pack payload
         shell: bash
         env:
@@ -195,13 +197,11 @@ jobs:
           PACK_ASSET_PATH: ${{ runner.temp }}/findings-pack.v2.zip
         run: |
           set -euo pipefail
-          RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"
-          PACK_MANIFEST_PATH_POSIX="$RUNNER_TEMP/findings-pack-manifest.json"
-          PACK_SIGNATURE_PATH_POSIX="$RUNNER_TEMP/findings-pack-manifest.json.sig"
-          PACK_ASSET_PATH_POSIX="$RUNNER_TEMP/findings-pack.v2.zip"
-          PACK_MANIFEST_PATH="$(cygpath -m "$PACK_MANIFEST_PATH_POSIX")"
-          PACK_SIGNATURE_PATH="$(cygpath -m "$PACK_SIGNATURE_PATH_POSIX")"
-          PACK_ASSET_PATH="$(cygpath -m "$PACK_ASSET_PATH_POSIX")"
+          RUNNER_TEMP_MSYS="$(cygpath -u "$RUNNER_TEMP")"
+          RUNNER_TEMP_NATIVE="$(cygpath -m "$RUNNER_TEMP_MSYS")"
+          PACK_MANIFEST_PATH="$RUNNER_TEMP_NATIVE/findings-pack-manifest.json"
+          PACK_SIGNATURE_PATH="$RUNNER_TEMP_NATIVE/findings-pack-manifest.json.sig"
+          PACK_ASSET_PATH="$RUNNER_TEMP_NATIVE/findings-pack.v2.zip"
           uv run --project backend --locked python - <<'PY'
           import hashlib
           import json
@@ -234,22 +234,24 @@ jobs:
         run: |
           set +x
           set -euo pipefail
-          RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"
+          RUNNER_TEMP_MSYS="$(cygpath -u "$RUNNER_TEMP")"
           if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" || -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]]; then
             echo "updater signing key/password secrets are not provisioned; refusing to publish unsigned updates" >&2
             exit 1
           fi
-          PROBE_FILE="$RUNNER_TEMP/updater-signing-probe"
+          PROBE_FILE="$RUNNER_TEMP_MSYS/updater-signing-probe"
           PROBE_SIGNATURE="$PROBE_FILE.sig"
+          PROBE_FILE_NATIVE="$(cygpath -m "$PROBE_FILE")"
+          PROBE_SIGNATURE_NATIVE="$PROBE_FILE_NATIVE.sig"
           trap 'rm -f "$PROBE_FILE" "$PROBE_SIGNATURE"' EXIT
           rm -f "$PROBE_FILE" "$PROBE_SIGNATURE"
           printf 'Bhayanak Legends updater signing probe\n' > "$PROBE_FILE"
-          if ! pnpm tauri signer sign "$PROBE_FILE" >/dev/null 2>/dev/null
+          if ! pnpm tauri signer sign "$PROBE_FILE_NATIVE" >/dev/null 2>/dev/null
           then
             echo "updater signing probe failed; refusing to publish" >&2
             exit 1
           fi
-          uv run --project backend --locked python - "$PROBE_FILE" "$PROBE_SIGNATURE" <<'PY'
+          uv run --project backend --locked python - "$PROBE_FILE_NATIVE" "$PROBE_SIGNATURE_NATIVE" <<'PY'
           import base64
           import binascii
           import hashlib
@@ -348,15 +350,16 @@ jobs:
           STAGED_BUNDLE_DIR: ${{ runner.temp }}/updater-bundle
         run: |
           set -euo pipefail
-          RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"
-          STAGED_BUNDLE_DIR="$RUNNER_TEMP/updater-bundle"
+          RUNNER_TEMP_MSYS="$(cygpath -u "$RUNNER_TEMP")"
+          STAGED_BUNDLE_DIR_MSYS="$RUNNER_TEMP_MSYS/updater-bundle"
+          STAGED_BUNDLE_DIR_NATIVE="$(cygpath -m "$STAGED_BUNDLE_DIR_MSYS")"
           VERSION="${GITHUB_REF_NAME#v}"
           SOURCE_BUNDLE_DIR="src-tauri/target/release/bundle/nsis"
-          rm -rf "$STAGED_BUNDLE_DIR"
-          mkdir -p "$STAGED_BUNDLE_DIR"
+          rm -rf "$STAGED_BUNDLE_DIR_MSYS"
+          mkdir -p "$STAGED_BUNDLE_DIR_MSYS"
           uv run --project backend --locked python - \
             "$SOURCE_BUNDLE_DIR" \
-            "$STAGED_BUNDLE_DIR" \
+            "$STAGED_BUNDLE_DIR_NATIVE" \
             "$VERSION" <<'PY'
           import filecmp
           import shutil
@@ -425,13 +428,15 @@ jobs:
           LATEST_JSON_PATH: ${{ runner.temp }}/latest.json
         run: |
           set -euo pipefail
-          RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"
-          STAGED_BUNDLE_DIR="$RUNNER_TEMP/updater-bundle"
-          LATEST_JSON_PATH="$RUNNER_TEMP/latest.json"
+          RUNNER_TEMP_MSYS="$(cygpath -u "$RUNNER_TEMP")"
+          STAGED_BUNDLE_DIR_MSYS="$RUNNER_TEMP_MSYS/updater-bundle"
+          LATEST_JSON_PATH_MSYS="$RUNNER_TEMP_MSYS/latest.json"
+          STAGED_BUNDLE_DIR_NATIVE="$(cygpath -m "$STAGED_BUNDLE_DIR_MSYS")"
+          LATEST_JSON_PATH_NATIVE="$(cygpath -m "$LATEST_JSON_PATH_MSYS")"
           VERSION="${GITHUB_REF_NAME#v}"
           uv run --project backend --locked python tools/check_windows_updater_artifacts.py \
-            --bundle-dir "$STAGED_BUNDLE_DIR" \
-            --latest-json "$LATEST_JSON_PATH" \
+            --bundle-dir "$STAGED_BUNDLE_DIR_NATIVE" \
+            --latest-json "$LATEST_JSON_PATH_NATIVE" \
             --write-latest-json \
             --base-url "https://github.com/${{ github.repository }}/releases/download/v${VERSION}" \
             --version "$VERSION"
@@ -444,14 +449,17 @@ jobs:
           STAGED_BUNDLE_DIR: ${{ runner.temp }}/updater-bundle
         run: |
           set -euo pipefail
-          RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"
-          INVENTORY_PATH="$RUNNER_TEMP/release-inventory.json"
-          LATEST_JSON_PATH="$RUNNER_TEMP/latest.json"
-          STAGED_BUNDLE_DIR="$RUNNER_TEMP/updater-bundle"
+          RUNNER_TEMP_MSYS="$(cygpath -u "$RUNNER_TEMP")"
+          INVENTORY_PATH_MSYS="$RUNNER_TEMP_MSYS/release-inventory.json"
+          LATEST_JSON_PATH_MSYS="$RUNNER_TEMP_MSYS/latest.json"
+          STAGED_BUNDLE_DIR_MSYS="$RUNNER_TEMP_MSYS/updater-bundle"
+          INVENTORY_PATH_NATIVE="$(cygpath -m "$INVENTORY_PATH_MSYS")"
+          LATEST_JSON_PATH_NATIVE="$(cygpath -m "$LATEST_JSON_PATH_MSYS")"
+          STAGED_BUNDLE_DIR_NATIVE="$(cygpath -m "$STAGED_BUNDLE_DIR_MSYS")"
           uv run --project backend --locked python - \
-            "$INVENTORY_PATH" \
-            "$LATEST_JSON_PATH" \
-            "$STAGED_BUNDLE_DIR" \
+            "$INVENTORY_PATH_NATIVE" \
+            "$LATEST_JSON_PATH_NATIVE" \
+            "$STAGED_BUNDLE_DIR_NATIVE" \
             "$GITHUB_REF_NAME" <<'PY'
           import json
           import sys
@@ -529,10 +537,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"
+          RUNNER_TEMP_MSYS="$(cygpath -u "$RUNNER_TEMP")"
+          CREATE_RESPONSE_MSYS="$RUNNER_TEMP_MSYS/release-create-response.json"
+          CREATE_RESPONSE_NATIVE="$(cygpath -m "$CREATE_RESPONSE_MSYS")"
           TAG="$GITHUB_REF_NAME"
           VERSION="${TAG#v}"
-          CREATE_RESPONSE="$RUNNER_TEMP/release-create-response.json"
           gh api \
             --method POST \
             --header "Accept: application/vnd.github+json" \
@@ -542,9 +551,9 @@ jobs:
             --field "body=Installer + auto-update feed. The Findings Pack is bundled; newer packs arrive via LoLTrends release sync (docs/adr/0005)." \
             --field "draft=true" \
             --field "prerelease=false" \
-            "repos/${GITHUB_REPOSITORY}/releases" > "$CREATE_RESPONSE"
+            "repos/${GITHUB_REPOSITORY}/releases" > "$CREATE_RESPONSE_MSYS"
           RELEASE_ID_AND_UPLOAD_URL="$(uv run --project backend --locked python - \
-            "$CREATE_RESPONSE" "$TAG" "$GITHUB_REPOSITORY" <<'PY'
+            "$CREATE_RESPONSE_NATIVE" "$TAG" "$GITHUB_REPOSITORY" <<'PY'
           import json
           import sys
           from pathlib import Path
@@ -581,7 +590,7 @@ jobs:
             echo "GitHub draft response did not yield a valid release identity" >&2
             exit 1
           fi
-          printf '%s\n%s\n%s\n' "$TAG" "$RELEASE_ID" "$UPLOAD_URL" > "$RUNNER_TEMP/release-identity"
+          printf '%s\n%s\n%s\n' "$TAG" "$RELEASE_ID" "$UPLOAD_URL" > "$RUNNER_TEMP_MSYS/release-identity"
 
       - name: Upload exact updater and Findings Pack assets to draft
         env:
@@ -591,10 +600,11 @@ jobs:
         run: |
           set -euo pipefail
           TAG="$GITHUB_REF_NAME"
-          RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"
-          STAGED_BUNDLE_DIR="$(cygpath -u "$RUNNER_TEMP/updater-bundle")"
-          INVENTORY_PATH="$(cygpath -u "$INVENTORY_PATH")"
-          ID_FILE="$RUNNER_TEMP/release-identity"
+          RUNNER_TEMP_MSYS="$(cygpath -u "$RUNNER_TEMP")"
+          STAGED_BUNDLE_DIR_MSYS="$RUNNER_TEMP_MSYS/updater-bundle"
+          INVENTORY_PATH_MSYS="$RUNNER_TEMP_MSYS/release-inventory.json"
+          INVENTORY_PATH_NATIVE="$(cygpath -m "$INVENTORY_PATH_MSYS")"
+          ID_FILE="$RUNNER_TEMP_MSYS/release-identity"
           if [[ ! -s "$ID_FILE" || "$(sed -n '1p' "$ID_FILE")" != "$TAG" ]]; then
             echo "release identity marker is missing or points to another tag" >&2
             exit 1
@@ -631,7 +641,7 @@ jobs:
             exit 1
           fi
           mapfile -t UPDATER_ASSETS < <(
-            uv run --project backend --locked python - "$INVENTORY_PATH" <<'PY'
+            uv run --project backend --locked python - "$INVENTORY_PATH_NATIVE" <<'PY'
           import json
           import sys
           from pathlib import Path
@@ -655,13 +665,13 @@ jobs:
           fi
           ASSET_PATHS=()
           for asset_name in "${UPDATER_ASSETS[@]}"; do
-            ASSET_PATHS+=("$STAGED_BUNDLE_DIR/$asset_name")
+            ASSET_PATHS+=("$STAGED_BUNDLE_DIR_MSYS/$asset_name")
           done
           ASSET_PATHS+=(
-            "$RUNNER_TEMP/latest.json"
-            "$RUNNER_TEMP/findings-pack.v2.zip"
-            "$RUNNER_TEMP/findings-pack-manifest.json"
-            "$RUNNER_TEMP/findings-pack-manifest.json.sig"
+            "$RUNNER_TEMP_MSYS/latest.json"
+            "$RUNNER_TEMP_MSYS/findings-pack.v2.zip"
+            "$RUNNER_TEMP_MSYS/findings-pack-manifest.json"
+            "$RUNNER_TEMP_MSYS/findings-pack-manifest.json.sig"
           )
           for asset_path in "${ASSET_PATHS[@]}"; do
             if [[ ! -f "$asset_path" ]]; then
@@ -699,13 +709,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"
+          RUNNER_TEMP_MSYS="$(cygpath -u "$RUNNER_TEMP")"
           TAG="$GITHUB_REF_NAME"
           VERSION="${TAG#v}"
-          ID_FILE="$RUNNER_TEMP/release-identity"
-          INVENTORY_PATH="$RUNNER_TEMP/release-inventory.json"
-          REMOTE_DIR="$RUNNER_TEMP/remote-release"
-          ASSET_MAP="$RUNNER_TEMP/release-assets.json"
+          ID_FILE="$RUNNER_TEMP_MSYS/release-identity"
+          INVENTORY_PATH="$RUNNER_TEMP_MSYS/release-inventory.json"
+          INVENTORY_PATH_NATIVE="$(cygpath -m "$INVENTORY_PATH")"
+          REMOTE_DIR="$RUNNER_TEMP_MSYS/remote-release"
+          REMOTE_DIR_NATIVE="$(cygpath -m "$REMOTE_DIR")"
+          ASSET_MAP="$RUNNER_TEMP_MSYS/release-assets.json"
+          ASSET_MAP_NATIVE="$(cygpath -m "$ASSET_MAP")"
           rm -rf "$REMOTE_DIR"
           mkdir -p "$REMOTE_DIR/updater-bundle"
           if [[ ! -s "$ID_FILE" || "$(sed -n '1p' "$ID_FILE")" != "$TAG" ]]; then
@@ -717,11 +730,12 @@ jobs:
             echo "release identity marker has an invalid release ID" >&2
             exit 1
           fi
-          RELEASE_JSON="$RUNNER_TEMP/release-before-verification.json"
+          RELEASE_JSON="$RUNNER_TEMP_MSYS/release-before-verification.json"
+          RELEASE_JSON_NATIVE="$(cygpath -m "$RELEASE_JSON")"
           gh api \
             --header "Accept: application/vnd.github+json" \
             "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" > "$RELEASE_JSON"
-          uv run --project backend --locked python - "$RELEASE_JSON" "$TAG" "$RELEASE_ID" <<'PY'
+          uv run --project backend --locked python - "$RELEASE_JSON_NATIVE" "$TAG" "$RELEASE_ID" <<'PY'
           import json
           import sys
           from pathlib import Path
@@ -737,7 +751,7 @@ jobs:
               raise SystemExit("release identity or draft state changed before verification")
           PY
           mapfile -t EXPECTED_ASSETS < <(
-            uv run --project backend --locked python - "$INVENTORY_PATH" <<'PY'
+            uv run --project backend --locked python - "$INVENTORY_PATH_NATIVE" <<'PY'
           import json
           import sys
           from pathlib import Path
@@ -766,7 +780,7 @@ jobs:
             exit 1
           fi
           mapfile -t UPDATER_DETAILS < <(
-            uv run --project backend --locked python - "$INVENTORY_PATH" <<'PY'
+            uv run --project backend --locked python - "$INVENTORY_PATH_NATIVE" <<'PY'
           import json
           import sys
           from pathlib import Path
@@ -789,15 +803,16 @@ jobs:
             findings-pack-manifest.json
             findings-pack-manifest.json.sig
           )
-          ASSETS_JSON="$RUNNER_TEMP/release-assets-response.json"
+          ASSETS_JSON="$RUNNER_TEMP_MSYS/release-assets-response.json"
+          ASSETS_JSON_NATIVE="$(cygpath -m "$ASSETS_JSON")"
           gh api \
             --header "Accept: application/vnd.github+json" \
             --paginate \
             --slurp \
             "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets?per_page=100" > "$ASSETS_JSON"
           uv run --project backend --locked python - \
-            "$ASSETS_JSON" \
-            "$ASSET_MAP" \
+            "$ASSETS_JSON_NATIVE" \
+            "$ASSET_MAP_NATIVE" \
             "$RELEASE_ID" \
             "${EXPECTED_NAMES[@]}" <<'PY'
           import json
@@ -833,7 +848,7 @@ jobs:
             local asset_name="$1"
             local destination="$2"
             local asset_id
-            asset_id="$(uv run --project backend --locked python - "$ASSET_MAP" "$asset_name" <<'PY'
+            asset_id="$(uv run --project backend --locked python - "$ASSET_MAP_NATIVE" "$asset_name" <<'PY'
           import json
           import sys
           from pathlib import Path
@@ -864,13 +879,13 @@ jobs:
           cp "$REMOTE_DIR/$UPDATER_ARCHIVE" "$REMOTE_DIR/updater-bundle/$UPDATER_ARCHIVE"
           cp "$REMOTE_DIR/$UPDATER_SIGNATURE" "$REMOTE_DIR/updater-bundle/$UPDATER_SIGNATURE"
           uv run --project backend --locked python tools/check_windows_updater_artifacts.py \
-            --bundle-dir "$REMOTE_DIR/updater-bundle" \
-            --latest-json "$REMOTE_DIR/latest.json"
+            --bundle-dir "$REMOTE_DIR_NATIVE/updater-bundle" \
+            --latest-json "$REMOTE_DIR_NATIVE/latest.json"
           for pair in \
-            "latest.json:$RUNNER_TEMP/latest.json" \
-            "findings-pack.v2.zip:$RUNNER_TEMP/findings-pack.v2.zip" \
-            "findings-pack-manifest.json:$RUNNER_TEMP/findings-pack-manifest.json" \
-            "findings-pack-manifest.json.sig:$RUNNER_TEMP/findings-pack-manifest.json.sig"
+            "latest.json:$RUNNER_TEMP_MSYS/latest.json" \
+            "findings-pack.v2.zip:$RUNNER_TEMP_MSYS/findings-pack.v2.zip" \
+            "findings-pack-manifest.json:$RUNNER_TEMP_MSYS/findings-pack-manifest.json" \
+            "findings-pack-manifest.json.sig:$RUNNER_TEMP_MSYS/findings-pack-manifest.json.sig"
           do
             remote="${pair%%:*}"
             local="${pair#*:}"
@@ -882,19 +897,19 @@ jobs:
           for asset_name in "${EXPECTED_ASSETS[@]}"; do
             if ! cmp -s \
               "$REMOTE_DIR/$asset_name" \
-              "$RUNNER_TEMP/updater-bundle/$asset_name"
+              "$RUNNER_TEMP_MSYS/updater-bundle/$asset_name"
             then
               echo "remote draft asset differs from the verified local asset: $asset_name" >&2
               exit 1
             fi
           done
           uv run --project backend --locked python - \
-            "$REMOTE_DIR/latest.json" \
-            "$REMOTE_DIR/$UPDATER_ARCHIVE" \
-            "$REMOTE_DIR/$UPDATER_SIGNATURE" \
-            "$REMOTE_DIR/findings-pack-manifest.json" \
-            "$REMOTE_DIR/findings-pack-manifest.json.sig" \
-            "$REMOTE_DIR/findings-pack.v2.zip" \
+            "$REMOTE_DIR_NATIVE/latest.json" \
+            "$REMOTE_DIR_NATIVE/$UPDATER_ARCHIVE" \
+            "$REMOTE_DIR_NATIVE/$UPDATER_SIGNATURE" \
+            "$REMOTE_DIR_NATIVE/findings-pack-manifest.json" \
+            "$REMOTE_DIR_NATIVE/findings-pack-manifest.json.sig" \
+            "$REMOTE_DIR_NATIVE/findings-pack.v2.zip" \
             "$VERSION" \
             "$TAG" \
             "$GITHUB_REPOSITORY" <<'PY'
@@ -1020,9 +1035,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"
+          RUNNER_TEMP_MSYS="$(cygpath -u "$RUNNER_TEMP")"
           TAG="$GITHUB_REF_NAME"
-          ID_FILE="$RUNNER_TEMP/release-identity"
+          ID_FILE="$RUNNER_TEMP_MSYS/release-identity"
           if [[ ! -s "$ID_FILE" || "$(sed -n '1p' "$ID_FILE")" != "$TAG" ]]; then
             echo "release identity marker is missing or points to another tag" >&2
             exit 1
@@ -1041,7 +1056,7 @@ jobs:
             echo "refusing to promote a release that is not the verified owned draft" >&2
             exit 1
           fi
-          PROMOTION_ATTEMPT="$RUNNER_TEMP/release-promotion-attempt"
+          PROMOTION_ATTEMPT="$RUNNER_TEMP_MSYS/release-promotion-attempt"
           printf '%s\n%s\n' "$TAG" "$EXPECTED_RELEASE_ID" > "$PROMOTION_ATTEMPT"
           gh api \
             --method PATCH \
@@ -1049,17 +1064,18 @@ jobs:
             --field "draft=false" \
             "repos/${GITHUB_REPOSITORY}/releases/${EXPECTED_RELEASE_ID}" \
             >/dev/null
-          PROMOTION_MARKER="$RUNNER_TEMP/release-promotion-marker"
+          PROMOTION_MARKER="$RUNNER_TEMP_MSYS/release-promotion-marker"
           printf '%s\n%s\n' "$TAG" "$EXPECTED_RELEASE_ID" > "$PROMOTION_MARKER"
 
       - name: Verify anonymous latest release endpoints
         shell: bash
         run: |
           set -euo pipefail
-          RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"
+          RUNNER_TEMP_MSYS="$(cygpath -u "$RUNNER_TEMP")"
           TAG="$GITHUB_REF_NAME"
           VERSION="${TAG#v}"
-          PUBLIC_DIR="$RUNNER_TEMP/anonymous-release"
+          PUBLIC_DIR="$RUNNER_TEMP_MSYS/anonymous-release"
+          PUBLIC_DIR_NATIVE="$(cygpath -m "$PUBLIC_DIR")"
           rm -rf "$PUBLIC_DIR"
           mkdir -p "$PUBLIC_DIR/updater-bundle"
           trap 'rm -rf "$PUBLIC_DIR"' EXIT
@@ -1076,15 +1092,15 @@ jobs:
               "$1" \
               --output "$2"
           }
-          download_anonymous "$PUBLIC_BASE/latest.json" "$PUBLIC_DIR/latest.json"
-          download_anonymous "$PUBLIC_BASE/findings-pack.v2.zip" "$PUBLIC_DIR/findings-pack.v2.zip"
+          download_anonymous "$PUBLIC_BASE/latest.json" "$PUBLIC_DIR_NATIVE/latest.json"
+          download_anonymous "$PUBLIC_BASE/findings-pack.v2.zip" "$PUBLIC_DIR_NATIVE/findings-pack.v2.zip"
           download_anonymous \
             "$PUBLIC_BASE/findings-pack-manifest.json" \
-            "$PUBLIC_DIR/findings-pack-manifest.json"
+            "$PUBLIC_DIR_NATIVE/findings-pack-manifest.json"
           download_anonymous \
             "$PUBLIC_BASE/findings-pack-manifest.json.sig" \
-            "$PUBLIC_DIR/findings-pack-manifest.json.sig"
-          UPDATER_ASSET_URL="$(uv run --project backend --locked python - "$PUBLIC_DIR/latest.json" <<'PY'
+            "$PUBLIC_DIR_NATIVE/findings-pack-manifest.json.sig"
+          UPDATER_ASSET_URL="$(uv run --project backend --locked python - "$PUBLIC_DIR_NATIVE/latest.json" <<'PY'
           import json
           import sys
           from pathlib import Path
@@ -1092,7 +1108,7 @@ jobs:
           print(json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["platforms"]["windows-x86_64"]["url"])
           PY
           )"
-          UPDATER_ARCHIVE="$(uv run --project backend --locked python - "$PUBLIC_DIR/latest.json" <<'PY'
+          UPDATER_ARCHIVE="$(uv run --project backend --locked python - "$PUBLIC_DIR_NATIVE/latest.json" <<'PY'
           import json
           import sys
           from pathlib import Path
@@ -1108,20 +1124,20 @@ jobs:
           fi
           download_anonymous \
             "$UPDATER_ASSET_URL" \
-            "$PUBLIC_DIR/updater-bundle/$UPDATER_ARCHIVE"
+            "$PUBLIC_DIR_NATIVE/updater-bundle/$UPDATER_ARCHIVE"
           download_anonymous \
             "${UPDATER_ASSET_URL}.sig" \
-            "$PUBLIC_DIR/updater-bundle/$UPDATER_ARCHIVE.sig"
+            "$PUBLIC_DIR_NATIVE/updater-bundle/$UPDATER_ARCHIVE.sig"
           uv run --project backend --locked python tools/check_windows_updater_artifacts.py \
-            --bundle-dir "$PUBLIC_DIR/updater-bundle" \
-            --latest-json "$PUBLIC_DIR/latest.json"
+            --bundle-dir "$PUBLIC_DIR_NATIVE/updater-bundle" \
+            --latest-json "$PUBLIC_DIR_NATIVE/latest.json"
           uv run --project backend --locked python - \
-            "$PUBLIC_DIR/latest.json" \
-            "$PUBLIC_DIR/updater-bundle/$UPDATER_ARCHIVE" \
-            "$PUBLIC_DIR/updater-bundle/$UPDATER_ARCHIVE.sig" \
-            "$PUBLIC_DIR/findings-pack-manifest.json" \
-            "$PUBLIC_DIR/findings-pack-manifest.json.sig" \
-            "$PUBLIC_DIR/findings-pack.v2.zip" \
+            "$PUBLIC_DIR_NATIVE/latest.json" \
+            "$PUBLIC_DIR_NATIVE/updater-bundle/$UPDATER_ARCHIVE" \
+            "$PUBLIC_DIR_NATIVE/updater-bundle/$UPDATER_ARCHIVE.sig" \
+            "$PUBLIC_DIR_NATIVE/findings-pack-manifest.json" \
+            "$PUBLIC_DIR_NATIVE/findings-pack-manifest.json.sig" \
+            "$PUBLIC_DIR_NATIVE/findings-pack.v2.zip" \
             "$VERSION" \
             "$TAG" \
             "$GITHUB_REPOSITORY" <<'PY'
@@ -1247,11 +1263,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"
+          RUNNER_TEMP_MSYS="$(cygpath -u "$RUNNER_TEMP")"
           TAG="$GITHUB_REF_NAME"
-          PROMOTION_ATTEMPT="$RUNNER_TEMP/release-promotion-attempt"
-          PROMOTION_MARKER="$RUNNER_TEMP/release-promotion-marker"
-          ID_FILE="$RUNNER_TEMP/release-identity"
+          PROMOTION_ATTEMPT="$RUNNER_TEMP_MSYS/release-promotion-attempt"
+          PROMOTION_MARKER="$RUNNER_TEMP_MSYS/release-promotion-marker"
+          ID_FILE="$RUNNER_TEMP_MSYS/release-identity"
           trap 'rm -f "$PROMOTION_ATTEMPT" "$PROMOTION_MARKER"' EXIT
           if [[ ! -s "$PROMOTION_ATTEMPT" ]]; then
             echo "this run did not attempt promotion; nothing to roll back"

@@ -30,7 +30,7 @@ def load_checker():
 def make_fixture(tmp_path: Path) -> tuple[Path, Path, Path, str]:
     bundle = tmp_path / "bundle" / "nsis"
     bundle.mkdir(parents=True)
-    archive = bundle / "Bhayanak Legends_0.1.8_x64-setup.exe"
+    archive = bundle / "Bhayanak Legends_0.1.9_x64-setup.exe"
     archive.write_bytes(b"signed installer bytes")
     signature = archive.with_name(archive.name + ".sig")
     signature_text = "detached-signature-content"
@@ -39,11 +39,11 @@ def make_fixture(tmp_path: Path) -> tuple[Path, Path, Path, str]:
     metadata.write_text(
         json.dumps(
             {
-                "version": "0.1.8",
+                "version": "0.1.9",
                 "platforms": {
                     "windows-x86_64": {
                         "signature": signature_text,
-                        "url": "https://github.example/releases/download/v0.1.8/"
+                        "url": "https://github.example/releases/download/v0.1.9/"
                         + quote(archive.name),
                     }
                 },
@@ -168,7 +168,7 @@ def _assert_upload_selection_is_unique(
     assert len(selected.stdout.splitlines()) == len(set(selected.stdout.splitlines()))
 
 def test_upload_path_checks_normalize_windows_runner_temp(tmp_path: Path):
-    version = "0.1.8"
+    version = "0.1.9"
     repository = "theHimanshuShekhar/BhayanakLegends"
     native_temp = r"D:\a\_temp"
     runner_temp = tmp_path / "runner-temp"
@@ -246,12 +246,14 @@ fi
     uv.write_text(
         """#!/usr/bin/env bash
 set -euo pipefail
-printf '%s\\n' "$FAKE_UPDATER_ASSETS"
+printf '%s\n' "$*" >> "$UV_ARGS_LOG"
+printf '%s\n' "$FAKE_UPDATER_ASSETS"
 """,
         encoding="utf-8",
     )
     uv.chmod(0o755)
     curl_log = tmp_path / "curl-config.log"
+    uv_args_log = tmp_path / "uv-args.log"
     curl = fake_bin / "curl"
     curl.write_text(
         """#!/usr/bin/env bash
@@ -275,6 +277,7 @@ printf '\\n---\\n' >> "$CURL_LOG"
             "FAKE_POSIX_ROOT": str(runner_temp),
             "FAKE_UPDATER_ASSETS": "\n".join(updater_assets),
             "CURL_LOG": str(curl_log),
+            "UV_ARGS_LOG": str(uv_args_log),
         }
     )
     result = _run_workflow_shell(
@@ -286,28 +289,40 @@ printf '\\n---\\n' >> "$CURL_LOG"
     configs = curl_log.read_text(encoding="utf-8").split("\n---\n")
     assert len(configs) == len(updater_assets) + len(other_assets) + 1
     assert all('data-binary = "@D:/a/_temp/' in config for config in configs[:-1])
+    expected_upload_targets = {
+        f'data-binary = "@D:/a/_temp/updater-bundle/{name}"' for name in updater_assets
+    } | {f'data-binary = "@D:/a/_temp/{name}"' for name in other_assets}
+    observed_upload_targets = {
+        line.strip()
+        for config in configs[:-1]
+        for line in config.splitlines()
+        if line.startswith("data-binary = ")
+    }
+    assert observed_upload_targets == expected_upload_targets
+    uv_args = uv_args_log.read_text(encoding="utf-8").splitlines()
+    assert any("D:/a/_temp/release-inventory.json" in line for line in uv_args)
     for step_name, stop_marker in (
         (
             "Verify draft release contents before promotion",
-            'RELEASE_JSON="$RUNNER_TEMP/release-before-verification.json"',
+            'RELEASE_JSON="$RUNNER_TEMP_MSYS/release-before-verification.json"',
         ),
         ("Promote verified release draft", "RELEASE_STATE="),
         (
             "Verify anonymous latest release endpoints",
-            'download_anonymous "$PUBLIC_BASE/latest.json" "$PUBLIC_DIR/latest.json"',
+            'download_anonymous "$PUBLIC_BASE/latest.json" "$PUBLIC_DIR_NATIVE/latest.json"',
         ),
         ("Re-draft release after a failed publication check", "EXPECTED_TAG="),
     ):
         script = _workflow_shell(step_name)
-        probe = script[: script.index(stop_marker)] + 'printf "%s\\n" "$RUNNER_TEMP"\n'
+        probe = script[: script.index(stop_marker)] + 'printf "%s\\n" "$RUNNER_TEMP_MSYS"\n'
         probe_result = _run_workflow_shell(probe, environment)
         assert probe_result.returncode == 0, f"{step_name}: {probe_result.stderr}"
         assert probe_result.stdout.strip() == str(runner_temp)
 
 
 def test_workflow_stages_signed_exe_once_and_uploads_unique_assets(tmp_path: Path):
-    version = "0.1.8"
-    source_name = "Bhayanak Legends_0.1.8_x64-setup.exe"
+    version = "0.1.9"
+    source_name = "Bhayanak Legends_0.1.9_x64-setup.exe"
     signature_text = "signed-exe-signature"
     staged_dir, inventory = _stage_and_inventory(
         tmp_path,
@@ -335,9 +350,9 @@ def test_workflow_stages_signed_exe_once_and_uploads_unique_assets(tmp_path: Pat
 def test_workflow_stages_separate_unsigned_installer_and_signed_archive(
     tmp_path: Path,
 ):
-    version = "0.1.8"
-    installer_name = "Bhayanak Legends_0.1.8_x64-setup.exe"
-    archive_name = "Bhayanak Legends_0.1.8_x64.nsis.zip"
+    version = "0.1.9"
+    installer_name = "Bhayanak Legends_0.1.9_x64-setup.exe"
+    archive_name = "Bhayanak Legends_0.1.9_x64.nsis.zip"
     signature_text = "signed-archive-signature"
     staged_dir, inventory = _stage_and_inventory(
         tmp_path,
@@ -485,7 +500,7 @@ def test_release_workflow_stages_safe_updater_names_before_id_addressed_upload()
     build = workflow.index("pnpm tauri build --bundles nsis")
     stage = workflow.index("Stage canonical Windows updater assets")
     check = workflow.index("check_windows_updater_artifacts.py")
-    draft = workflow.index('releases" > "$CREATE_RESPONSE"')
+    draft = workflow.index('releases" > "$CREATE_RESPONSE_MSYS"')
     upload = workflow.index('url = "${UPLOAD_URL}?name=${asset_name}"')
     upload_start = workflow.index("Upload exact updater and Findings Pack assets to draft")
     verify_start = workflow.index("Verify draft release contents before promotion")
