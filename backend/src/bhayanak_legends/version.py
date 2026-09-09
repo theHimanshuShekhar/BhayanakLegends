@@ -1,3 +1,3 @@
 """Application version shared by the sidecar and release compatibility checks."""
 
-APP_VERSION = "0.1.7"
+APP_VERSION = "0.1.8"

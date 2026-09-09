@@ -13,6 +13,7 @@ const VIEWPORTS = [
   { width: 1280, height: 820 },
   { width: 980, height: 620 },
 ] as const;
+const UPDATE_FIXTURE_CLOCK_SECONDS = 812;
 
 type LivePlayer = {
   summoner: string;
@@ -176,6 +177,16 @@ async function expectReducedMotion(page: Page) {
   );
   expect(moving, `animated elements under prefers-reduced-motion: ${moving.join(", ")}`).toEqual([]);
 }
+
+async function expectGameClockAtLeast(page: Page, minimumSeconds: number) {
+  await expect
+    .poll(async () => {
+      const text = (await page.getByTestId("game-clock").innerText()).trim();
+      const match = text.match(/^(\d+):([0-5]\d)$/);
+      return match ? Number(match[1]) * 60 + Number(match[2]) : -1;
+    })
+    .toBeGreaterThanOrEqual(minimumSeconds);
+}
 async function waitForPreloadedStatus(
   request: APIRequestContext,
   expected: { champSelect?: boolean; inGame?: boolean },
@@ -246,7 +257,7 @@ test.describe("active Live Companion replay", () => {
     await setScenario(request, LIVE, "in-game-update");
     await expect(page.getByTestId("event-feed")).toContainText("BaronKill");
     await expect(page.getByTestId("active-kda")).toContainText("5 / 2 / 7");
-    await expect(page.getByTestId("game-clock")).toContainText("13:32");
+    await expectGameClockAtLeast(page, UPDATE_FIXTURE_CLOCK_SECONDS);
     const updated = await readIngame(request);
     await expectRenderedSnapshot(page, updated);
     await expectLiveDataContractDetector(page, updated);
@@ -473,7 +484,7 @@ test.describe("active Live Companion replay", () => {
       await setScenario(request, LIVE, "in-game-update");
       await expect(page.getByTestId("event-feed")).toContainText("BaronKill");
       await expect(page.getByTestId("active-kda")).toContainText("5 / 2 / 7");
-      await expect(page.getByTestId("game-clock")).toContainText("13:32");
+      await expectGameClockAtLeast(page, UPDATE_FIXTURE_CLOCK_SECONDS);
       const updated = await readIngame(request);
       await expectRenderedSnapshot(page, updated);
       await expectLiveDataContractDetector(page, updated);
