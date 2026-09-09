@@ -32,7 +32,7 @@ def load_checker():
 def make_fixture(tmp_path: Path) -> tuple[Path, Path, Path, str]:
     bundle = tmp_path / "bundle" / "nsis"
     bundle.mkdir(parents=True)
-    archive = bundle / "Bhayanak Legends_0.1.12_x64-setup.exe"
+    archive = bundle / "Bhayanak Legends_0.1.13_x64-setup.exe"
     archive.write_bytes(b"signed installer bytes")
     signature = archive.with_name(archive.name + ".sig")
     signature_text = "detached-signature-content"
@@ -41,11 +41,11 @@ def make_fixture(tmp_path: Path) -> tuple[Path, Path, Path, str]:
     metadata.write_text(
         json.dumps(
             {
-                "version": "0.1.12",
+                "version": "0.1.13",
                 "platforms": {
                     "windows-x86_64": {
                         "signature": signature_text,
-                        "url": "https://github.example/releases/download/v0.1.12/"
+                        "url": "https://github.example/releases/download/v0.1.13/"
                         + quote(archive.name),
                     }
                 },
@@ -151,7 +151,7 @@ def test_upload_transaction_validates_paths_identity_and_api(tmp_path: Path, cap
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
 
-    version = "0.1.12"
+    version = "0.1.13"
     tag = f"v{version}"
     repository = "theHimanshuShekhar/BhayanakLegends"
     token = "test-token-123456789012345678901234"
@@ -163,7 +163,7 @@ def test_upload_transaction_validates_paths_identity_and_api(tmp_path: Path, cap
         f"bhayanak-legends-{version}-windows-x86_64-setup.exe.sig",
     ]
     fixed_assets = {
-        "latest.json": b'{"version":"0.1.12"}',
+        "latest.json": b'{"version":"0.1.13"}',
         "findings-pack.v2.zip": b"findings-pack-bytes",
         "findings-pack-manifest.json": b'{"size":19}',
         "findings-pack-manifest.json.sig": b"manifest-signature",
@@ -517,8 +517,8 @@ def test_promotion_rejects_changed_asset_id_before_patch(tmp_path: Path):
 
 
 def test_workflow_stages_signed_exe_once_and_uploads_unique_assets(tmp_path: Path):
-    version = "0.1.12"
-    source_name = "Bhayanak Legends_0.1.12_x64-setup.exe"
+    version = "0.1.13"
+    source_name = "Bhayanak Legends_0.1.13_x64-setup.exe"
     signature_text = "signed-exe-signature"
     staged_dir, inventory = _stage_and_inventory(
         tmp_path,
@@ -543,9 +543,9 @@ def test_workflow_stages_signed_exe_once_and_uploads_unique_assets(tmp_path: Pat
 def test_workflow_stages_separate_unsigned_installer_and_signed_archive(
     tmp_path: Path,
 ):
-    version = "0.1.12"
-    installer_name = "Bhayanak Legends_0.1.12_x64-setup.exe"
-    archive_name = "Bhayanak Legends_0.1.12_x64.nsis.zip"
+    version = "0.1.13"
+    installer_name = "Bhayanak Legends_0.1.13_x64-setup.exe"
+    archive_name = "Bhayanak Legends_0.1.13_x64.nsis.zip"
     signature_text = "signed-archive-signature"
     staged_dir, inventory = _stage_and_inventory(
         tmp_path,

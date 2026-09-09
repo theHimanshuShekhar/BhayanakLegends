@@ -188,13 +188,13 @@ set -euo pipefail
 fixture_root="$(mktemp -d)"
 trap 'rm -rf "$fixture_root"' EXIT
 bundle_dir="$fixture_root/bundle/nsis"
-archive="$bundle_dir/Bhayanak Legends_0.1.12_x64-setup.exe"
+archive="$bundle_dir/Bhayanak Legends_0.1.13_x64-setup.exe"
 signature="$archive.sig"
 mkdir -p "$bundle_dir" "$fixture_root/temp"
 printf 'fixture installer\n' > "$archive"
 printf 'fixture signature\n' > "$signature"
 export RUNNER_TEMP="$fixture_root/temp"
-export GITHUB_REF_NAME=v0.1.12
+export GITHUB_REF_NAME=v0.1.13
 export GITHUB_REPOSITORY=theHimanshuShekhar/BhayanakLegends
 
 RUNNER_TEMP_MSYS="$(cygpath -u "$RUNNER_TEMP")"

@@ -406,14 +406,19 @@ def test_settings_retries_failed_resolution_without_changing_identity(client):
         json={"riot_id": "RetryPlayer#A001"},
     )
     assert retried.status_code == 200
-    assert retried.json()["owner_state"] == "resolving"
     owner_key = service.store.owner_key_for_puuid("retry-puuid")
     deadline = time.monotonic() + 2
     while time.monotonic() < deadline:
-        if service.store.capture_owner_scope()["owner_key"] == owner_key:
+        scope = service.store.capture_owner_scope()
+        if scope["owner_key"] == owner_key and scope["owner_state"] == "active":
             break
         time.sleep(0.01)
-    assert service.store.capture_owner_scope()["owner_key"] == owner_key
+    scope = service.store.capture_owner_scope()
+    assert scope["owner_key"] == owner_key
+    assert scope["owner_state"] == "active"
+    assert calls >= 2
+    assert client.get("/settings", headers=AUTH).json()["riot_id"] == "RetryPlayer#A001"
+
 
 def test_settings_rename_same_resolved_puuid_preserves_history(client):
     service = client.app.state.sync_service
