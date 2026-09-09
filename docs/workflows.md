@@ -124,8 +124,15 @@ workflow never sends an asset `POST` to the default API host or overwrites an
 existing asset.
 
 Before promotion, the workflow keeps the release private as a draft and queries
-the captured release ID and its complete asset list. It records every remote
-asset ID, then downloads the exact draft assets through the asset-ID endpoint.
+the captured release ID for its asset list. Because the Releases API may be
+eventually consistent immediately after upload, it retries only a valid strict
+subset of the expected names, using a fixed 30-second deadline and 2-second
+backoff; unexpected, duplicate, malformed, or extra assets fail immediately.
+It records every remote asset ID, then downloads the exact draft assets through
+the asset-ID endpoint.
+Immediately before promotion, it re-fetches the captured release's assets and
+requires the exact persisted name-to-asset-ID map; any mutation aborts the
+promotion.
 The existing updater checker validates the remote archive relationship, while
 the workflow verifies the pinned updater Minisign key, the complete four-line
 detached-signature box (including its prehashed primary and global signature),
@@ -181,13 +188,13 @@ set -euo pipefail
 fixture_root="$(mktemp -d)"
 trap 'rm -rf "$fixture_root"' EXIT
 bundle_dir="$fixture_root/bundle/nsis"
-archive="$bundle_dir/Bhayanak Legends_0.1.11_x64-setup.exe"
+archive="$bundle_dir/Bhayanak Legends_0.1.12_x64-setup.exe"
 signature="$archive.sig"
 mkdir -p "$bundle_dir" "$fixture_root/temp"
 printf 'fixture installer\n' > "$archive"
 printf 'fixture signature\n' > "$signature"
 export RUNNER_TEMP="$fixture_root/temp"
-export GITHUB_REF_NAME=v0.1.11
+export GITHUB_REF_NAME=v0.1.12
 export GITHUB_REPOSITORY=theHimanshuShekhar/BhayanakLegends
 
 RUNNER_TEMP_MSYS="$(cygpath -u "$RUNNER_TEMP")"

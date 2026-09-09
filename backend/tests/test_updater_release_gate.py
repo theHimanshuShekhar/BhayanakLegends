@@ -146,7 +146,7 @@ def test_updater_artifacts_enabled_in_tauri_config():
 
 
 def test_all_release_version_sources_are_aligned():
-    expected = "0.1.11"
+    expected = "0.1.12"
     package = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))
     tauri = json.loads(CONFIG.read_text(encoding="utf-8"))
     backend = tomllib.loads(
@@ -338,12 +338,23 @@ def test_release_draft_is_verified_before_promotion():
     assert "--clobber" not in upload_step
     verify_step = _workflow_step("Verify draft release contents before promotion")
     assert "gh api" in verify_step
-    assert "releases/${RELEASE_ID}/assets?per_page=100" in verify_step
+    assert "releases/{release_id}/assets?per_page=100" in verify_step
     assert "releases/assets/${asset_id}" in verify_step
     assert "--pattern" not in verify_step
     assert "gh release download" not in verify_step
     assert "check_windows_updater_artifacts.py" in verify_step
     assert "cmp -s" in verify_step
+    assert "verify_asset_listing_until_complete" in verify_step
+    assert "ASSET_RETRY_DEADLINE_SECONDS = 30.0" in verify_step
+    assert "ASSET_RETRY_BACKOFF_SECONDS = 2.0" in verify_step
+    assert "actual_names < expected_name_set" in verify_step
+    assert "did not reach complete expected set before deadline" in verify_step
+    assert "--slurp" not in verify_step
+    assert "fetch_assets(remaining)" in verify_step
+    assert "timeout=timeout" in verify_step
+    assert "subprocess.TimeoutExpired" in verify_step
+    assert "release contains duplicate asset ID" in verify_step
+    assert "release asset listing request exhausted the retry deadline" in verify_step
     assert "Ed25519PublicKey" in verify_step
     assert "verify_manifest_signature" in verify_step
     assert "sha256" in verify_step
@@ -361,6 +372,16 @@ def test_release_draft_is_verified_before_promotion():
     assert "release-promotion-marker" in promote_step
     assert '--field "draft=false"' in promote_step
     assert ".draft" in promote_step
+    assert "release-assets.json" in promote_step
+    assert "PROMOTION_ASSET_RECHECK" in promote_step
+    assert "verify_promotion_asset_map" in promote_step
+    assert "release asset map changed after verification" in promote_step
+    assert "--paginate" in promote_step
+    assert "release-assets-before-promotion.json" in promote_step
+    assert "load_verified_asset_map" in promote_step
+    assert "promotion contains duplicate asset ID" in promote_step
+    assert "--slurp" not in promote_step
+    assert promote_step.index("verify_promotion_asset_map") < promote_step.index("--method PATCH")
     assert "gh release edit" not in promote_step
 
 

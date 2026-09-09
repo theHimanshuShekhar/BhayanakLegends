@@ -906,46 +906,188 @@ jobs:
             findings-pack-manifest.json
             findings-pack-manifest.json.sig
           )
-          ASSETS_JSON="$RUNNER_TEMP_MSYS/release-assets-response.json"
-          ASSETS_JSON_NATIVE="$(cygpath -m "$ASSETS_JSON")"
-          gh api \
-            --header "Accept: application/vnd.github+json" \
-            --paginate \
-            --slurp \
-            "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets?per_page=100" > "$ASSETS_JSON"
           uv run --project backend --locked python - \
-            "$ASSETS_JSON_NATIVE" \
             "$ASSET_MAP_NATIVE" \
+            "$GITHUB_REPOSITORY" \
             "$RELEASE_ID" \
             "${EXPECTED_NAMES[@]}" <<'PY'
+          # DRAFT_ASSET_VERIFICATION_TRANSACTION
           import json
+          import subprocess
           import sys
+          import time
+          from json import JSONDecoder
           from pathlib import Path
 
-          pages = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-          if pages and isinstance(pages[0], list):
-              assets = [asset for page in pages for asset in page]
-          else:
-              assets = pages
-          expected_id = int(sys.argv[3])
-          expected_names = sys.argv[4:]
-          by_name = {}
-          for asset in assets:
-              if asset.get("release", {}).get("id", expected_id) != expected_id:
-                  raise SystemExit("release asset belongs to another release")
-              name = asset.get("name")
-              asset_id = asset.get("id")
-              if not isinstance(name, str) or not isinstance(asset_id, int) or asset_id <= 0:
-                  raise SystemExit("release asset response is malformed")
-              if name in by_name:
-                  raise SystemExit(f"release contains duplicate asset name: {name}")
-              by_name[name] = asset_id
-          if set(by_name) != set(expected_names):
-              raise SystemExit("release asset set differs from the exact expected inventory")
-          Path(sys.argv[2]).write_text(
-              json.dumps(by_name, sort_keys=True) + "\n",
-              encoding="utf-8",
-          )
+          ASSET_RETRY_DEADLINE_SECONDS = 30.0
+          ASSET_RETRY_BACKOFF_SECONDS = 2.0
+
+          def parse_paginated_json(raw: str) -> list[object]:
+              decoder = JSONDecoder()
+              pages: list[object] = []
+              offset = 0
+              while True:
+                  while offset < len(raw) and raw[offset].isspace():
+                      offset += 1
+                  if offset == len(raw):
+                      break
+                  try:
+                      page, offset = decoder.raw_decode(raw, offset)
+                  except json.JSONDecodeError as exc:
+                      raise SystemExit("release asset response is malformed") from exc
+                  pages.append(page)
+              if not pages:
+                  raise SystemExit("release asset response is empty")
+              return pages
+
+          def fetch_asset_pages(
+              repository: str,
+              release_id: int,
+              timeout: float,
+          ) -> list[object]:
+              try:
+                  result = subprocess.run(
+                      [
+                          "gh",
+                          "api",
+                          "--header",
+                          "Accept: application/vnd.github+json",
+                          "--paginate",
+                          f"repos/{repository}/releases/{release_id}/assets?per_page=100",
+                      ],
+                      capture_output=True,
+                      check=False,
+                      text=True,
+                      timeout=timeout,
+                  )
+              except subprocess.TimeoutExpired as exc:
+                  raise SystemExit(
+                      "release asset listing request exhausted the retry deadline"
+                  ) from exc
+              if result.returncode != 0:
+                  raise SystemExit("release asset listing request failed")
+              return parse_paginated_json(result.stdout)
+
+          def asset_map_for_pages(
+              pages: list[object],
+              expected_id: int,
+              expected_names: list[str],
+          ) -> dict[str, int] | None:
+              expected_name_set = set(expected_names)
+              if (
+                  not expected_name_set
+                  or len(expected_name_set) != len(expected_names)
+                  or any(not isinstance(name, str) or not name for name in expected_names)
+              ):
+                  raise SystemExit("release expected asset names are malformed")
+              by_name: dict[str, int] = {}
+              asset_ids: set[int] = set()
+              for page in pages:
+                  if not isinstance(page, list):
+                      raise SystemExit("release asset response is malformed")
+                  for asset in page:
+                      if not isinstance(asset, dict):
+                          raise SystemExit("release asset response is malformed")
+                      release_reference = asset.get("release")
+                      if release_reference is None:
+                          release_reference_id = expected_id
+                      elif isinstance(release_reference, dict):
+                          release_reference_id = release_reference.get("id", expected_id)
+                      else:
+                          raise SystemExit("release asset response is malformed")
+                      if (
+                          isinstance(release_reference_id, bool)
+                          or not isinstance(release_reference_id, int)
+                          or release_reference_id != expected_id
+                      ):
+                          raise SystemExit("release asset belongs to another release")
+                      name = asset.get("name")
+                      asset_id = asset.get("id")
+                      if (
+                          not isinstance(name, str)
+                          or not name
+                          or isinstance(asset_id, bool)
+                          or not isinstance(asset_id, int)
+                          or asset_id <= 0
+                      ):
+                          raise SystemExit("release asset response is malformed")
+                      if name in by_name:
+                          raise SystemExit(f"release contains duplicate asset name: {name}")
+                      if asset_id in asset_ids:
+                          raise SystemExit(f"release contains duplicate asset ID: {asset_id}")
+                      by_name[name] = asset_id
+                      asset_ids.add(asset_id)
+              actual_names = set(by_name)
+              if actual_names < expected_name_set:
+                  return None
+              if actual_names != expected_name_set:
+                  raise SystemExit("release asset set differs from the exact expected inventory")
+              return by_name
+
+          def verify_asset_listing_until_complete(
+              fetch_assets,
+              asset_map_path: str | Path,
+              expected_id: int,
+              expected_names: list[str],
+              *,
+              clock=time.monotonic,
+              sleep=time.sleep,
+              deadline_seconds: float = ASSET_RETRY_DEADLINE_SECONDS,
+              backoff_seconds: float = ASSET_RETRY_BACKOFF_SECONDS,
+          ) -> None:
+              if deadline_seconds <= 0 or backoff_seconds <= 0:
+                  raise SystemExit("release asset retry timing is invalid")
+              deadline = clock() + deadline_seconds
+              while True:
+                  remaining = deadline - clock()
+                  if remaining <= 0:
+                      raise SystemExit(
+                          "release asset listing did not reach complete expected set before deadline"
+                      )
+                  try:
+                      pages = fetch_assets(remaining)
+                  except subprocess.TimeoutExpired as exc:
+                      raise SystemExit(
+                          "release asset listing request exhausted the retry deadline"
+                      ) from exc
+                  by_name = asset_map_for_pages(
+                      pages,
+                      expected_id,
+                      expected_names,
+                  )
+                  if by_name is not None:
+                      Path(asset_map_path).write_text(
+                          json.dumps(by_name, sort_keys=True) + "\n",
+                          encoding="utf-8",
+                      )
+                      return
+                  remaining = deadline - clock()
+                  if remaining <= 0:
+                      raise SystemExit(
+                          "release asset listing did not reach complete expected set before deadline"
+                      )
+                  sleep(min(backoff_seconds, remaining))
+
+          def main(arguments: list[str]) -> None:
+              if len(arguments) < 4:
+                  raise SystemExit("asset verification received an invalid argument count")
+              try:
+                  expected_id = int(arguments[2])
+              except ValueError as exc:
+                  raise SystemExit("release identity marker has an invalid release ID") from exc
+              if expected_id <= 0:
+                  raise SystemExit("release identity marker has an invalid release ID")
+              repository = arguments[1]
+              expected_names = arguments[3:]
+              verify_asset_listing_until_complete(
+                  lambda timeout: fetch_asset_pages(repository, expected_id, timeout),
+                  arguments[0],
+                  expected_id,
+                  expected_names,
+              )
+
+          if __name__ == "__main__":
+              main(sys.argv[1:])
           PY
           download_asset() {
             local asset_name="$1"
@@ -1159,6 +1301,147 @@ jobs:
             echo "refusing to promote a release that is not the verified owned draft" >&2
             exit 1
           fi
+          ASSET_MAP="$RUNNER_TEMP_MSYS/release-assets.json"
+          ASSET_MAP_NATIVE="$(cygpath -m "$ASSET_MAP")"
+          PROMOTION_ASSETS_RESPONSE="$RUNNER_TEMP_MSYS/release-assets-before-promotion.json"
+          PROMOTION_ASSETS_RESPONSE_NATIVE="$(cygpath -m "$PROMOTION_ASSETS_RESPONSE")"
+          gh api \
+            --header "Accept: application/vnd.github+json" \
+            --paginate \
+            "repos/${GITHUB_REPOSITORY}/releases/${EXPECTED_RELEASE_ID}/assets?per_page=100" \
+            > "$PROMOTION_ASSETS_RESPONSE"
+          uv run --project backend --locked python - \
+            "$ASSET_MAP_NATIVE" \
+            "$PROMOTION_ASSETS_RESPONSE_NATIVE" \
+            "$EXPECTED_RELEASE_ID" <<'PY'
+          # PROMOTION_ASSET_RECHECK
+          import json
+          import re
+          import sys
+          from json import JSONDecoder
+          from pathlib import Path
+
+          SAFE_ASSET_NAME = re.compile(r"[A-Za-z0-9._-]+\Z")
+
+          def parse_paginated_json(raw: str) -> list[object]:
+              decoder = JSONDecoder()
+              pages: list[object] = []
+              offset = 0
+              while True:
+                  while offset < len(raw) and raw[offset].isspace():
+                      offset += 1
+                  if offset == len(raw):
+                      break
+                  try:
+                      page, offset = decoder.raw_decode(raw, offset)
+                  except json.JSONDecodeError as exc:
+                      raise SystemExit("promotion asset response is malformed") from exc
+                  pages.append(page)
+              if not pages:
+                  raise SystemExit("promotion asset response is empty")
+              return pages
+
+          def load_verified_asset_map(path: str | Path) -> dict[str, int]:
+              try:
+                  payload = json.loads(Path(path).read_text(encoding="utf-8"))
+              except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                  raise SystemExit("verified release asset map is unreadable") from exc
+              if not isinstance(payload, dict) or not payload:
+                  raise SystemExit("verified release asset map is malformed")
+              asset_ids: set[int] = set()
+              verified: dict[str, int] = {}
+              for name, asset_id in payload.items():
+                  if (
+                      not isinstance(name, str)
+                      or SAFE_ASSET_NAME.fullmatch(name) is None
+                      or isinstance(asset_id, bool)
+                      or not isinstance(asset_id, int)
+                      or asset_id <= 0
+                  ):
+                      raise SystemExit("verified release asset map is malformed")
+                  if asset_id in asset_ids:
+                      raise SystemExit(f"verified release asset map has duplicate asset ID: {asset_id}")
+                  verified[name] = asset_id
+                  asset_ids.add(asset_id)
+              return verified
+
+          def asset_map_for_pages(
+              pages: list[object],
+              expected_id: int,
+          ) -> dict[str, int]:
+              by_name: dict[str, int] = {}
+              asset_ids: set[int] = set()
+              for page in pages:
+                  if not isinstance(page, list):
+                      raise SystemExit("promotion asset response is malformed")
+                  for asset in page:
+                      if not isinstance(asset, dict):
+                          raise SystemExit("promotion asset response is malformed")
+                      release_reference = asset.get("release")
+                      if release_reference is None:
+                          release_reference_id = expected_id
+                      elif isinstance(release_reference, dict):
+                          release_reference_id = release_reference.get("id", expected_id)
+                      else:
+                          raise SystemExit("promotion asset response is malformed")
+                      if (
+                          isinstance(release_reference_id, bool)
+                          or not isinstance(release_reference_id, int)
+                          or release_reference_id != expected_id
+                      ):
+                          raise SystemExit("promotion asset belongs to another release")
+                      name = asset.get("name")
+                      asset_id = asset.get("id")
+                      if (
+                          not isinstance(name, str)
+                          or SAFE_ASSET_NAME.fullmatch(name) is None
+                          or isinstance(asset_id, bool)
+                          or not isinstance(asset_id, int)
+                          or asset_id <= 0
+                      ):
+                          raise SystemExit("promotion asset response is malformed")
+                      if name in by_name:
+                          raise SystemExit(f"promotion contains duplicate asset name: {name}")
+                      if asset_id in asset_ids:
+                          raise SystemExit(f"promotion contains duplicate asset ID: {asset_id}")
+                      by_name[name] = asset_id
+                      asset_ids.add(asset_id)
+              return by_name
+
+          def verify_promotion_asset_map(
+              verified_map_path: str | Path,
+              pages: list[object],
+              expected_id: int,
+          ) -> None:
+              verified = load_verified_asset_map(verified_map_path)
+              current = asset_map_for_pages(pages, expected_id)
+              if current != verified:
+                  raise SystemExit(
+                      "release asset map changed after verification; refusing promotion"
+                  )
+
+          def main(arguments: list[str]) -> None:
+              if len(arguments) != 3:
+                  raise SystemExit("promotion asset recheck received invalid arguments")
+              try:
+                  expected_id = int(arguments[2])
+              except ValueError as exc:
+                  raise SystemExit("promotion asset recheck has an invalid release ID") from exc
+              if expected_id <= 0:
+                  raise SystemExit("promotion asset recheck has an invalid release ID")
+              try:
+                  response_text = Path(arguments[1]).read_text(encoding="utf-8")
+              except (OSError, UnicodeDecodeError) as exc:
+                  raise SystemExit("promotion asset response is unreadable") from exc
+              verify_promotion_asset_map(
+                  arguments[0],
+                  parse_paginated_json(response_text),
+                  expected_id,
+              )
+
+          if __name__ == "__main__":
+              main(sys.argv[1:])
+          PY
           PROMOTION_ATTEMPT="$RUNNER_TEMP_MSYS/release-promotion-attempt"
           printf '%s\n%s\n' "$TAG" "$EXPECTED_RELEASE_ID" > "$PROMOTION_ATTEMPT"
           gh api \

@@ -32,7 +32,7 @@ def load_checker():
 def make_fixture(tmp_path: Path) -> tuple[Path, Path, Path, str]:
     bundle = tmp_path / "bundle" / "nsis"
     bundle.mkdir(parents=True)
-    archive = bundle / "Bhayanak Legends_0.1.11_x64-setup.exe"
+    archive = bundle / "Bhayanak Legends_0.1.12_x64-setup.exe"
     archive.write_bytes(b"signed installer bytes")
     signature = archive.with_name(archive.name + ".sig")
     signature_text = "detached-signature-content"
@@ -41,11 +41,11 @@ def make_fixture(tmp_path: Path) -> tuple[Path, Path, Path, str]:
     metadata.write_text(
         json.dumps(
             {
-                "version": "0.1.11",
+                "version": "0.1.12",
                 "platforms": {
                     "windows-x86_64": {
                         "signature": signature_text,
-                        "url": "https://github.example/releases/download/v0.1.11/"
+                        "url": "https://github.example/releases/download/v0.1.12/"
                         + quote(archive.name),
                     }
                 },
@@ -151,7 +151,7 @@ def test_upload_transaction_validates_paths_identity_and_api(tmp_path: Path, cap
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
 
-    version = "0.1.11"
+    version = "0.1.12"
     tag = f"v{version}"
     repository = "theHimanshuShekhar/BhayanakLegends"
     token = "test-token-123456789012345678901234"
@@ -163,7 +163,7 @@ def test_upload_transaction_validates_paths_identity_and_api(tmp_path: Path, cap
         f"bhayanak-legends-{version}-windows-x86_64-setup.exe.sig",
     ]
     fixed_assets = {
-        "latest.json": b'{"version":"0.1.11"}',
+        "latest.json": b'{"version":"0.1.12"}',
         "findings-pack.v2.zip": b"findings-pack-bytes",
         "findings-pack-manifest.json": b'{"size":19}',
         "findings-pack-manifest.json.sig": b"manifest-signature",
@@ -347,9 +347,178 @@ def test_upload_transaction_validates_paths_identity_and_api(tmp_path: Path, cap
     assert token not in output.out + output.err
 
 
+def test_draft_asset_listing_retries_subset_but_rejects_extra(tmp_path: Path):
+    source = _workflow_python(
+        "Verify draft release contents before promotion",
+        marker="          # DRAFT_ASSET_VERIFICATION_TRANSACTION",
+    )
+    module_path = tmp_path / "draft_asset_verification.py"
+    module_path.write_text(source, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("draft_asset_verification", module_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    expected_names = ["latest.json", "updater.exe", "updater.exe.sig"]
+
+    def asset(asset_id: int, name: str) -> dict[str, object]:
+        return {"id": asset_id, "name": name, "release": {"id": 123}}
+
+    complete_assets = [
+        asset(10, expected_names[0]),
+        asset(11, expected_names[1]),
+        asset(12, expected_names[2]),
+    ]
+    responses = iter([[complete_assets[:2]], [complete_assets]])
+    fetch_calls = 0
+    current_time = 0.0
+    request_timeouts: list[float] = []
+    sleeps: list[float] = []
+
+    def fetch_subset_then_complete(timeout: float) -> list[object]:
+        nonlocal fetch_calls
+        request_timeouts.append(timeout)
+        fetch_calls += 1
+        return next(responses)
+
+    def clock() -> float:
+        return current_time
+
+    def sleep(delay: float) -> None:
+        nonlocal current_time
+        sleeps.append(delay)
+        current_time += delay
+
+    asset_map_path = tmp_path / "asset-map.json"
+    module.verify_asset_listing_until_complete(
+        fetch_subset_then_complete,
+        asset_map_path,
+        123,
+        expected_names,
+        clock=clock,
+        sleep=sleep,
+        deadline_seconds=5,
+        backoff_seconds=2,
+    )
+    assert fetch_calls == 2
+    assert request_timeouts == [5, 3]
+    assert sleeps == [2]
+    assert json.loads(asset_map_path.read_text(encoding="utf-8")) == {
+        name: asset_id for asset_id, name in zip((10, 11, 12), expected_names)
+    }
+
+    extra_calls = 0
+    extra_map_path = tmp_path / "extra-asset-map.json"
+
+    def fetch_extra(timeout: float) -> list[object]:
+        nonlocal extra_calls
+        extra_calls += 1
+        return [[*complete_assets, asset(13, "unexpected.zip")]]
+
+    with pytest.raises(SystemExit, match="exact expected inventory"):
+        module.verify_asset_listing_until_complete(
+            fetch_extra,
+            extra_map_path,
+            123,
+            expected_names,
+            clock=lambda: 0.0,
+            sleep=lambda _delay: pytest.fail("unexpected retry for an extra asset"),
+            deadline_seconds=5,
+            backoff_seconds=2,
+        )
+    assert extra_calls == 1
+    assert not extra_map_path.exists()
+    duplicate_id_assets = [
+        asset(10, expected_names[0]),
+        asset(10, expected_names[1]),
+    ]
+    with pytest.raises(SystemExit, match="duplicate asset ID"):
+        module.asset_map_for_pages([duplicate_id_assets], 123, expected_names)
+
+    timeout_calls: list[float] = []
+
+    def fetch_timeout(timeout: float) -> list[object]:
+        timeout_calls.append(timeout)
+        raise module.subprocess.TimeoutExpired(["gh", "api"], timeout)
+
+    with pytest.raises(SystemExit, match="exhausted the retry deadline"):
+        module.verify_asset_listing_until_complete(
+            fetch_timeout,
+            tmp_path / "timeout-asset-map.json",
+            123,
+            expected_names,
+            clock=lambda: 0.0,
+            sleep=lambda _delay: pytest.fail("unexpected sleep after timeout"),
+            deadline_seconds=5,
+            backoff_seconds=2,
+        )
+    assert timeout_calls == [5]
+    captured_subprocess_timeout: list[float] = []
+    original_run = module.subprocess.run
+
+    def timeout_run(*args, **kwargs):
+        captured_subprocess_timeout.append(kwargs["timeout"])
+        raise module.subprocess.TimeoutExpired(args[0], kwargs["timeout"])
+
+    module.subprocess.run = timeout_run
+    try:
+        with pytest.raises(SystemExit, match="exhausted the retry deadline"):
+            module.fetch_asset_pages("theHimanshuShekhar/BhayanakLegends", 123, 0.5)
+    finally:
+        module.subprocess.run = original_run
+    assert captured_subprocess_timeout == [0.5]
+
+
+def test_promotion_rejects_changed_asset_id_before_patch(tmp_path: Path):
+    source = _workflow_python(
+        "Promote verified release draft",
+        marker="          # PROMOTION_ASSET_RECHECK",
+    )
+    module_path = tmp_path / "promotion_asset_recheck.py"
+    module_path.write_text(source, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("promotion_asset_recheck", module_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    verified_map = {
+        "latest.json": 10,
+        "updater.exe": 11,
+        "updater.exe.sig": 12,
+    }
+    verified_map_path = tmp_path / "verified-assets.json"
+    verified_map_path.write_text(json.dumps(verified_map) + "\n", encoding="utf-8")
+    unchanged_pages = [
+        [
+            {"id": asset_id, "name": name, "release": {"id": 123}}
+            for name, asset_id in verified_map.items()
+        ]
+    ]
+    changed_pages = [
+        [
+            {"id": 999 if name == "updater.exe" else asset_id, "name": name, "release": {"id": 123}}
+            for name, asset_id in verified_map.items()
+        ]
+    ]
+
+    patch_calls = 0
+
+    def patch_if_verified(pages: list[object]) -> None:
+        nonlocal patch_calls
+        module.verify_promotion_asset_map(verified_map_path, pages, 123)
+        patch_calls += 1
+
+    patch_if_verified(unchanged_pages)
+    with pytest.raises(SystemExit, match="changed after verification"):
+        patch_if_verified(changed_pages)
+    assert patch_calls == 1
+
+
 def test_workflow_stages_signed_exe_once_and_uploads_unique_assets(tmp_path: Path):
-    version = "0.1.11"
-    source_name = "Bhayanak Legends_0.1.11_x64-setup.exe"
+    version = "0.1.12"
+    source_name = "Bhayanak Legends_0.1.12_x64-setup.exe"
     signature_text = "signed-exe-signature"
     staged_dir, inventory = _stage_and_inventory(
         tmp_path,
@@ -374,9 +543,9 @@ def test_workflow_stages_signed_exe_once_and_uploads_unique_assets(tmp_path: Pat
 def test_workflow_stages_separate_unsigned_installer_and_signed_archive(
     tmp_path: Path,
 ):
-    version = "0.1.11"
-    installer_name = "Bhayanak Legends_0.1.11_x64-setup.exe"
-    archive_name = "Bhayanak Legends_0.1.11_x64.nsis.zip"
+    version = "0.1.12"
+    installer_name = "Bhayanak Legends_0.1.12_x64-setup.exe"
+    archive_name = "Bhayanak Legends_0.1.12_x64.nsis.zip"
     signature_text = "signed-archive-signature"
     staged_dir, inventory = _stage_and_inventory(
         tmp_path,
