@@ -31,8 +31,7 @@ def wait_for_port(port: int, process: subprocess.Popen[bytes], label: str) -> No
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
         if process.poll() is not None:
-            output = process.stdout.read().decode(errors="replace") if process.stdout is not None else ""
-            raise RuntimeError(f"{label} exited with {process.returncode}: {output[-2000:]}")
+            raise RuntimeError(f"{label} exited with {process.returncode}")
         if port_answers(port):
             return
         time.sleep(0.05)
@@ -140,8 +139,6 @@ def main() -> int:
                 [sys.executable, str(FAKE), "--kind", kind, "--port", str(port)],
                 cwd=ROOT,
                 env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
             )
             processes.append(process)
             wait_for_port(port, process, f"fake {kind}")
@@ -150,8 +147,6 @@ def main() -> int:
             ["uv", "run", "python", "-m", "bhayanak_legends.sidecar"],
             cwd=BACKEND,
             env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
         )
         processes.append(sidecar)
         wait_for_port(SIDECAR_PORT, sidecar, "sidecar")
