@@ -331,7 +331,7 @@ async function runUpdateAvailablePhase(page) {
 async function runUpdatedPhase(page) {
   const sidecarInfo = await assertSidecarConnected(page);
 
-  await page.getByText("Findings Pack v2", { exact: true }).waitFor({ state: "visible", timeout: 15_000 });
+  await page.getByText(`Findings Pack ${expectedPackVersion}`, { exact: true }).waitFor({ state: "visible", timeout: 15_000 });
   const health = await fetchAuthenticatedHealth(page, sidecarInfo);
   if (!health || health.pack_version !== expectedPackVersion) {
     throw new Error("active Findings Pack release did not survive the signed update and relaunch");
