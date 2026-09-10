@@ -69,7 +69,7 @@ Where the claude.design artifact ("Rift Coach" v0.1, `~/downloads/League of Lege
 | # | Design | App | Why |
 |---|--------|-----|-----|
 | E1 | Verdict header w/ KDA/tier/patch tail line | Verdict tile + champion/role/duration (digest fields only) | Digest payload lacks KDA tail; extendable. |
-| E2 | COMEBACK ODDS bound to the played game's deficit | Bound: digest `gold_diff_15` → nearest pack bucket (e.g. −593.5g → 27.6% "1 in 4") | Matches — actually ahead of the mock (real binding). |
+| E2 | COMEBACK ODDS bound to the played game's deficit | Bound only to the v2 digest `team_state.team_gold_diff_15m` under `loltrends-parity-v2` and the nested team-state join; exact team deficit bands `[2000,3000)`, `[3000,5000)`, `[5000,∞)`, otherwise descriptive suppression | v1 packs and the distinct personal `gold_diff_15` never become comeback comparisons. |
 | E3 | OBJECTIVE READ / SURRENDER READ prose | Objective read real; surrender read structure + "ships with the next Findings Pack" + survivorship note | Surrender Advisor model not in pack v1. |
 | E4 | Scrubable WP mini-chart in review | Absent | Same model gap as L3. |
 

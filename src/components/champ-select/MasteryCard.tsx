@@ -1,4 +1,4 @@
-import type { FindingsPackV2 } from "../../api/pack-v2";
+import type { FindingsPack } from "../../api/pack-v2";
 import {
   EvidenceMeta,
   evidenceUsable,
@@ -7,7 +7,7 @@ import {
 import type { FindingsPackState } from "./shared";
 import { SectionHead } from "../ui";
 
-function unavailableReason(pack: FindingsPackV2 | undefined, packState: FindingsPackState): string | null {
+function unavailableReason(pack: FindingsPack | undefined, packState: FindingsPackState): string | null {
   if (packState === "loading") return "Loading… Findings Pack mastery evidence.";
   if (packState === "error") return "Unavailable: Findings Pack mastery evidence could not be loaded.";
   if (packState === "missing") return "Unavailable: Findings Pack mastery evidence is missing.";
@@ -31,7 +31,7 @@ export function MasteryCard({
   pack,
   packState,
 }: {
-  pack: FindingsPackV2 | undefined;
+  pack: FindingsPack | undefined;
   packState: FindingsPackState;
 }) {
   const evidence = masteryEvidence(pack);

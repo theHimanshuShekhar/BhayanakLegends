@@ -4,7 +4,7 @@ import { actionableErrorMessage } from "../api/client";
 import { useGameClock, useGameClockSource } from "../api/clock";
 import type { InGameSnapshot, PlayerLive } from "../api/types";
 import { isInGameSnapshot } from "../api/liveValidation";
-import type { FindingsPackV2 } from "../api/pack-v2";
+import { isFindingsPackV2, type FindingsPackV2 } from "../api/pack-v2";
 import { useEvents } from "../api/sse";
 import { useLiveIngame, usePack } from "../api/hooks";
 import {
@@ -116,8 +116,9 @@ export function LiveMatchPage() {
     const version = packQuery.data?.pack_version;
     setActivePackVersion(typeof version === "string" && version.trim().length > 0 ? version : null);
   }, [packQuery.data, packQuery.isSuccess]);
+  const packV2 = isFindingsPackV2(packQuery.data) ? packQuery.data : undefined;
   const renderPack =
-    activePackVersion !== null && packQuery.data?.pack_version === activePackVersion ? packQuery.data : undefined;
+    activePackVersion !== null && packV2?.pack_version === activePackVersion ? packV2 : undefined;
 
   const querySnapshot = ingameQuery.isError ? undefined : ingameQuery.data;
   const ingame = ingameQuery.isError || liveFrame?.hidden ? undefined : (liveFrame?.snapshot ?? querySnapshot);

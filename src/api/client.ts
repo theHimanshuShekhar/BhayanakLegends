@@ -16,7 +16,7 @@ import type {
   TrajectoryPoint,
   WhatIfResponse,
 } from "./types";
-import type { FindingsPackV2 } from "./pack-v2";
+import type { FindingsPack } from "./pack-v2";
 const MAX_ERROR_DETAIL = 240;
 const MIN_BROWSER_TOKEN_LENGTH = 32;
 const DEFAULT_BROWSER_TOKEN = "local-sidecar-development-token-32chars";
@@ -161,7 +161,7 @@ async function liveIngame(): Promise<InGameSnapshot> {
 
 export const api = {
   health: () => request<Health>("/health"),
-  pack: () => request<FindingsPackV2>("/pack"),
+  pack: () => request<FindingsPack>("/pack"),
   settings: () => request<Settings>("/settings"),
   updateSettings: (patch: SettingsPatch) =>
     request<Settings>("/settings", {

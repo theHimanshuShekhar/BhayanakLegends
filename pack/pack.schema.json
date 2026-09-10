@@ -408,7 +408,7 @@
           "type": "integer"
         },
         "eligibility": {
-          "minLength": 1,
+          "const": "non-surrendered Eligible Match; populated frame at/after 900s proves reachability; latest valid frame at/before 900s; exactly ten unique participants in two unambiguous five-player teams; finite gold for all ten",
           "title": "Eligibility",
           "type": "string"
         },
@@ -428,11 +428,12 @@
           "type": "string"
         },
         "feature_contract_version": {
-          "minLength": 1,
+          "const": "loltrends-parity-v2",
           "title": "Feature Contract Version",
           "type": "string"
         },
         "include_lower": {
+          "const": true,
           "title": "Include Lower",
           "type": "boolean"
         },
@@ -500,6 +501,11 @@
           "title": "Sample",
           "type": "integer"
         },
+        "sign_convention": {
+          "const": "own_team_total_gold_minus_enemy_team_total_gold",
+          "title": "Sign Convention",
+          "type": "string"
+        },
         "source_document": {
           "minLength": 1,
           "title": "Source Document",
@@ -516,11 +522,7 @@
           "type": "string"
         },
         "tier": {
-          "enum": [
-            "actionable",
-            "diagnostic",
-            "a-lite"
-          ],
+          "const": "diagnostic",
           "title": "Tier",
           "type": "string"
         },
@@ -554,6 +556,7 @@
         "provenance_key",
         "feature",
         "feature_contract_version",
+        "sign_convention",
         "checkpoint_seconds",
         "unit",
         "lower_bound",

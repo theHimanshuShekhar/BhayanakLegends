@@ -1,6 +1,13 @@
 import type { PostGameDigest } from "../../api/types";
-import type { FindingsPackV2, PackV2ComebackBand } from "../../api/pack-v2";
-import { isFindingsPackV2 } from "../../api/pack-v2";
+import {
+  isFindingsPackV2,
+  TEAM_GOLD_ELIGIBILITY,
+  TEAM_GOLD_FEATURE_CONTRACT_VERSION,
+  TEAM_GOLD_POPULATION_CONTRACT_VERSION,
+  TEAM_GOLD_SIGN_CONVENTION,
+  type FindingsPack,
+  type PackV2ComebackBand,
+} from "../../api/pack-v2";
 import { formatRate } from "../format";
 import { SectionHead, Unavailable } from "../ui";
 
@@ -23,7 +30,7 @@ export type BucketMatch = {
 };
 
 const CANONICAL_FEATURE = "team_gold_diff_15m";
-const CANONICAL_VERSION = "loltrends-parity-v2";
+const CANONICAL_VERSION = TEAM_GOLD_FEATURE_CONTRACT_VERSION;
 const CHECKPOINT_SECONDS = 900;
 const MIN_SAMPLE = 200;
 const EXPECTED_BOUNDS = [
@@ -54,9 +61,10 @@ function finite(value: unknown): value is number {
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
-  return value != null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
+  if (value == null || typeof value !== "object" || Array.isArray(value)) return null;
+  // The object/array guard establishes the record shape used by this boundary reader.
+  const record = value as Record<string, unknown>;
+  return record;
 }
 
 function v2DigestFields(digest: PostGameDigest | null): {
@@ -78,29 +86,34 @@ function v2DigestFields(digest: PostGameDigest | null): {
     value?.personal_history_eligibility === "unknown"
       ? value.personal_history_eligibility
       : null;
-  const featureValue = features?.[CANONICAL_FEATURE];
-  const teamStateValue = teamState?.[CANONICAL_FEATURE];
-  const bothSourcesPresent = featureValue !== undefined && teamStateValue !== undefined;
-  const bothSourcesMissing = featureValue == null && teamStateValue == null;
+  const flatTeamValue = features?.[CANONICAL_FEATURE];
+  const nestedTeamValue = teamState?.[CANONICAL_FEATURE];
+  const flatTeamPresent = flatTeamValue !== undefined && flatTeamValue !== null;
+  const nestedTeamPresent = nestedTeamValue !== undefined && nestedTeamValue !== null;
   const sourceConflict =
-    bothSourcesPresent &&
-    !bothSourcesMissing &&
-    (!finite(featureValue) || !finite(teamStateValue) || featureValue !== teamStateValue);
-  const rawTeamGold = featureValue !== undefined ? featureValue : teamStateValue;
+    teamState !== null &&
+    (flatTeamPresent !== nestedTeamPresent ||
+      (flatTeamPresent &&
+        nestedTeamPresent &&
+        (!finite(flatTeamValue) ||
+          !finite(nestedTeamValue) ||
+          flatTeamValue !== nestedTeamValue)));
   const teamStateContractValid =
     teamState?.feature === CANONICAL_FEATURE &&
     teamState?.feature_contract_version === CANONICAL_VERSION;
+  const rawTeamGold = nestedTeamValue;
+  const rootContractVersion =
+    value?.feature_contract_version === CANONICAL_VERSION
+      ? value.feature_contract_version
+      : null;
   return {
     eligibility,
     teamGoldDiff: finite(rawTeamGold) ? rawTeamGold : null,
-    teamGoldPresent: rawTeamGold !== undefined && rawTeamGold !== null,
+    teamGoldPresent: nestedTeamPresent,
     sourceConflict,
     observedThrough: finite(teamState?.observed_through_s) ? teamState.observed_through_s : null,
     nonSurrendered: typeof teamState?.non_surrendered === "boolean" ? teamState.non_surrendered : null,
-    contractVersion:
-      value?.feature_contract_version === CANONICAL_VERSION
-        ? value.feature_contract_version
-        : null,
+    contractVersion: rootContractVersion,
     teamStateContractValid,
   };
 }
@@ -122,46 +135,54 @@ function validBand(row: PackV2ComebackBand, index: number): boolean {
   return (
     row.feature === CANONICAL_FEATURE &&
     row.feature_contract_version === CANONICAL_VERSION &&
+    row.sign_convention === TEAM_GOLD_SIGN_CONVENTION &&
     row.checkpoint_seconds === CHECKPOINT_SECONDS &&
     row.unit === "gold" &&
     row.lower_bound === expected.lower &&
     row.upper_bound === expected.upper &&
     row.include_lower === true &&
     row.include_upper === false &&
+    row.eligibility === TEAM_GOLD_ELIGIBILITY &&
     row.tier === "diagnostic" &&
     typeof row.population_scope === "string" &&
-    row.population_scope.trim().length > 0 &&
+    row.population_scope.length > 0 &&
     Array.isArray(row.caveats) &&
     row.caveats.length > 0 &&
     row.caveats.every((caveat) => typeof caveat === "string" && caveat.trim().length > 0) &&
     typeof row.source_document === "string" &&
-    row.source_document.trim().length > 0 &&
+    row.source_document.length > 0 &&
     typeof row.source_section === "string" &&
-    row.source_section.trim().length > 0 &&
+    row.source_section.length > 0 &&
     typeof row.source_ref === "string" &&
-    row.source_ref.trim().length > 0 &&
-    typeof row.provenance_key === "string" &&
-    row.provenance_key.trim().length > 0 &&
+    row.source_ref.length > 0 &&
+    row.provenance_key === "comeback_odds" &&
     valueValid
   );
 }
-
-function parseBands(pack: FindingsPackV2 | undefined): PackV2ComebackBand[] | null {
+function parseBands(pack: FindingsPack | undefined): PackV2ComebackBand[] | null {
   if (!isFindingsPackV2(pack) || !Array.isArray(pack.comeback_odds)) return null;
+  if (pack.feature_contracts?.personal_history !== CANONICAL_VERSION) return null;
+  const populationProvenance = pack.provenance?.comeback_odds;
+  if (
+    !populationProvenance ||
+    populationProvenance.feature_contract_version !== TEAM_GOLD_POPULATION_CONTRACT_VERSION
+  ) {
+    return null;
+  }
   if (pack.comeback_odds.length !== EXPECTED_BOUNDS.length) return null;
   return pack.comeback_odds.every(validBand) ? pack.comeback_odds : null;
 }
 /** Match only the declared v2 team-deficit interval; no personal-gold fallback or extrapolation. */
 export function matchComebackBucket(
-  pack: FindingsPackV2 | undefined,
+  pack: FindingsPack | undefined,
   digest: PostGameDigest | null,
 ): { match: BucketMatch; reason: null } | { match: null; reason: SuppressionReason } {
   if (!digest) return { match: null, reason: "missing-personal-history" };
   const fields = v2DigestFields(digest);
-  if (fields.sourceConflict) return { match: null, reason: "invalid-input" };
   if (!fields.contractVersion || !fields.teamStateContractValid) {
     return { match: null, reason: "incompatible-declaration" };
   }
+  if (fields.sourceConflict) return { match: null, reason: "invalid-input" };
   if (!fields.teamGoldPresent) {
     return { match: null, reason: "missing-personal-history" };
   }
@@ -205,7 +226,7 @@ export function ComebackOddsCard({
   pack,
 }: {
   digest: PostGameDigest | null;
-  pack: FindingsPackV2 | undefined;
+  pack: FindingsPack | undefined;
 }) {
   const result = matchComebackBucket(pack, digest);
   const fields = v2DigestFields(digest);

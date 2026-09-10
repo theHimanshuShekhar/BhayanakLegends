@@ -17,9 +17,12 @@ import jsonschema
 from pydantic import ValidationError
 
 from .model_runtime import ModelRuntimeError, validate_model_artifact
+from .pack_v1 import FindingsPackV1, build_v1_schema
 from .pack_v2 import FindingsPackV2, validate_pack_v2_semantics
 
 PACK_FILENAME = "findings-pack.v2.json"
+PACK_FILENAME_V1 = "findings-pack.v1.json"
+PACK_FILENAMES = (PACK_FILENAME, PACK_FILENAME_V1)
 SCHEMA_FILENAME = "pack.schema.json"
 MAX_MODEL_ARTIFACT_BYTES = 256 * 1024 * 1024
 MAX_MODEL_CARD_BYTES = 1024 * 1024
@@ -28,9 +31,18 @@ MAX_MODEL_CARD_BYTES = 1024 * 1024
 class PackError(Exception):
     """A pack cannot be safely loaded or activated."""
 
+def _pack_paths(directory: Path) -> tuple[Path, ...]:
+    return tuple(directory / filename for filename in PACK_FILENAMES)
 
-def _pack_path(directory: Path) -> Path:
+
+def _select_pack_path(directory: Path) -> Path:
+    candidates = tuple(path for path in _pack_paths(directory) if path.is_file())
+    if len(candidates) > 1:
+        raise PackError("Findings Pack has multiple schema-versioned payloads")
+    if candidates:
+        return candidates[0]
     return directory / PACK_FILENAME
+
 
 
 def _safe_relative_path(path: str) -> Path:
@@ -157,9 +169,10 @@ def validate_pack_directory(
     required_model_artifacts: Iterable[tuple[Path, str | None]] = (),
     require_schema: bool = True,
 ) -> dict:
-    """Validate a staged Findings Pack v2 and every declared executable artifact."""
+    """Validate one explicitly versioned Findings Pack payload."""
+
     root = Path(directory)
-    path = _pack_path(root)
+    path = _select_pack_path(root)
     selected_schema = schema_path or (root / SCHEMA_FILENAME)
     if not path.is_file():
         raise PackError(f"Findings Pack missing at {path}")
@@ -169,21 +182,56 @@ def validate_pack_directory(
         raise PackError(f"Findings Pack could not be read: {exc}") from exc
     if not isinstance(pack, dict):
         raise PackError("Findings Pack must be a JSON object")
-    if require_schema and not selected_schema.is_file():
+
+    schema_version = pack.get("schema_version")
+    expected_version = 1 if path.name == PACK_FILENAME_V1 else 2
+    if schema_version != expected_version:
+        raise PackError(
+            f"Findings Pack filename {path.name!r} does not match schema_version {schema_version!r}"
+        )
+    if require_schema and schema_version == 2 and not selected_schema.is_file():
         raise PackError(f"Findings Pack schema missing at {selected_schema}")
+
+    # The shared filename is historical. Dispatch by the payload version
+    # before applying it: a v2 schema must never be used to reject a valid
+    # legacy v1 bundle, and v1 must never be interpreted as v2.
+    schema: dict | None = None
     if selected_schema.is_file():
         try:
-            schema = json.loads(selected_schema.read_text(encoding="utf-8"))
+            candidate_schema = json.loads(selected_schema.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, JSONDecodeError) as exc:
+            raise PackError(f"Findings Pack schema could not be read: {exc}") from exc
+        if not isinstance(candidate_schema, dict):
+            raise PackError("Findings Pack schema must be a JSON object")
+        declared_version = (
+            candidate_schema.get("properties", {})
+            .get("schema_version", {})
+            .get("const")
+            if isinstance(candidate_schema.get("properties"), dict)
+            and isinstance(candidate_schema.get("properties", {}).get("schema_version"), dict)
+            else None
+        )
+        if declared_version == schema_version:
+            schema = candidate_schema
+        elif declared_version not in {1, 2}:
+            raise PackError("Findings Pack schema does not declare a supported schema_version")
+        elif schema_version == 2:
+            raise PackError("Findings Pack schema dispatch does not match schema_version 2")
+    if schema is not None:
+        try:
             jsonschema.validate(pack, schema)
-        except (OSError, UnicodeDecodeError, JSONDecodeError, jsonschema.SchemaError) as exc:
+        except jsonschema.SchemaError as exc:
             raise PackError(f"Findings Pack schema could not be read: {exc}") from exc
         except jsonschema.ValidationError as exc:
             raise PackError(f"Findings Pack failed schema validation: {exc.message}") from exc
 
     try:
-        parsed = FindingsPackV2.model_validate(pack)
-        validate_pack_v2_semantics(parsed)
-        _validate_declared_v2_artifacts(root, parsed)
+        if schema_version == 1:
+            FindingsPackV1.model_validate(pack)
+        else:
+            parsed = FindingsPackV2.model_validate(pack)
+            validate_pack_v2_semantics(parsed)
+            _validate_declared_v2_artifacts(root, parsed)
     except (ModelRuntimeError, ValidationError, ValueError, TypeError) as exc:
         raise PackError(f"Findings Pack failed contract validation: {exc}") from exc
     _validate_required_artifacts(root, required_model_artifacts)
@@ -272,7 +320,7 @@ class PackActivationTransaction:
 
 
 class PackStore:
-    """Durable active Findings Pack v2 store with crash-safe recovery.
+    """Durable active Findings Pack v1/v2 store with crash-safe recovery.
 
     Active releases are immutable generation directories selected through an
     atomically replaced pointer file. Readers that already hold the previous
@@ -529,10 +577,19 @@ class PackStore:
         self._snapshot_last_known_good()
 
     def activate_candidate(self, candidate: Path) -> PackActivationTransaction:
-        """Publish a validated candidate as one immutable active generation."""
+        """Publish a validated Pack v2 candidate as one immutable generation."""
         candidate = Path(candidate)
         if not candidate.is_dir():
             raise PackError("Findings Pack candidate directory is missing")
+        candidate_path = candidate / PACK_FILENAME
+        if (candidate / PACK_FILENAME_V1).exists() or not candidate_path.is_file():
+            raise PackError("Findings Pack release activation is v2-only")
+        try:
+            candidate_payload = json.loads(candidate_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, JSONDecodeError) as exc:
+            raise PackError("Findings Pack v2 release payload could not be read") from exc
+        if not isinstance(candidate_payload, dict) or candidate_payload.get("schema_version") != 2:
+            raise PackError("Findings Pack release activation is v2-only")
         active_schema = self.pack_dir / SCHEMA_FILENAME
         candidate_schema = candidate / SCHEMA_FILENAME
         if not candidate_schema.is_file() and active_schema.is_file():
@@ -640,4 +697,4 @@ class PackStore:
     def active_path(self) -> Path:
         with self.read_transaction():
             self._load_unlocked()
-            return self.pack_dir / PACK_FILENAME
+            return _select_pack_path(self.pack_dir)

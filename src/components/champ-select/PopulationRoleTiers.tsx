@@ -1,5 +1,6 @@
 import type { AssignedRole } from "../../api/types";
-import type { FindingsPackV2 } from "../../api/pack-v2";
+import type { FindingsPack } from "../../api/pack-v2";
+import { isFindingsPackV1 } from "../../api/pack-v1";
 import { EvidenceMeta, packPatchLabel, tierEvidence } from "../populationEvidence";
 import { formatCount, formatRate } from "../format";
 import { SectionHead } from "../ui";
@@ -12,7 +13,7 @@ export function PopulationRoleTiers({
   packState,
   locked = false,
 }: {
-  pack: FindingsPackV2 | undefined;
+  pack: FindingsPack | undefined;
   role: AssignedRole | null;
   packState: FindingsPackState;
   locked?: boolean;
@@ -20,6 +21,7 @@ export function PopulationRoleTiers({
   if (locked) return null;
 
   const validRole = role && CS_ROLES.includes(role) ? role : null;
+  const legacy = isFindingsPackV1(pack);
   const rows = tierEvidence(pack, validRole);
   const first = rows[0] ?? null;
   const unavailable = packState === "loading"
@@ -31,14 +33,18 @@ export function PopulationRoleTiers({
         : !validRole
           ? "Unavailable: assigned role is unavailable; population tiers are withheld."
           : rows.length === 0
-            ? `Unavailable: no qualifying ${validRole} population rows meet the 500-game floor.`
+            ? legacy
+              ? `Unavailable: no historical ${validRole} population rows are available.`
+              : `Unavailable: no qualifying ${validRole} population rows meet the 500-game floor.`
             : null;
 
   return (
     <section className="card3" data-testid="card-role-tiers" aria-labelledby="cs-role-tiers-heading" style={{ padding: 13, display: "flex", flexDirection: "column", gap: 8 }}>
       <SectionHead label={<span id="cs-role-tiers-heading">POPULATION ROLE TIERS · PRE-LOCK</span>} color="var(--color-info)" right={validRole ? <span className="pill" style={{ background: "var(--color-info-low)", color: "var(--color-info)" }}>{validRole}</span> : undefined} />
       <p data-testid="role-tiers-caption" style={{ margin: 0, fontSize: 10, lineHeight: 1.5, color: "var(--color-dim)" }}>
-        {unavailable ?? "Diagnostic scouting context: S/A/B/C are within-role rank bands from a pooled population, not a recommendation or a statement about your history."}
+        {unavailable ?? (legacy
+          ? "Historical v1 S/A/B/C rank bands are descriptive population context and are not a statement about your history."
+          : "Diagnostic scouting context: S/A/B/C are within-role rank bands from a pooled population, not a recommendation or a statement about your history.")}
       </p>
       {unavailable ? (
         <div data-testid="role-tiers-unavailable" role="status" style={{ padding: 13, borderRadius: 12, background: "var(--color-deep)", color: "var(--color-dim)", fontSize: 10.5 }}>
@@ -60,13 +66,15 @@ export function PopulationRoleTiers({
           </div>
           {first && (
             <EvidenceMeta metadata={first.metadata} testId="role-tiers-evidence-meta">
-              <div>Qualification floor: {first.minimumGames.toLocaleString("en-US")} games per champion-role row.</div>
+              <div>{legacy ? "Historical v1 rank-band evidence; source rows retain their original role and pick-rate definitions." : `Qualification floor: ${first.minimumGames.toLocaleString("en-US")} games per champion-role row.`}</div>
             </EvidenceMeta>
           )}
         </>
       )}
       <div style={{ fontSize: 9, color: "var(--color-dimmer)" }}>
-        Pooled patch scope: {packPatchLabel(pack) ?? "unavailable"}; rows below the 500-game floor stay out of v2.
+        {legacy
+          ? `Historical v1 patch scope: ${packPatchLabel(pack) ?? "unavailable"}.`
+          : `Pooled patch scope: ${packPatchLabel(pack) ?? "unavailable"}; rows below the 500-game floor stay out of v2.`}
       </div>
     </section>
   );

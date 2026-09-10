@@ -1,5 +1,6 @@
-import { usePack, usePostgameLatest } from "../api/hooks";
 import { actionableErrorMessage } from "../api/client";
+import { usePack, usePostgameLatest } from "../api/hooks";
+import { isFindingsPackV2 } from "../api/pack-v2";
 import {
   CheckpointStrip,
   ComebackOddsCard,
@@ -14,8 +15,8 @@ import { PageHeader } from "../components/Layout";
 export function PostGamePage() {
   const query = usePostgameLatest();
   const packQuery = usePack();
+  const packV2 = isFindingsPackV2(packQuery.data) ? packQuery.data : undefined;
   const digest = query.data ?? null;
-
   return (
     <div
       style={{
@@ -60,7 +61,7 @@ export function PostGamePage() {
 
         <div className="postgame-route-grid">
           <div className="postgame-main-column">
-            <HabitsCard digest={digest} pack={packQuery.data} />
+            <HabitsCard digest={digest} pack={packV2} />
             <section className="card3" aria-labelledby="postgame-backfill-heading" style={{ padding: 13, display: "flex", alignItems: "center", gap: 10 }}>
               <h2
                 id="postgame-backfill-heading"
@@ -76,9 +77,9 @@ export function PostGamePage() {
           </div>
 
           <div className="postgame-support-column">
-            <ObjectiveReadCard pack={packQuery.data} />
-            <ComebackOddsCard digest={digest} pack={packQuery.data} />
-            <SurrenderReadCard pack={packQuery.data} />
+            <ObjectiveReadCard pack={packV2} />
+            <ComebackOddsCard digest={digest} pack={packV2} />
+            <SurrenderReadCard pack={packV2} />
           </div>
         </div>
       </section>

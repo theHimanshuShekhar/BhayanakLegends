@@ -136,6 +136,27 @@ def test_pack_endpoint_returns_bounded_503_for_missing_or_malformed_pack(
     assert "findings pack" in detail.lower()
     if pack_body is not None:
         assert pack_body not in response.text
+def test_v1_pack_endpoint_returns_legacy_payload_and_health_version(tmp_path: Path):
+    pack_dir = tmp_path / "pack"
+    pack_dir.mkdir()
+    fixture = Path(__file__).parent / "fixtures" / "findings-pack.v1.json"
+    (pack_dir / "findings-pack.v1.json").write_bytes(fixture.read_bytes())
+    config = SidecarConfig(
+        port=23110,
+        token=AUTH["X-BL-Token"],
+        data_dir=tmp_path / "data",
+        pack_dir=pack_dir,
+    )
+    app = create_app(config, credential_store=InMemoryCredentialStore())
+
+    with TestClient(app) as test_client:
+        response = test_client.get("/pack", headers=AUTH)
+        health = test_client.get("/health", headers=AUTH)
+
+    assert response.status_code == 200
+    assert response.json()["schema_version"] == 1
+    assert response.json()["comeback_odds"][0]["gold_deficit_at_15"] == -2000
+    assert health.json()["pack_version"] == "v1"
 
 def test_pack_failure_uses_generic_display_safe_detail_and_private_log(
     tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch

@@ -56,6 +56,25 @@
       "frames": [{"timestamp_ms": 0}, {"timestamp_ms": 540000}],
       "expected": {"cs10": null, "level10": null, "gold_diff_10": null, "team_gold_diff_15m": null, "observed_through_s": 540, "recalls": null, "recalls_before_15m": null, "recalls_before_20m": null, "avg_banked_gold_at_recall_by_15m": null, "avg_banked_gold_at_recall_by_20m": null, "unseen_recall_share_by_15m": null, "unseen_recall_share_by_20m": null}
     },
+    "latest_populated_before_checkpoint": {
+      "base_case": "regular",
+      "empty_participant_frames_at_ms": [900000],
+      "expected": {"cs10": 25, "level10": 5, "gold_diff_10": 100, "team_gold_diff_15m": 0, "observed_through_s": 1200}
+    },
+    "team_deficit": {
+      "base_case": "regular",
+      "total_gold_at_ms": {
+        "900000": [1100, 1100, 1100, 1100, 1100, 2100, 2100, 2100, 2100, 2100]
+      },
+      "expected": {"cs10": 25, "level10": 5, "gold_diff_10": 100, "team_gold_diff_15m": -5000, "observed_through_s": 1200}
+    },
+    "team_ahead": {
+      "base_case": "regular",
+      "total_gold_at_ms": {
+        "900000": [2100, 2100, 2100, 2100, 2100, 1100, 1100, 1100, 1100, 1100]
+      },
+      "expected": {"cs10": 25, "level10": 5, "gold_diff_10": 100, "team_gold_diff_15m": 5000, "observed_through_s": 1200}
+    },
     "recall_purchase_ambiguous": {
       "base_case": "regular",
       "events_at_ms": {"600000": [{"type": "ITEM_PURCHASED", "participantId": 1}]},

@@ -20,7 +20,9 @@ export function LoadoutCard({
         ? "Unavailable: Findings Pack could not be loaded, so champion-specific loadout guidance is unavailable."
         : packState === "missing"
           ? "Unavailable: Findings Pack is missing, so champion-specific loadout guidance is unavailable."
-          : "Unavailable: no exact champion-specific loadout finding exists.";
+          : packState === "legacy"
+            ? "Unavailable: Findings Pack v1 contains no compatible v2 champion-specific loadout finding."
+            : "Unavailable: no exact champion-specific loadout finding exists.";
 
   return (
     <div className="card3" data-testid="card-loadout" style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>

@@ -4,9 +4,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PostGamePage } from "../postgame";
 import { api } from "../../api/client";
 import type { PostGameDigest, Settings } from "../../api/types";
+import type { FindingsPackV1 } from "../../api/pack-v1";
 import { makePack } from "./fixtures";
 import { matchComebackBucket } from "../../components/postgame/ComebackOddsCard";
-
 vi.mock("../../api/client", () => ({
   eventsUrl: vi.fn(async () => "http://127.0.0.1:23110/events?token=fixture-token"),
   api: {
@@ -209,6 +209,19 @@ describe("PostGamePage", () => {
       expect(result.match).toEqual({ winRate, rangeLabel });
     }
   });
+  it("requires reachability through the 900-second boundary", () => {
+    const pack = packWithAvailableComebackRates();
+    const atBoundary = digestAt(-2500);
+    atBoundary.team_state = { ...atBoundary.team_state!, observed_through_s: 900 };
+    expect(matchComebackBucket(pack, atBoundary).reason).toBeNull();
+
+    const beforeBoundary = digestAt(-2500);
+    beforeBoundary.team_state = { ...beforeBoundary.team_state!, observed_through_s: 899.999 };
+    expect(matchComebackBucket(pack, beforeBoundary)).toEqual({
+      match: null,
+      reason: "ineligible-observation",
+    });
+  });
 
   it("suppresses non-deficits, shallow deficits, and ineligible observations", () => {
     const pack = packWithAvailableComebackRates();
@@ -227,6 +240,68 @@ describe("PostGamePage", () => {
     const conflicting = digestAt(-2500);
     conflicting.team_state = { ...conflicting.team_state!, team_gold_diff_15m: -2600 };
     expect(matchComebackBucket(packWithAvailableComebackRates(), conflicting)).toEqual({
+      match: null,
+      reason: "invalid-input",
+    });
+  });
+
+  it("fails closed when the root and nested team-state values are one-sided", () => {
+    const rootMissing = digestAt(-2500);
+    rootMissing.features = {};
+    expect(matchComebackBucket(packWithAvailableComebackRates(), rootMissing)).toEqual({
+      match: null,
+      reason: "invalid-input",
+    });
+
+    const nestedMissing = digestAt(-2500);
+    nestedMissing.team_state = { ...nestedMissing.team_state!, team_gold_diff_15m: null };
+    expect(matchComebackBucket(packWithAvailableComebackRates(), nestedMissing)).toEqual({
+      match: null,
+      reason: "invalid-input",
+    });
+  });
+  it("suppresses v1 packs and malformed v2 declarations without translation", () => {
+    const legacyPack = { schema_version: 1 } as FindingsPackV1;
+    expect(matchComebackBucket(legacyPack, digestAt(-2500))).toEqual({
+      match: null,
+      reason: "malformed-table",
+    });
+
+    const missingNested = digestAt(-2500);
+    missingNested.team_state = null;
+    expect(matchComebackBucket(packWithAvailableComebackRates(), missingNested)).toEqual({
+      match: null,
+      reason: "incompatible-declaration",
+    });
+
+    const missingRoot = digestAt(-2500);
+    missingRoot.feature_contract_version = null;
+    expect(matchComebackBucket(packWithAvailableComebackRates(), missingRoot)).toEqual({
+      match: null,
+      reason: "incompatible-declaration",
+    });
+
+    const malformedPack = makePack({
+      comeback_odds: makePack().comeback_odds.map((row) => ({ ...row })),
+    });
+    Object.assign(malformedPack.comeback_odds[0], {
+      sign_convention: "wrong",
+      eligibility: "Take a fight",
+      tier: "actionable",
+    });
+    expect(matchComebackBucket(malformedPack, digestAt(-2500))).toEqual({
+      match: null,
+      reason: "malformed-table",
+    });
+  });
+  it("uses only nested team state for finite values and ignores personal gold decoys", () => {
+    const decoy = digestAt(-2500);
+    decoy.features = { team_gold_diff_15m: -2500, gold_diff_15: 5000 };
+    expect(matchComebackBucket(packWithAvailableComebackRates(), decoy).reason).toBeNull();
+
+    const nonfinite = digestAt(-2500);
+    nonfinite.team_state = { ...nonfinite.team_state!, team_gold_diff_15m: Number.NaN };
+    expect(matchComebackBucket(packWithAvailableComebackRates(), nonfinite)).toEqual({
       match: null,
       reason: "invalid-input",
     });

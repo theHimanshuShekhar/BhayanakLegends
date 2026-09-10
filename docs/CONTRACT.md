@@ -308,46 +308,44 @@ interface WhatIfResponse {
 | `live.status` | `LiveStatus` (coarse health) |
 | `pack.updated` | `{schema_version, pack_version}` |
 | `hello` | `{app_version, pack_version}` (sent on connect) |
-## Findings Pack schema v2 (bundled seed and active pack)
-The packaged `/pack/pack.schema.json` and `/pack/findings-pack.v2.json` files
-are copied by `backend/tools/build_pack.py`, which is a consumer-side
-validation bridge rather than a population producer. LoLTrends is the sole
-producer of population evidence. A release build must pass an explicitly
-supplied `--artifact` path containing the exported
-`findings-pack.v2.json`; `--bootstrap` only copies the checked-in diagnostic
-seed when an upstream artifact is unavailable. Bhayanak never reads LoLTrends
-Feature Store files and never computes, fills, renames, or translates
-population fields.
+## Findings Pack schema dispatch and v2 contract
+`GET /pack` returns a discriminated `FindingsPackV1 | FindingsPackV2`
+payload. `schema_version` is the discriminator and the filename must agree:
+`findings-pack.v1.json` is parsed only by the historical v1 model, while
+`findings-pack.v2.json` is parsed only by `FindingsPackV2`. A directory that
+contains both versioned payloads is invalid. Legacy v1 packs remain readable
+for unrelated evidence, but their old comeback anchors, checkpoint buckets,
+and `gold_diff_15` feature contract are never translated into v2 values.
+Inference, comeback comparison, and signed release activation are v2-only;
+when the active pack is v1 those surfaces suppress rather than fall back.
 
-The bridge validates the supplied artifact against the canonical schema and
+The packaged `/pack/pack.schema.json` and
+`/pack/findings-pack.v2.json` files are copied by
+`backend/tools/build_pack.py`, which is a consumer-side validation bridge
+rather than a population producer. LoLTrends is the sole producer of
+population evidence. A release build must pass an explicitly supplied
+`--artifact` path containing the exported `findings-pack.v2.json`;
+`--bootstrap` only copies the checked-in diagnostic seed when an upstream
+artifact is unavailable. Bhayanak never reads LoLTrends Feature Store files
+and never computes, fills, renames, or translates population fields.
+
+The bridge validates the supplied v2 artifact against the canonical schema and
 strict `FindingsPackV2` semantics before copying it. An artifact that uses a
-different root/table shape (including the current LoLTrends research-side
-catalog/export shape) fails closed with the exact contract mismatch; it is not
-translated into the companion schema. The output schema is the unchanged
-consumer schema generated from `bhayanak_legends.pack_v2.FindingsPackV2`.
-The active directory is populated atomically from the bundled seed on first
-startup; an existing active pack wins over a changed bundled seed.
+different root/table shape fails closed with the exact contract mismatch; no
+research-side adapter or field translation belongs in this repository. The
+output schema is the unchanged consumer schema generated from
+`bhayanak_legends.pack_v2.FindingsPackV2`. The active directory is populated
+atomically from the bundled seed on first startup; an existing active pack
+wins over a changed bundled seed.
 
-### Cross-repo artifact blocker
-The currently inspected LoLTrends `findings_pack.py` exporter is not an
-acceptable input to this bridge yet. Its research-side payload has a
-`dataset.player_games` field instead of the companion
-`dataset.participant_performances`, adds a root `benchmarks` table, and emits
-additional fields such as `source_subsection` that the closed Bhayanak v2
-models reject. This is an exact contract mismatch, not a missing-value case;
-Bhayanak intentionally fails closed until LoLTrends publishes an artifact
-matching the companion schema. No adapter or field translation belongs in this
-repository.
+The v2 root has `schema_version: 2`, a patch range of `14.17` through
+`16.17`, and the following discriminated evidence collections: `findings`,
+`habits`, `objectives`, `comeback_odds`, `ban_context`, `tier_list`,
+`matchup_examples`, `checkpoints`, `route_archetypes`, and `build_evidence`.
+Every row has patch scope, population scope, era-stability, caveats, source
+document/section/reference, provenance key, tier, and explicit release
+status. Diagnostic rows never use recommendation language.
 
-The v2 root has `schema_version: 2`, a patch range of `14.17` through `16.17`,
-and the following discriminated evidence collections:
-`findings`, `habits`, `objectives`, `comeback_odds`, `ban_context`,
-`tier_list`, `matchup_examples`, `checkpoints`, `route_archetypes`, and
-`build_evidence`. Every row has patch scope, population scope, era-stability,
-caveats, source document/section/reference, provenance key, tier, and an
-explicit release status. `available` rows contain finite values and positive
-samples; `withheld` and `superseded` rows contain no value and explain their
-release reason. Diagnostic rows never use recommendation language.
 
 ### Findings Pack v2 feature contracts
 `feature_contracts.population`, `feature_contracts.personal_history`, and
@@ -363,27 +361,28 @@ The v2 Personal History feature order is:
 `first_riftherald_by_20m_s`, `first_baron_by_20m_s`,
 `smite_contests_before_15m`, `smite_contests_before_20m`,
 `early_fight_participation_rate`, and `plates_taken_by_14m`.
-`team_gold_diff_15m` is the latest exact frame at or before 900 seconds after
-a later frame proves the match reached 900 seconds. It is the player's team
-gold minus the opposing team's gold, requires all ten participants and a
-non-surrendered match, and is never midpointed, clipped, extrapolated, or
-replaced by a personal gold field.
+`team_gold_diff_15m` is the latest populated frame at or before 900 seconds
+after a populated frame at or after 900 seconds proves reachability. It is
+the own-team total gold minus enemy-team total gold, requires ten finite
+participants in exactly two unambiguous five-player teams, and is
+non-surrendered eligible data. It is never midpointed, clipped, extrapolated,
+or replaced by the distinct personal `gold_diff_15` feature.
 
-`comeback_odds` is exactly three `team_gold_diff_15m` bands:
-`[2000,3000)`, `[3000,5000)`, and `[5000,∞)`. Exact 3000 belongs to the
-second band and exact 5000 to the third. Every available band has a finite
-rate and positive sample. When exact Feature Store evidence is unavailable,
-the rows remain explicitly withheld with null rates and zero samples.
-
-The bundled diagnostic seed copies the LoLTrends handoff: 125,031 eligible
-matches, 1,250,310 participant performances, 175 criteria-admitted tracked
-players, and 49 patch buckets across 14.17–16.17. Bhayanak does not derive
-those values. Its Surrender Advisor is withheld because the observed
-22.7 percentage-point gap exceeds the five-point tolerance. Baron comeback lift
-is omitted. Route archetypes are approximate diagnostics, not advice; build
-evidence is withheld and contains no raw sequence rows. A number is emitted
-only when the producer artifact or checked-in diagnostic seed supplies the
-corresponding evidence.
+Every comeback row declares:
+`feature: "team_gold_diff_15m"`,
+`feature_contract_version: "loltrends-parity-v2"`,
+`sign_convention: "own_team_total_gold_minus_enemy_team_total_gold"`,
+the exact descriptive eligibility sentence, and `tier: "diagnostic"`.
+The exact row eligibility text is:
+`non-surrendered Eligible Match; populated frame at/after 900s proves reachability; latest valid frame at/before 900s; exactly ten unique participants in two unambiguous five-player teams; finite gold for all ten`.
+The row's `provenance_key` is `comeback_odds`, whose provenance uses
+`loltrends-population-v2`; the root personal-history declaration remains
+`loltrends-parity-v2`. `comeback_odds` is exactly three bands:
+`[2000,3000)`, `[3000,5000)`, and `[5000,∞)`, with rates/samples
+`0.278816/16692`, `0.183980/19975`, and `0.084949/10830`. Exact 3000
+belongs to the second band and exact 5000 to the third. Missing exact
+population evidence is represented by withheld rows with null rates and zero
+samples; it never becomes a personal fallback.
 
 ### Model and artifact contract
 `models` is keyed by stable model name. A declaration is either available

@@ -1,6 +1,6 @@
 import type { AssignedRole, CellState } from "../../api/types";
 
-export type FindingsPackState = "loading" | "available" | "missing" | "error";
+export type FindingsPackState = "loading" | "available" | "legacy" | "missing" | "error";
 
 export interface ChampSelectAllyView {
   cell_id: number;

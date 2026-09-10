@@ -20,7 +20,9 @@ export function HowToPlayCard({
         ? "Unavailable: Findings Pack could not be loaded, so champion-specific gameplan guidance is unavailable."
         : packState === "missing"
           ? "Unavailable: Findings Pack is missing, so champion-specific gameplan guidance is unavailable."
-          : "Unavailable: no exact champion-specific gameplan finding exists.";
+          : packState === "legacy"
+            ? "Unavailable: Findings Pack v1 contains no compatible v2 champion-specific gameplan finding."
+            : "Unavailable: no exact champion-specific gameplan finding exists.";
 
   return (
     <div

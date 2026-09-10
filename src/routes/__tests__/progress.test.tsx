@@ -5,7 +5,7 @@ import type { ReactElement } from "react";
 import { ProgressPage } from "../progress";
 import { api } from "../../api/client";
 import type { BenchmarkResponse, Settings } from "../../api/types";
-import { makePack as makeV2Pack } from "./fixtures";
+import { makePack as makeV2Pack, shippedLegacyPack } from "./fixtures";
 
 vi.mock("../../api/client", () => ({
   api: {
@@ -134,6 +134,18 @@ describe("ProgressPage", () => {
     expect(screen.getByRole("heading", { level: 2, name: /benchmarks/i })).toBeInTheDocument();
     expect(await screen.findByRole("list", { name: /benchmarks/i })).toBeInTheDocument();
     expect(screen.getAllByRole("listitem", { name: /CS@10|LEVEL@10|GOLD DIFF@10/i }).length).toBeGreaterThan(0);
+  });
+
+  it("keeps historical v1 benchmark population evidence visible without v2 comparisons", async () => {
+    vi.mocked(api.pack).mockResolvedValue(shippedLegacyPack);
+    vi.mocked(api.benchmarks).mockResolvedValue({ state: "contract-suppressed", rows: [] });
+    renderPage(<ProgressPage />);
+
+    const cards = await screen.findByTestId("benchmark-cards");
+    expect(cards).toHaveTextContent("CS@10 · TOP");
+    expect(cards).toHaveTextContent("61.0");
+    expect(cards).toHaveTextContent("Historical v1");
+    expect(screen.queryByTestId("benchmarks-contract-suppressed")).not.toBeInTheDocument();
   });
 
   it("renders benchmark evidence in the two data worlds: population blue, personal teal", async () => {

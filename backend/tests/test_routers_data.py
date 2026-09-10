@@ -277,6 +277,27 @@ def test_postgame_latest_reads_only_nested_v2_features(tmp_path: Path):
     assert digest["team_state"]["team_gold_diff_15m"] == -3500.0
 
 
+
+
+@pytest.mark.parametrize("broken_side", ["root-missing", "nested-missing", "mismatch"])
+def test_postgame_suppresses_one_sided_or_mismatched_team_state(
+    tmp_path: Path, broken_side: str
+) -> None:
+    client = build_client(tmp_path)
+    features = _v2_features(gold_diff_10=-300.0, team_gold_diff_15m=-3500.0, cs10=55)
+    if broken_side == "root-missing":
+        features["features"].pop("team_gold_diff_15m")
+    elif broken_side == "nested-missing":
+        features["team_state"].pop("team_gold_diff_15m")
+    else:
+        features["team_state"]["team_gold_diff_15m"] = -2500.0
+    seed(client.app.state.store, "broken-team-state", features=features)
+
+    with client:
+        digest = client.get("/postgame/latest", headers=AUTH).json()
+
+    assert digest["features"] == {"gold_diff_10": -300.0, "cs10": 55.0}
+    assert digest["team_state"] is None
 def test_postgame_does_not_fallback_to_undeclared_flat_features(tmp_path: Path):
     client = build_client(tmp_path)
     seed(

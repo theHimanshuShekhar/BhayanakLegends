@@ -22,6 +22,15 @@ def timeline_for(name: str) -> dict[str, Any]:
         frames_by_timestamp = {frame["timestamp"]: frame for frame in base["info"]["frames"]}
         for timestamp, events in case.get("events_at_ms", {}).items():
             frames_by_timestamp[int(timestamp)]["events"] = events
+        for timestamp, total_gold in case.get("total_gold_at_ms", {}).items():
+            frame = frames_by_timestamp[int(timestamp)]
+            if not isinstance(total_gold, list) or len(total_gold) != len(PARTICIPANTS):
+                continue
+            for index, participant in enumerate(PARTICIPANTS):
+                participant_id = int(participant["participantId"])
+                frame["participantFrames"][str(participant_id)]["totalGold"] = total_gold[index]
+        for timestamp in case.get("empty_participant_frames_at_ms", []):
+            frames_by_timestamp[int(timestamp)]["participantFrames"] = {}
         for timestamp, participant_ids in case.get("omit_participant_position_at_ms", {}).items():
             frame = frames_by_timestamp[int(timestamp)]
             for participant_id in participant_ids:
@@ -62,15 +71,28 @@ def timeline_for(name: str) -> dict[str, Any]:
     return {"info": {"frameInterval": 60000, "frames": frames}}
 
 
-def detail() -> dict[str, Any]:
+def detail(
+    *,
+    early_surrender: bool = False,
+    ordinary_surrender: bool = False,
+    participant_overrides: dict[int, dict[str, object]] | None = None,
+) -> dict[str, Any]:
+    participants = []
+    for participant in PARTICIPANTS:
+        updated = {
+            **participant,
+            "gameEndedInEarlySurrender": early_surrender,
+            "gameEndedInSurrender": ordinary_surrender,
+        }
+        updated.update((participant_overrides or {}).get(int(participant["participantId"]), {}))
+        participants.append(updated)
     return {
         "info": {
             "gameMode": "CLASSIC",
             "mapId": 11,
             "queueId": 420,
             "gameDuration": 1800,
-            "gameEndedInEarlySurrender": False,
-            "participants": PARTICIPANTS,
+            "participants": participants,
         }
     }
 
@@ -79,7 +101,10 @@ def expected(name: str, key: str) -> object:
     return FIXTURE["cases"][name]["expected"].get(key)
 
 
-@pytest.mark.parametrize("name", ["regular", "irregular", "missing_events", "too_short"])
+@pytest.mark.parametrize(
+    "name",
+    ["regular", "irregular", "missing_events", "too_short", "latest_populated_before_checkpoint", "team_deficit", "team_ahead"],
+)
 def test_checkpoint_contract_uses_shared_populated_reachability(name: str) -> None:
     values = parse_personal_history_v2(
         timeline_for(name), LOCAL_PUUID, PARTICIPANTS, detail=detail()
@@ -156,3 +181,59 @@ def test_recall_visibility_ambiguity_withholds_visibility_share_only() -> None:
     assert values["avg_banked_gold_at_recall_by_20m"] == 550
     assert values["unseen_recall_share_by_15m"] is None
     assert values["unseen_recall_share_by_20m"] is None
+def test_team_gold_withholds_ambiguous_teams_and_nonfinite_gold() -> None:
+    ambiguous = copy.deepcopy(PARTICIPANTS)
+    ambiguous[-1]["teamId"] = 100
+    values = parse_personal_history_v2(
+        timeline_for("regular"), LOCAL_PUUID, ambiguous, detail=detail()
+    )
+    assert values["team_gold_diff_15m"] is None
+
+    nonfinite = timeline_for("regular")
+    nonfinite["info"]["frames"][15]["participantFrames"]["10"]["totalGold"] = "NaN"
+    values = parse_personal_history_v2(
+        nonfinite, LOCAL_PUUID, PARTICIPANTS, detail=detail()
+    )
+    assert values["team_gold_diff_15m"] is None
+
+
+def test_ordinary_surrender_marks_match_ineligible_and_team_state_surrendered() -> None:
+    values = parse_personal_history_v2(
+        timeline_for("regular"),
+        LOCAL_PUUID,
+        PARTICIPANTS,
+        detail=detail(ordinary_surrender=True),
+    )
+    assert values["personal_history_eligibility"] == "ineligible"
+    assert values["team_state"]["non_surrendered"] is False
+
+
+def test_early_surrender_does_not_use_eligibility_as_team_state_evidence() -> None:
+    values = parse_personal_history_v2(
+        timeline_for("regular"),
+        LOCAL_PUUID,
+        PARTICIPANTS,
+        detail=detail(early_surrender=True),
+    )
+    assert values["personal_history_eligibility"] == "ineligible"
+    assert values["team_state"]["non_surrendered"] is True
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {10: {"gameEndedInSurrender": True}},
+        {10: {"gameEndedInSurrender": None}},
+    ],
+)
+def test_inconsistent_or_missing_participant_surrender_flags_are_unknown(
+    overrides: dict[int, dict[str, object]],
+) -> None:
+    values = parse_personal_history_v2(
+        timeline_for("regular"),
+        LOCAL_PUUID,
+        PARTICIPANTS,
+        detail=detail(participant_overrides=overrides),
+    )
+    assert values["personal_history_eligibility"] == "unknown"
+    assert values["team_state"]["non_surrendered"] is None

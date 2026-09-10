@@ -5,7 +5,7 @@ import type { ReactElement } from "react";
 import type { Settings } from "../../api/types";
 import { ChampionsPage } from "../champions";
 import { api } from "../../api/client";
-import { makePack as makeV2Pack } from "./fixtures";
+import { makePack as makeV2Pack, shippedLegacyPack } from "./fixtures";
 
 vi.mock("../../api/client", () => ({
   api: {
@@ -113,6 +113,22 @@ describe("ChampionsPage", () => {
     expect(screen.getByTestId("matchups-card")).toHaveTextContent(
       "Select a champion to see directional examples.",
     );
+    expect(api.trajectories).not.toHaveBeenCalled();
+    expect(api.patchAggregates).not.toHaveBeenCalled();
+  });
+
+  it("keeps v1 tier, finding, and matchup evidence visible while suppressing v2 history", async () => {
+    vi.mocked(api.pack).mockResolvedValue(shippedLegacyPack);
+    renderPage(<ChampionsPage />);
+
+    expect(await screen.findByTestId("tier-list")).toBeInTheDocument();
+    expect(screen.getByTestId("tier-list-card")).toHaveTextContent("Historical v1");
+    fireEvent.click(screen.getByTestId("tier-row-Yasuo"));
+
+    const card = await screen.findByTestId("matchups-card");
+    expect(card).toHaveTextContent("Yasuo vs Yone");
+    expect(card).toHaveTextContent("Historical Findings Pack v1");
+    expect(screen.getByTestId("champion-header")).toHaveTextContent("Yasuo");
     expect(api.trajectories).not.toHaveBeenCalled();
     expect(api.patchAggregates).not.toHaveBeenCalled();
   });

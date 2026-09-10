@@ -29,6 +29,7 @@ export function RoleTierList({
   onSelect: (champion: string) => void;
 }) {
   const first = rows[0] ?? null;
+  const legacy = first?.legacy === true;
   return (
     <section className="card3" data-testid="tier-list-card" aria-labelledby="tier-list-heading" style={{ padding: 13, display: "flex", flexDirection: "column", gap: 8 }}>
       <SectionHead label={<span id="tier-list-heading">ROLE TIERS · {role}</span>} color="var(--color-info)" />
@@ -68,17 +69,19 @@ export function RoleTierList({
         })}
         {rows.length === 0 && (
           <div data-testid="tier-list-unavailable" role="status" style={{ fontSize: 9.5, color: "var(--color-dimmer)" }}>
-            Unavailable: no qualifying champion-role rows meet the 500-game floor.
+            {legacy ? "Unavailable: no historical champion-role rows are available." : "Unavailable: no qualifying champion-role rows meet the 500-game floor."}
           </div>
         )}
       </div>
       {first && (
         <EvidenceMeta metadata={first.metadata} testId="tier-list-evidence-meta">
-          <div>S/A/B/C are within-role rank bands; rows qualify at {first.minimumGames.toLocaleString("en-US")} games.</div>
+          <div>{legacy ? "Historical v1 rank-band evidence; source rows retain their original role and pick-rate definitions." : `S/A/B/C are within-role rank bands; rows qualify at ${first.minimumGames.toLocaleString("en-US")} games.`}</div>
         </EvidenceMeta>
       )}
       <p style={{ margin: 0, fontSize: 9, lineHeight: 1.5, color: "var(--color-dimmer)" }}>
-        Diagnostic pooled scouting context; this does not identify a best pick or describe a current patch.
+        {legacy
+          ? "Historical v1 pooled scouting context; this does not identify a best pick or describe a current patch."
+          : "Diagnostic pooled scouting context; this does not identify a best pick or describe a current patch."}
       </p>
     </section>
   );

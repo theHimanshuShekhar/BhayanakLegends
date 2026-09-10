@@ -1,8 +1,8 @@
-import type { PackV2Finding } from "../../api/pack-v2";
+import { EvidenceMeta, evidenceUsable, type FindingEvidence } from "../populationEvidence";
 import { SectionHead } from "../ui";
 
-export function LaneConversion({ finding }: { finding: PackV2Finding }) {
-  if (finding.release_status !== "available" && finding.release_status !== "approximate") return null;
+export function LaneConversion({ finding }: { finding: FindingEvidence }) {
+  if (!evidenceUsable(finding.metadata)) return null;
   return (
     <div
       className="card3"
@@ -22,9 +22,7 @@ export function LaneConversion({ finding }: { finding: PackV2Finding }) {
       <p style={{ margin: 0, fontSize: 10, lineHeight: 1.5, color: "var(--color-dim)" }}>
         {finding.statement}
       </p>
-      <p style={{ margin: 0, fontSize: 8.5, lineHeight: 1.4, color: "var(--color-dimmer)" }}>
-        {finding.caveats[0]} · {finding.sample.toLocaleString("en-US")} population exposures
-      </p>
+      <EvidenceMeta metadata={finding.metadata} testId="lane-conversion-evidence-meta" />
     </div>
   );
 }

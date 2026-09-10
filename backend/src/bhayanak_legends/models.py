@@ -7,7 +7,7 @@ frontend crashes, so response models reject unknown states and shapes.
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, FiniteFloat
+from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, model_validator
 
 
 
@@ -217,10 +217,10 @@ class HistoryInsights(ContractModel):
     feature_trajectories: list[HistoryFeatureTrajectoryPoint] = Field(default_factory=list)
 
 class TeamState(ContractModel):
-    feature: Literal["team_gold_diff_15m"] = "team_gold_diff_15m"
-    feature_contract_version: str = "loltrends-parity-v2"
-    team_gold_diff_15m: float | None = None
-    observed_through_s: float | None = Field(default=None, ge=0)
+    feature: Literal["team_gold_diff_15m"]
+    feature_contract_version: Literal["loltrends-parity-v2"]
+    team_gold_diff_15m: FiniteFloat | None = None
+    observed_through_s: FiniteFloat | None = Field(default=None, ge=0)
     non_surrendered: bool | None = None
 
 
@@ -245,8 +245,21 @@ class PostGameDigest(ContractModel):
     headline: str
     feature_contract_version: str | None = None
     personal_history_eligibility: PersonalHistoryEligibility = "unknown"
-    features: dict[str, float | None] = Field(default_factory=dict)
+    features: dict[str, FiniteFloat | None] = Field(default_factory=dict)
     team_state: TeamState | None = None
+    @model_validator(mode="after")
+    def team_state_joins_root_contract(self) -> "PostGameDigest":
+        if self.team_state is None:
+            return self
+        if self.feature_contract_version != self.team_state.feature_contract_version:
+            raise ValueError("team_state feature contract must match the digest contract")
+        if "team_gold_diff_15m" not in self.features:
+            raise ValueError("team_state requires a root team_gold_diff_15m feature")
+        root_value = self.features["team_gold_diff_15m"]
+        nested_value = self.team_state.team_gold_diff_15m
+        if root_value is None or nested_value is None or root_value != nested_value:
+            raise ValueError("team_state requires matching finite root and nested team values")
+        return self
 
 
 LiveInferenceStatus = Literal[

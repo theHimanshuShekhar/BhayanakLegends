@@ -163,6 +163,22 @@ def _frame_at_or_before(
         if chosen is None or (timestamp, order) > (chosen[0], chosen[1]):
             chosen = (timestamp, order, frame)
     return chosen[2] if chosen else None
+def _populated_frame_at_or_before(
+    timeline: Mapping[str, Any] | None, target_ms: int
+) -> dict[str, Any] | None:
+    """Return the latest frame at/before a checkpoint with participant data."""
+
+    chosen: tuple[float, int, dict[str, Any]] | None = None
+    for timestamp, order, frame in _frames(timeline):
+        if timestamp > target_ms:
+            continue
+        snapshots = frame.get("participantFrames")
+        if not isinstance(snapshots, Mapping) or not snapshots:
+            continue
+        if chosen is None or (timestamp, order) > (chosen[0], chosen[1]):
+            chosen = (timestamp, order, frame)
+    return chosen[2] if chosen else None
+
 
 
 def _has_frame_at_or_after(timeline: Mapping[str, Any] | None, target_ms: int) -> bool:
@@ -240,7 +256,6 @@ def _dedupe_events(
         output.append(event)
     return output
 
-
 def _checkpoint_values(
     timeline: Mapping[str, Any] | None,
     participant_id: int,
@@ -254,9 +269,9 @@ def _checkpoint_values(
     }
 
     # A populated observation at/after ten minutes proves reachability; the
-    # selected values still come only from the latest frame at/before 10m.
+    # selected values still come only from the latest populated frame at/before 10m.
     if _has_populated_frame_at_or_after(timeline, TEN_MINUTE_MS):
-        ten_frame = _frame_at_or_before(timeline, TEN_MINUTE_MS)
+        ten_frame = _populated_frame_at_or_before(timeline, TEN_MINUTE_MS)
         mine = _snapshot(ten_frame, participant_id)
         if mine is not None:
             minions = _number(mine.get("minionsKilled"))
@@ -288,7 +303,7 @@ def _checkpoint_values(
                     values["gold_diff_10"] = gold - statistics.median(pool)
 
     # Team gold at 15m is intentionally a separate feature from the personal
-    # median-relative gold_diff fields.  All ten participants and both five-
+    # median-relative gold_diff fields. All ten participants and both five-
     # player teams are required at the selected frame.
     if not _has_populated_frame_at_or_after(timeline, FIFTEEN_MINUTE_MS):
         return values
@@ -312,7 +327,7 @@ def _checkpoint_values(
     if len(enemy_teams) != 1:
         return values
 
-    fifteen_frame = _frame_at_or_before(timeline, FIFTEEN_MINUTE_MS)
+    fifteen_frame = _populated_frame_at_or_before(timeline, FIFTEEN_MINUTE_MS)
     snapshots = fifteen_frame.get("participantFrames") if fifteen_frame else None
     if not isinstance(snapshots, Mapping):
         return values
@@ -777,7 +792,46 @@ def parse_plates_v2(
     )
 
 
-def personal_history_eligibility(detail: Mapping[str, Any] | None) -> str:
+def _surrender_flags(
+    detail: Mapping[str, Any] | None,
+    participants: list[dict[str, Any]] | None = None,
+) -> tuple[bool, bool] | None:
+    """Return consistent participant-level early/ordinary surrender flags."""
+    info = detail.get("info") if isinstance(detail, Mapping) else None
+    detail_participants = info.get("participants") if isinstance(info, Mapping) else None
+    candidates = participants
+    if not isinstance(candidates, list) or not any(
+        isinstance(participant, Mapping)
+        and (
+            "gameEndedInEarlySurrender" in participant
+            or "gameEndedInSurrender" in participant
+        )
+        for participant in candidates
+    ):
+        candidates = detail_participants
+    if not isinstance(candidates, list) or not candidates:
+        return None
+
+    early_values: set[bool] = set()
+    ordinary_values: set[bool] = set()
+    for participant in candidates:
+        if not isinstance(participant, Mapping):
+            return None
+        early = participant.get("gameEndedInEarlySurrender")
+        ordinary = participant.get("gameEndedInSurrender")
+        if not isinstance(early, bool) or not isinstance(ordinary, bool):
+            return None
+        early_values.add(early)
+        ordinary_values.add(ordinary)
+    if len(early_values) != 1 or len(ordinary_values) != 1:
+        return None
+    return early_values.pop(), ordinary_values.pop()
+
+
+def personal_history_eligibility(
+    detail: Mapping[str, Any] | None,
+    participants: list[dict[str, Any]] | None = None,
+) -> str:
     """Return the explicit local-match eligibility used by consumers."""
     if not isinstance(detail, Mapping):
         return "unknown"
@@ -793,9 +847,10 @@ def personal_history_eligibility(detail: Mapping[str, Any] | None) -> str:
         duration = float(info.get("gameDuration"))
     except (TypeError, ValueError, OverflowError):
         return "unknown"
-    early_surrender = info.get("gameEndedInEarlySurrender")
-    if not isinstance(early_surrender, bool):
+    surrender_flags = _surrender_flags(detail, participants)
+    if surrender_flags is None:
         return "unknown"
+    early_surrender, ordinary_surrender = surrender_flags
     eligible = (
         str(info.get("gameMode")) == "CLASSIC"
         and map_id == 11
@@ -803,6 +858,7 @@ def personal_history_eligibility(detail: Mapping[str, Any] | None) -> str:
         and math.isfinite(duration)
         and duration >= 300
         and not early_surrender
+        and not ordinary_surrender
     )
     return "eligible" if eligible else "ineligible"
 
@@ -838,9 +894,12 @@ def parse_personal_history_v2(
     local = _participant_for_puuid(participant_list, puuid)
     local_id = _positive_id(local.get("participantId")) if local else None
 
+    surrender_flags = _surrender_flags(detail, participant_list)
     values: dict[str, Any] = {
         "feature_contract_version": PARITY_V2_VERSION,
-        "personal_history_eligibility": personal_history_eligibility(detail),
+        "personal_history_eligibility": personal_history_eligibility(
+            detail, participant_list
+        ),
         "timeline_observed_through_s": None,
         **{feature: None for feature in V2_FEATURE_ORDER},
         "team_state": {
@@ -848,7 +907,9 @@ def parse_personal_history_v2(
             "feature_contract_version": PARITY_V2_VERSION,
             "team_gold_diff_15m": None,
             "observed_through_s": None,
-            "non_surrendered": None,
+            "non_surrendered": (
+                not surrender_flags[1] if surrender_flags is not None else None
+            ),
         },
     }
 
@@ -883,10 +944,7 @@ def parse_personal_history_v2(
     values["smite_contests_before_20m"] = None
     values["plates_taken_by_14m"] = parse_plates_v2(timeline, local_id, participant_list)
     values["team_state"]["team_gold_diff_15m"] = values["team_gold_diff_15m"]
-    if values["personal_history_eligibility"] in {"eligible", "ineligible"}:
-        values["team_state"]["non_surrendered"] = values["personal_history_eligibility"] == "eligible"
     return values
-
 
 __all__ = [
     "EARLY_FIGHT_CUTOFF_MS",

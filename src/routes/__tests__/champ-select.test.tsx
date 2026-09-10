@@ -11,6 +11,7 @@ import {
   idleSession,
   idleStatus,
   makePack,
+  shippedLegacyPack,
 } from "./fixtures";
 const preLockChampSelectSession: ChampSelectSnapshot = {
   ...champSelectSession,
@@ -80,6 +81,17 @@ describe("ChampSelectPage", () => {
     expect(screen.getByTestId("role-tiers-unavailable")).toBeInTheDocument();
     expect(screen.getByTestId("card-mastery")).toHaveTextContent("+1.94 pp");
     expect(screen.getByTestId("card-ban-context")).toHaveTextContent("r=+0.06");
+  });
+
+  it("keeps historical v1 mastery, role tiers, and ban context visible", async () => {
+    liveState.session = preLockChampSelectSession;
+    vi.mocked(api.pack).mockResolvedValue(shippedLegacyPack);
+    renderPage();
+
+    await waitFor(() => expect(screen.getByTestId("card-role-tiers")).toHaveTextContent("Historical v1"));
+    expect(screen.getByTestId("card-mastery")).toHaveTextContent("+3.70 pp");
+    expect(screen.getByTestId("card-ban-context")).toHaveTextContent("r=+0.13");
+    expect(screen.getByTestId("role-tier-rows")).toBeInTheDocument();
   });
 
   it("keeps loadout and gameplan surfaces read-only when v2 has no champion-specific finding", async () => {

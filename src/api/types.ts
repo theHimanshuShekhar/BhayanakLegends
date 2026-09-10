@@ -185,7 +185,7 @@ export interface PatchAggregate {
 }
 export interface TeamState {
   feature: "team_gold_diff_15m";
-  feature_contract_version: string;
+  feature_contract_version: "loltrends-parity-v2";
   team_gold_diff_15m: number | null;
   observed_through_s: number | null;
   non_surrendered: boolean | null;

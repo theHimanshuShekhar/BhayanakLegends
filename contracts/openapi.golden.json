@@ -340,6 +340,109 @@
         },
         "type": "object"
       },
+      "FindingsPackV1": {
+        "properties": {
+          "ban_advisor": {
+            "items": {
+              "$ref": "#/components/schemas/PackV1BanAdvice"
+            },
+            "type": "array"
+          },
+          "benchmarks": {
+            "items": {
+              "$ref": "#/components/schemas/PackV1Benchmark"
+            },
+            "type": "array"
+          },
+          "checkpoints": {
+            "items": {
+              "$ref": "#/components/schemas/PackV1Checkpoint"
+            },
+            "type": "array"
+          },
+          "comeback_feature_contract": {
+            "$ref": "#/components/schemas/PackV1ComebackFeatureContract"
+          },
+          "comeback_odds": {
+            "items": {
+              "$ref": "#/components/schemas/PackV1ComebackOdds"
+            },
+            "type": "array"
+          },
+          "dataset": {
+            "$ref": "#/components/schemas/PackV1Dataset"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/PackV1Finding"
+            },
+            "type": "array"
+          },
+          "generated_at": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "habits": {
+            "items": {
+              "$ref": "#/components/schemas/PackV1Habit"
+            },
+            "type": "array"
+          },
+          "matchup_examples": {
+            "items": {
+              "$ref": "#/components/schemas/PackV1MatchupExample"
+            },
+            "type": "array"
+          },
+          "objectives": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object"
+          },
+          "pack_version": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/PackV1Provenance"
+          },
+          "schema_version": {
+            "const": 1,
+            "type": "integer"
+          },
+          "tier_list": {
+            "items": {
+              "$ref": "#/components/schemas/PackV1TierEntry"
+            },
+            "type": "array"
+          },
+          "trap_picks": {
+            "items": {
+              "$ref": "#/components/schemas/PackV1TrapPick"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "schema_version",
+          "generated_at",
+          "comeback_feature_contract",
+          "provenance",
+          "dataset",
+          "findings",
+          "habits",
+          "objectives",
+          "comeback_odds",
+          "ban_advisor",
+          "trap_picks",
+          "tier_list",
+          "matchup_examples",
+          "benchmarks",
+          "checkpoints"
+        ],
+        "type": "object"
+      },
       "FindingsPackV2": {
         "additionalProperties": false,
         "properties": {
@@ -1287,6 +1390,487 @@
         },
         "type": "object"
       },
+      "PackV1BanAdvice": {
+        "properties": {
+          "ban_rate": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "type": "number"
+          },
+          "champion": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "recommendation": {
+            "enum": [
+              "real-threat",
+              "fear-ban",
+              "skip"
+            ],
+            "type": "string"
+          },
+          "win_rate": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "champion",
+          "win_rate",
+          "ban_rate",
+          "recommendation"
+        ],
+        "type": "object"
+      },
+      "PackV1Benchmark": {
+        "properties": {
+          "cs10_median": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "feature_contract": {
+            "$ref": "#/components/schemas/PackV1FeatureContract"
+          },
+          "gold_diff_10_median": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "level10_median": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "role": {
+            "enum": [
+              "TOP",
+              "JUNGLE",
+              "MIDDLE",
+              "BOTTOM",
+              "UTILITY",
+              "UNKNOWN"
+            ],
+            "type": "string"
+          },
+          "sample": {
+            "exclusiveMinimum": 0.0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "role",
+          "feature_contract",
+          "sample"
+        ],
+        "type": "object"
+      },
+      "PackV1Checkpoint": {
+        "properties": {
+          "gold_diff_bucket": {
+            "enum": [
+              "bottom_quartile_@20m",
+              "top_quartile_@20m"
+            ],
+            "type": "string"
+          },
+          "win_rate": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "gold_diff_bucket",
+          "win_rate"
+        ],
+        "type": "object"
+      },
+      "PackV1ComebackFeatureContract": {
+        "properties": {
+          "feature": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "feature_contract_version": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "feature",
+          "feature_contract_version"
+        ],
+        "type": "object"
+      },
+      "PackV1ComebackOdds": {
+        "properties": {
+          "gold_deficit_at_15": {
+            "type": "integer"
+          },
+          "win_rate": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "gold_deficit_at_15",
+          "win_rate"
+        ],
+        "type": "object"
+      },
+      "PackV1Dataset": {
+        "properties": {
+          "matches": {
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "patches": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "player_games": {
+            "minimum": 0.0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "matches",
+          "player_games",
+          "patches"
+        ],
+        "type": "object"
+      },
+      "PackV1FeatureContract": {
+        "properties": {
+          "cs10_median": {
+            "anyOf": [
+              {
+                "enum": [
+                  "cs10",
+                  "lane_minions_first_10m"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "gold_diff_10_median": {
+            "anyOf": [
+              {
+                "const": "gold_diff_10",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "level10_median": {
+            "anyOf": [
+              {
+                "const": "level10",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "PackV1Finding": {
+        "properties": {
+          "key": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "source_ref": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "statement": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "tier": {
+            "enum": [
+              "actionable",
+              "diagnostic",
+              "a-lite"
+            ],
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "tier",
+          "title",
+          "statement",
+          "source_ref"
+        ],
+        "type": "object"
+      },
+      "PackV1Habit": {
+        "properties": {
+          "effect_per_sd": {
+            "type": "number"
+          },
+          "key": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "label": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "effect_per_sd"
+        ],
+        "type": "object"
+      },
+      "PackV1MatchupExample": {
+        "properties": {
+          "champion": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "ci": {
+            "minimum": 0.0,
+            "type": "number"
+          },
+          "games": {
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "opponent": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "TOP",
+              "JUNGLE",
+              "MIDDLE",
+              "BOTTOM",
+              "UTILITY",
+              "UNKNOWN"
+            ],
+            "type": "string"
+          },
+          "wr": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "champion",
+          "opponent",
+          "role",
+          "wr",
+          "ci",
+          "games"
+        ],
+        "type": "object"
+      },
+      "PackV1Provenance": {
+        "properties": {
+          "ban_advisor": {
+            "$ref": "#/components/schemas/PackV1TableProvenance"
+          },
+          "benchmarks": {
+            "$ref": "#/components/schemas/PackV1TableProvenance"
+          },
+          "checkpoints": {
+            "$ref": "#/components/schemas/PackV1TableProvenance"
+          },
+          "comeback_odds": {
+            "$ref": "#/components/schemas/PackV1TableProvenance"
+          },
+          "dataset": {
+            "$ref": "#/components/schemas/PackV1TableProvenance"
+          },
+          "findings": {
+            "$ref": "#/components/schemas/PackV1TableProvenance"
+          },
+          "habits": {
+            "$ref": "#/components/schemas/PackV1TableProvenance"
+          },
+          "matchup_examples": {
+            "$ref": "#/components/schemas/PackV1TableProvenance"
+          },
+          "objectives": {
+            "$ref": "#/components/schemas/PackV1TableProvenance"
+          },
+          "tier_list": {
+            "$ref": "#/components/schemas/PackV1TableProvenance"
+          },
+          "trap_picks": {
+            "$ref": "#/components/schemas/PackV1TableProvenance"
+          }
+        },
+        "required": [
+          "dataset",
+          "findings",
+          "habits",
+          "objectives",
+          "comeback_odds",
+          "ban_advisor",
+          "trap_picks",
+          "tier_list",
+          "matchup_examples",
+          "benchmarks",
+          "checkpoints"
+        ],
+        "type": "object"
+      },
+      "PackV1TableProvenance": {
+        "properties": {
+          "feature_contract_version": {
+            "const": "loltrends-parity-v1",
+            "type": "string"
+          },
+          "feature_store_manifest_sha256": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "generator_revision": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "source_document": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "source_section": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_document",
+          "source_section",
+          "feature_store_manifest_sha256",
+          "generator_revision",
+          "feature_contract_version"
+        ],
+        "type": "object"
+      },
+      "PackV1TierEntry": {
+        "properties": {
+          "champion": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "games": {
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "pick_rate": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "type": "number"
+          },
+          "role": {
+            "enum": [
+              "TOP",
+              "JUNGLE",
+              "MIDDLE",
+              "BOTTOM",
+              "UTILITY",
+              "UNKNOWN"
+            ],
+            "type": "string"
+          },
+          "tier": {
+            "enum": [
+              "S",
+              "A",
+              "B",
+              "C"
+            ],
+            "type": "string"
+          },
+          "win_rate": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "champion",
+          "role",
+          "games",
+          "pick_rate",
+          "win_rate",
+          "tier"
+        ],
+        "type": "object"
+      },
+      "PackV1TrapPick": {
+        "properties": {
+          "champion": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "win_rate": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "champion",
+          "win_rate"
+        ],
+        "type": "object"
+      },
       "PackV2Artifact": {
         "additionalProperties": false,
         "properties": {
@@ -1639,7 +2223,7 @@
             "type": "integer"
           },
           "eligibility": {
-            "minLength": 1,
+            "const": "non-surrendered Eligible Match; populated frame at/after 900s proves reachability; latest valid frame at/before 900s; exactly ten unique participants in two unambiguous five-player teams; finite gold for all ten",
             "type": "string"
           },
           "era_stability": {
@@ -1656,10 +2240,11 @@
             "type": "string"
           },
           "feature_contract_version": {
-            "minLength": 1,
+            "const": "loltrends-parity-v2",
             "type": "string"
           },
           "include_lower": {
+            "const": true,
             "type": "boolean"
           },
           "include_upper": {
@@ -1716,6 +2301,10 @@
             "minimum": 0.0,
             "type": "integer"
           },
+          "sign_convention": {
+            "const": "own_team_total_gold_minus_enemy_team_total_gold",
+            "type": "string"
+          },
           "source_document": {
             "minLength": 1,
             "type": "string"
@@ -1729,11 +2318,7 @@
             "type": "string"
           },
           "tier": {
-            "enum": [
-              "actionable",
-              "diagnostic",
-              "a-lite"
-            ],
+            "const": "diagnostic",
             "type": "string"
           },
           "unit": {
@@ -1763,6 +2348,7 @@
           "provenance_key",
           "feature",
           "feature_contract_version",
+          "sign_convention",
           "checkpoint_seconds",
           "unit",
           "lower_bound",
@@ -3864,6 +4450,7 @@
             "type": "string"
           },
           "feature_contract_version": {
+            "const": "loltrends-parity-v2",
             "type": "string"
           },
           "non_surrendered": {
@@ -3898,6 +4485,10 @@
             ]
           }
         },
+        "required": [
+          "feature",
+          "feature_contract_version"
+        ],
         "type": "object"
       },
       "TrajectoryPoint": {
@@ -4274,7 +4865,21 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FindingsPackV2"
+                  "discriminator": {
+                    "mapping": {
+                      "1": "#/components/schemas/FindingsPackV1",
+                      "2": "#/components/schemas/FindingsPackV2"
+                    },
+                    "propertyName": "schema_version"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/FindingsPackV2"
+                    },
+                    {
+                      "$ref": "#/components/schemas/FindingsPackV1"
+                    }
+                  ]
                 }
               }
             }

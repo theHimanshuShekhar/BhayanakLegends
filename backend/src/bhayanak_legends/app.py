@@ -4,11 +4,11 @@ import os
 import sys
 import time
 import urllib.parse
-from contextlib import asynccontextmanager
 from pathlib import Path
-
+from typing import Annotated
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field as PydanticField, ValidationError
 from starlette.middleware.cors import CORSMiddleware
 
 from .auth import HostValidationMiddleware, RequestLoggingMiddleware, TokenAuthMiddleware
@@ -34,17 +34,33 @@ from .models import (
 from .inference import InferenceRuntime
 from .pack import PackError, PackStore
 from .pack_v2 import FindingsPackV2
+from .pack_v1 import FindingsPackV1
 from .routers_data import router as data_router
 from .routers_events import build_events_router
 from .sse import Hub
 from .store import Store
 from .release_channel import DEFAULT_MANIFEST_URL, ReleaseChannel, ReleaseResult
 from .version import APP_VERSION
+FindingsPackResponse = Annotated[
+    FindingsPackV2 | FindingsPackV1,
+    PydanticField(discriminator="schema_version"),
+]
 
 log = logging.getLogger("bhayanak_legends")
 
 PACK_VALIDATION_ERROR_DETAIL = "Findings Pack validation failed"
 PACK_UNAVAILABLE_DETAIL = "Findings Pack unavailable"
+
+def _validate_pack_payload(payload: object) -> FindingsPackV1 | FindingsPackV2:
+    """Dispatch API/health validation by the explicit pack schema version."""
+    if not isinstance(payload, dict):
+        raise ValueError("Findings Pack payload must be an object")
+    schema_version = payload.get("schema_version")
+    if schema_version == 1:
+        return FindingsPackV1.model_validate(payload)
+    if schema_version == 2:
+        return FindingsPackV2.model_validate(payload)
+    raise ValueError("unsupported Findings Pack schema version")
 
 
 def _allow_loopback_http(manifest_url: str) -> bool:
@@ -242,31 +258,34 @@ def create_app(
 
     @app.get("/health", response_model=Health)
     def health() -> Health:
+        pack_version: str | None = None
         if app.state.pack_error is None:
             try:
-                validated = FindingsPackV2.model_validate(pack.load())
-                pack_version = validated.pack_version
-            except (PackError, ValidationError):
+                validated = _validate_pack_payload(pack.load())
+                pack_version = str(validated.pack_version)
+            except (PackError, ValidationError, ValueError, TypeError):
                 pack_version = None
-        else:
-            pack_version = None
         return Health(
             status="ok" if pack_version is not None else "degraded",
             app_version=APP_VERSION,
             pack_version=pack_version,
         )
 
-    @app.get("/pack", response_model=FindingsPackV2, response_model_exclude_none=True)
+    @app.get(
+        "/pack",
+        response_model=FindingsPackResponse,
+        response_model_exclude_none=True,
+    )
     def get_pack() -> dict:
         try:
-            validated = FindingsPackV2.model_validate(pack.load())
+            validated = _validate_pack_payload(pack.load())
         except PackError as exc:
             log.warning("Findings Pack validation failed: %s", exc)
             raise HTTPException(
                 status_code=503,
                 detail=PACK_UNAVAILABLE_DETAIL,
             ) from None
-        except ValidationError as exc:
+        except (ValidationError, ValueError, TypeError) as exc:
             log.warning("Findings Pack validation failed: %s", exc)
             raise HTTPException(
                 status_code=503,

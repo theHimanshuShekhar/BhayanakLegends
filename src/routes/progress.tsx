@@ -1,6 +1,7 @@
 import { useBenchmarks, useHistorySummary, usePack, usePatchAggregates, usePostgameLatest } from "../api/hooks";
 import { actionableErrorMessage } from "../api/client";
-import { isFindingsPackV2 } from "../api/pack-v2";
+import { isFindingsPack, isFindingsPackV2 } from "../api/pack-v2";
+import { findingEvidence, legacyBenchmarkEvidence } from "../components/populationEvidence";
 import { CaveatFooter } from "../components/journal/CaveatFooter";
 import { ProgressSummaryCard } from "../components/progress/ProgressSummaryCard";
 import { RollingWrChart } from "../components/progress/RollingWrChart";
@@ -29,11 +30,13 @@ export function ProgressPage() {
   const summary = useHistorySummary();
 
   const postgame = usePostgameLatest();
-  const packV2 = isFindingsPackV2(pack.data) ? pack.data : null;
+  const packEvidence = isFindingsPack(pack.data) ? pack.data : undefined;
+  const packV2 = isFindingsPackV2(packEvidence) ? packEvidence : undefined;
   const perPatch = aggregates.data ?? [];
-  const laneFinding = packV2
-    ? packV2.findings.find((f) => LANE_CONVERSION_RE.test(f.key)) ?? null
-    : null;
+  const laneFinding = findingEvidence(packEvidence).find(
+    (finding) => LANE_CONVERSION_RE.test(finding.key),
+  ) ?? null;
+  const legacyBenchmarkRows = legacyBenchmarkEvidence(packEvidence);
 
   return (
     <div className="progress-page">
@@ -71,7 +74,10 @@ export function ProgressPage() {
               </div>
             )}
             {benchmarks.data?.state === "available" && <BenchmarkCards rows={benchmarks.data.rows} />}
-            {benchmarks.data?.state === "contract-suppressed" && (
+            {legacyBenchmarkRows.length > 0 && benchmarks.data?.state !== "available" && (
+              <BenchmarkCards rows={[]} historicalRows={legacyBenchmarkRows} />
+            )}
+            {benchmarks.data?.state === "contract-suppressed" && legacyBenchmarkRows.length === 0 && (
               <p data-testid="benchmarks-contract-suppressed" style={{ fontSize: 10.5, lineHeight: 1.5, color: "var(--color-dimmer)" }}>
                 No Benchmarks: this Findings Pack does not declare a population feature compatible
                 with the Personal History extractors.
@@ -96,7 +102,7 @@ export function ProgressPage() {
               <h2 id="what-if-heading" className="route-panel-heading">
                 What-if simulator
               </h2>
-              <WhatIfPanel pack={pack.data} digest={postgame.data ?? null} />
+              <WhatIfPanel pack={packV2 ?? undefined} digest={postgame.data ?? null} />
             </section>
           </div>
 

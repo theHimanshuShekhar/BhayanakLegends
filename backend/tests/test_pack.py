@@ -14,7 +14,8 @@ import pytest
 from jsonschema import Draft202012Validator, ValidationError
 from pydantic import ValidationError as PydanticValidationError
 
-from bhayanak_legends.pack import PackError, PackStore
+from bhayanak_legends.pack import PackError, PackStore, validate_pack_directory
+from bhayanak_legends.pack_v1 import FindingsPackV1
 from bhayanak_legends.pack_v2 import FindingsPackV2
 from pack_fixture_helpers import canonical_model_assets
 
@@ -22,6 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PACK_DIR = REPO_ROOT / "pack"
 SCHEMA = json.loads((PACK_DIR / "pack.schema.json").read_text(encoding="utf-8"))
 PACK = json.loads((PACK_DIR / "findings-pack.v2.json").read_text(encoding="utf-8"))
+PACK_V1_FIXTURE = Path(__file__).parent / "fixtures" / "findings-pack.v1.json"
 
 
 def test_pack_checkout_attributes_pin_text_and_binary_assets():
@@ -80,6 +82,34 @@ def test_pack_matches_canonical_schema_and_strict_model(generator):
     assert model.dataset.eligible_matches > 0
 
 
+def test_legacy_v1_pack_dispatch_preserves_historical_contract(tmp_path: Path):
+    payload = json.loads(PACK_V1_FIXTURE.read_text(encoding="utf-8"))
+    (tmp_path / "findings-pack.v1.json").write_text(
+        json.dumps(payload), encoding="utf-8"
+    )
+
+    loaded = validate_pack_directory(tmp_path)
+    model = FindingsPackV1.model_validate(loaded)
+
+    assert model.schema_version == 1
+    assert model.comeback_feature_contract.feature == "gold_diff_15"
+    assert [row.gold_deficit_at_15 for row in model.comeback_odds] == [-2000, -5000, -7000]
+
+
+def test_v2_comeback_rows_pin_sign_eligibility_tier_and_population_provenance():
+    rows = PACK["comeback_odds"]
+    assert all(
+        row["sign_convention"] == "own_team_total_gold_minus_enemy_team_total_gold"
+        and row["eligibility"]
+        == "non-surrendered Eligible Match; populated frame at/after 900s proves reachability; latest valid frame at/before 900s; exactly ten unique participants in two unambiguous five-player teams; finite gold for all ten"
+        and row["tier"] == "diagnostic"
+        for row in rows
+    )
+    assert PACK["feature_contracts"]["personal_history"] == "loltrends-parity-v2"
+    assert PACK["feature_contracts"]["population"] == "loltrends-population-v2"
+    assert PACK["provenance"]["comeback_odds"]["feature_contract_version"] == "loltrends-population-v2"
+
+
 def test_schema_rejects_unknown_root_and_row_fields():
     broken = copy.deepcopy(PACK)
     broken["future_table"] = {"new_metric": 1}
@@ -99,6 +129,50 @@ def test_pack_store_wraps_unreadable_json_as_pack_error(tmp_path: Path):
 
     with pytest.raises(PackError):
         PackStore(pack_dir).load()
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["sign_convention", "eligibility", "tier"],
+)
+def test_v2_comeback_rows_reject_malformed_contract_declarations(field: str):
+    broken = copy.deepcopy(PACK)
+    broken["comeback_odds"][0][field] = "wrong"
+    with pytest.raises(PydanticValidationError):
+        FindingsPackV2.model_validate(broken)
+
+
+def test_v2_comeback_rows_reject_root_or_provenance_contract_mismatches():
+    broken = copy.deepcopy(PACK)
+    broken["feature_contracts"]["personal_history"] = "wrong"
+    with pytest.raises(PydanticValidationError):
+        FindingsPackV2.model_validate(broken)
+
+    broken = copy.deepcopy(PACK)
+    broken["provenance"]["comeback_odds"]["feature_contract_version"] = "wrong"
+    with pytest.raises(PydanticValidationError):
+        FindingsPackV2.model_validate(broken)
+
+
+def test_v2_comeback_rows_reject_nonfinite_rates():
+    broken = copy.deepcopy(PACK)
+    broken["comeback_odds"][0]["rate"] = float("nan")
+    with pytest.raises(PydanticValidationError):
+        FindingsPackV2.model_validate(broken)
+
+
+def test_v2_comeback_rows_require_explicit_join_declarations():
+    broken = copy.deepcopy(PACK)
+    broken["comeback_odds"][0].pop("sign_convention")
+    with pytest.raises(PydanticValidationError):
+        FindingsPackV2.model_validate(broken)
+
+def test_release_activation_rejects_legacy_v1_candidate(tmp_path: Path):
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    (candidate / "findings-pack.v1.json").write_bytes(PACK_V1_FIXTURE.read_bytes())
+    with pytest.raises(PackError, match="v2-only"):
+        PackStore(tmp_path / "active").activate_candidate(candidate)
 
 
 def test_v2_comeback_rows_use_the_declared_team_state_contract():
@@ -188,6 +262,18 @@ def test_v2_semantics_bound_route_outcomes_and_comeback_sample_floor():
     broken["comeback_odds"][0]["sample"] = 199
     with pytest.raises(PydanticValidationError):
         FindingsPackV2.model_validate(broken)
+
+
+def test_v2_comeback_release_accepts_future_producer_rates_and_samples() -> None:
+    future = copy.deepcopy(PACK)
+    for row, rate, sample in zip(
+        future["comeback_odds"],
+        (0.31, 0.21, 0.11),
+        (201, 202, 203),
+    ):
+        row["rate"] = rate
+        row["sample"] = sample
+    FindingsPackV2.model_validate(future)
 
 
 def test_every_evidence_row_references_matching_provenance():

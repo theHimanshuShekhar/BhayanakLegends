@@ -319,9 +319,18 @@ test.describe("active Live Companion replay", () => {
       // frame is valid recovery data and must not be suppressed by production
       // code just to make this error fixture deterministic.
       await page.route("**/events**", (route) => route.abort("failed"));
-      await page.route(`${SIDECAR}/live/ingame*`, (route) => route.abort("failed"));
+      await page.route(`${SIDECAR}/live/ingame*`, (route) =>
+        route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ detail: "in-game data unavailable" }),
+        }),
+      );
       await page.reload();
-      await expect(page.getByTestId("ingame-error")).toBeVisible();
+      await expect(page.getByTestId("connection-status")).toContainText("sidecar · offline");
+      await expect(page.getByTestId("live-route-status")).toHaveText("Waiting for Live Companion game data");
+      await expect(page.getByTestId("live-route-status")).toHaveCount(1);
+      await expect(page.getByTestId("player-row-local")).toHaveCount(0);
       await captureState(page, testInfo, `contrast-error-${viewport.width}`);
       await page.unroute(`${SIDECAR}/live/ingame*`);
       await page.unroute("**/events**");
@@ -369,7 +378,13 @@ test.describe("active Live Companion replay", () => {
         if (result.ratio !== null) expect(result.ratio, `${result.id} contrast`).toBeGreaterThanOrEqual(4.5);
       }
     }
-    expectNoBrowserErrors(browserErrors.filter((error) => !error.includes("ERR_FAILED")));
+    expectNoBrowserErrors(
+      browserErrors.filter(
+        (error) =>
+          !error.includes("ERR_FAILED") &&
+          !error.includes("status of 503 (Service Unavailable)"),
+      ),
+    );
   });
 
   test("keyboard, reduced motion, malformed/reconnect and request-error states remain perceivable", async ({ page, request }, testInfo) => {
@@ -405,21 +420,33 @@ test.describe("active Live Companion replay", () => {
     await setScenario(request, LCU, "malformed");
     await setScenario(request, LIVE, "malformed");
     await expect(page.getByTestId("live-route-status")).toHaveText(/Waiting/);
-    await expect(page.getByTestId("player-row-local")).toHaveCount(0);
-    await captureState(page, testInfo, "malformed");
+    await page.route("**/events**", (route) => route.abort("failed"));
+    await page.route(`${SIDECAR}/live/ingame`, (route) =>
+      route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: "in-game data unavailable" }),
+      }),
+    );
     const statusResponse = await request.get(`${SIDECAR}/live/status`, { headers: AUTH });
     expect(statusResponse.ok()).toBeTruthy();
     expect(containsForbiddenKeys(await statusResponse.json())).toBe(false);
-
-    await page.route("**/events**", (route) => route.abort("failed"));
-    await page.route(`${SIDECAR}/live/ingame`, (route) => route.abort("failed"));
     await page.reload();
-    await expect(page.getByTestId("ingame-error")).toBeVisible();
-    await expect(page.getByRole("alert")).toHaveCount(1);
+
+    await expect(page.getByTestId("connection-status")).toContainText("sidecar · offline");
+    await expect(page.getByTestId("live-route-status")).toHaveText("Waiting for Live Companion game data");
+    await expect(page.getByTestId("live-route-status")).toHaveCount(1);
+    await expect(page.getByTestId("player-row-local")).toHaveCount(0);
     await captureState(page, testInfo, "error");
     await page.unroute(`${SIDECAR}/live/ingame`);
     await page.unroute("**/events**");
-    expectNoBrowserErrors(browserErrors.filter((error) => !error.includes("ERR_FAILED")));
+    expectNoBrowserErrors(
+      browserErrors.filter(
+        (error) =>
+          !error.includes("ERR_FAILED") &&
+          !error.includes("status of 503 (Service Unavailable)"),
+      ),
+    );
   });
   test("startup hydration through champ select, in-game, game end, and reconnect is one continuous flow", async ({ page, request }, testInfo) => {
     test.setTimeout(180_000);

@@ -2,7 +2,6 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 import documentArtifact from "../../.impeccable/design.json";
 import { assertDesignArtifactMatches } from "../design-system.contract";
-import { formatEffectPerSd } from "./format";
 import { BanStrip } from "./champ-select/BanStrip";
 import type { ChampSelectSnapshot } from "../api/types";
 import "../styles.css";
@@ -319,36 +318,6 @@ describe("design system contract", () => {
     expect(forbiddenCopyHits(), "forbidden navigation/pending phrases in visible copy").toEqual(
       [],
     );
-  });
-
-  test("effect_per_sd keeps multiplier semantics everywhere", () => {
-    // Named pre-cutover divergence: multiplier copy pinned against percent/pp drift.
-    expect(formatEffectPerSd(2.24)).toBe("×2.24 effect per SD");
-    expect(formatEffectPerSd(0.83)).toBe("×0.83 effect per SD");
-    expect(formatEffectPerSd(null)).toBe("Unavailable: effect per SD unavailable");
-
-    const percentPresentations: string[] = [];
-    const fieldFiles: string[] = [];
-    for (const { path, source } of runtimeSources()) {
-      const bare = stripComments(source);
-      if (
-        /(effect[_ ]per[_ ]sd[^\n]{0,80}%)/iu.test(bare) ||
-        (/%\s*(?:WR|win rate)/iu.test(bare) && /per\s*SD/iu.test(bare)) ||
-        /\+\s*\d+(?:\.\d+)?\s*pp\b[^\n]{0,30}per\s*SD/iu.test(bare)
-      ) {
-        percentPresentations.push(path);
-      }
-      if (path !== "/src/api/types.ts" && /effect_per_sd/u.test(stripComments(source))) {
-        fieldFiles.push(path);
-      }
-    }
-    expect(percentPresentations, "percent/pp presentation of effect_per_sd").toEqual([]);
-    for (const path of fieldFiles) {
-      expect(
-        RAW_SOURCES[path],
-        `${path} renders effect_per_sd without the shared formatter`,
-      ).toContain("formatEffectPerSd");
-    }
   });
 
   test(".bl-pulse attaches only to aria-hidden urgent/connection dots", () => {

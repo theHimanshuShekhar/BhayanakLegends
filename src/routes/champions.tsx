@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
-import { usePack, usePatchAggregates, useTrajectories } from "../api/hooks";
 import { actionableErrorMessage } from "../api/client";
+import { usePack, usePatchAggregates, useTrajectories } from "../api/hooks";
+import { isFindingsPack, isFindingsPackV2 } from "../api/pack-v2";
 import { CaveatFooter } from "../components/journal/CaveatFooter";
 import { ChampionHeader } from "../components/champions/ChampionHeader";
 import { RoleChips } from "../components/champions/RoleChips";
@@ -24,11 +25,12 @@ const GOLD_WASTE_RE = /gold[-_]?waste/i;
 
 export function ChampionsPage() {
   const pack = usePack();
+  const packEvidence = isFindingsPack(pack.data) ? pack.data : undefined;
+  const packV2 = isFindingsPackV2(packEvidence) ? packEvidence : undefined;
   const [activeRoleState, setActiveRole] = useState<string | null>(null);
   const [selectedChampion, setSelectedChampion] = useState<string | null>(null);
-
-  const populationTiers = useMemo(() => tierEvidence(pack.data), [pack.data]);
-  const populationFindings = useMemo(() => findingEvidence(pack.data), [pack.data]);
+  const populationTiers = useMemo(() => tierEvidence(packEvidence), [packEvidence]);
+  const populationFindings = useMemo(() => findingEvidence(packEvidence), [packEvidence]);
   const roles = useMemo(() => {
     const set = new Set<string>();
     for (const tier of populationTiers) set.add(tier.role);
@@ -41,7 +43,7 @@ export function ChampionsPage() {
     role: activeRole ?? undefined,
     champion: selectedChampion ?? undefined,
   };
-  const trajectoryEnabled = Boolean(pack.data && activeRole && selectedChampion);
+  const trajectoryEnabled = Boolean(packV2 && activeRole && selectedChampion);
   const trajectories = useTrajectories(trajectoryFilters, { enabled: trajectoryEnabled });
   const aggregates = usePatchAggregates(trajectoryFilters, { enabled: trajectoryEnabled });
 
@@ -59,8 +61,8 @@ export function ChampionsPage() {
   );
 
   const matchups = useMemo(
-    () => matchupEvidence(pack.data, activeRole, selectedChampion),
-    [pack.data, activeRole, selectedChampion],
+    () => matchupEvidence(packEvidence, activeRole, selectedChampion),
+    [packEvidence, activeRole, selectedChampion],
   );
 
   const compFindings = useMemo(
@@ -108,8 +110,7 @@ export function ChampionsPage() {
           {actionableErrorMessage(pack.error, "pack")}
         </div>
       )}
-
-      {pack.data && activeRole && (
+      {packEvidence && activeRole && (
         <div
           style={{
             minHeight: 0,
@@ -136,8 +137,8 @@ export function ChampionsPage() {
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
-            <BuildOrderCard pack={pack.data} />
-            <RouteArchetypesCard pack={pack.data} />
+            <BuildOrderCard pack={packV2} />
+            <RouteArchetypesCard pack={packV2} />
             <TrajectoryCard
               champion={selectedChampion}
               points={trajectories.data ?? []}

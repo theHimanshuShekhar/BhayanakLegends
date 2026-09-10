@@ -91,6 +91,19 @@ _ROLE_ORDER = {role: index for index, role in enumerate(("TOP", "JUNGLE", "MIDDL
 _RANK_ORDER = {band: index for index, band in enumerate(("S", "A", "B", "C"))}
 _MATCHUP_MINIMUM_GAMES = 1
 _COMEBACK_MIN_SAMPLE = 200
+TEAM_GOLD_FEATURE_CONTRACT_VERSION = "loltrends-parity-v2"
+TEAM_GOLD_POPULATION_CONTRACT_VERSION = "loltrends-population-v2"
+TEAM_GOLD_SIGN_CONVENTION = "own_team_total_gold_minus_enemy_team_total_gold"
+TEAM_GOLD_ELIGIBILITY = (
+    "non-surrendered Eligible Match; populated frame at/after 900s proves reachability; "
+    "latest valid frame at/before 900s; exactly ten unique participants in two "
+    "unambiguous five-player teams; finite gold for all ten"
+)
+_COMEBACK_BOUNDS = (
+    (2000, 3000),
+    (3000, 5000),
+    (5000, None),
+)
 
 
 _SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -392,17 +405,22 @@ class PackV2Objective(PackV2EvidenceMetadata):
 
 class PackV2ComebackBand(PackV2EvidenceMetadata):
     feature: Literal["team_gold_diff_15m"]
-    feature_contract_version: str = Field(min_length=1)
+    feature_contract_version: Literal["loltrends-parity-v2"]
+    sign_convention: Literal["own_team_total_gold_minus_enemy_team_total_gold"]
     checkpoint_seconds: Literal[900]
     unit: Literal["gold"]
     lower_bound: FiniteFloat = Field(ge=0)
     upper_bound: FiniteFloat | None = Field(default=None, ge=0)
-    include_lower: bool
+    include_lower: Literal[True]
     include_upper: Literal[False]
     rate: FiniteFloat | None = Field(default=None, ge=0, le=1)
     sample: StrictInt = Field(ge=0)
-    eligibility: str = Field(min_length=1)
-    tier: FindingTierV2
+    eligibility: Literal[
+        "non-surrendered Eligible Match; populated frame at/after 900s proves reachability; "
+        "latest valid frame at/before 900s; exactly ten unique participants in two "
+        "unambiguous five-player teams; finite gold for all ten"
+    ]
+    tier: Literal["diagnostic"]
     release_status: ReleaseStatusV2
     release_reason: str | None = None
 
@@ -410,18 +428,19 @@ class PackV2ComebackBand(PackV2EvidenceMetadata):
     def bounds_and_status(self) -> "PackV2ComebackBand":
         if self.upper_bound is not None and self.upper_bound <= self.lower_bound:
             raise ValueError("comeback upper bound must be greater than lower bound")
-        if not self.include_lower:
-            raise ValueError("comeback bands include their lower bound")
         if self.release_status in {"available", "approximate"}:
-            if self.rate is None or self.sample <= 0:
+            if self.rate is None or self.sample < _COMEBACK_MIN_SAMPLE:
                 raise ValueError(
-                    "released comeback bands require a rate and positive sample"
+                    "released comeback bands require a rate and minimum sample"
                 )
+            if self.release_reason is not None:
+                raise ValueError("released comeback bands must not carry release_reason")
         elif self.rate is not None or self.sample != 0:
             raise ValueError("suppressed comeback bands must not carry rate or sample")
         if self.release_status in {"withheld", "superseded"} and not self.release_reason:
             raise ValueError("withheld or superseded comeback band requires release_reason")
         return self
+
 
 
 class PackV2BanContext(PackV2EvidenceMetadata):
@@ -781,7 +800,6 @@ def _within_patch_range(candidate: PackV2PatchRange, root: PackV2PatchRange) -> 
     return _patch_key(root.min) <= _patch_key(candidate.min) <= _patch_key(candidate.max) <= _patch_key(root.max)
 
 
-TEAM_GOLD_FEATURE_CONTRACT_VERSION = "loltrends-parity-v2"
 
 
 def _require_provenance(pack: FindingsPackV2) -> None:
@@ -841,23 +859,28 @@ def _require_metadata_ranges(pack: FindingsPackV2) -> None:
                 raise ValueError("v2 evidence source_ref does not match its provenance entry")
 
 def _validate_comeback_bands(pack: FindingsPackV2) -> None:
-    expected = ((2000, 3000), (3000, 5000), (5000, None))
-    actual = tuple((row.lower_bound, row.upper_bound) for row in pack.comeback_odds)
-    if actual != expected:
-        raise ValueError("v2 comeback bands must be [2000,3000), [3000,5000), [5000,∞)")
-    if any(
-        row.feature_contract_version != TEAM_GOLD_FEATURE_CONTRACT_VERSION
-        for row in pack.comeback_odds
-    ):
-        raise ValueError("comeback feature contract does not match team_gold_diff_15m contract")
-    if any("team_gold_diff_15m" != row.feature for row in pack.comeback_odds):
-        raise ValueError("v2 comeback bands must use team_gold_diff_15m")
-    for row in pack.comeback_odds:
-        if row.release_status not in {"available", "withheld"}:
-            raise ValueError("comeback bands must be available or withheld")
-        if row.release_status == "available" and row.sample < _COMEBACK_MIN_SAMPLE:
-            raise ValueError("released comeback bands must meet the minimum sample floor")
+    if pack.feature_contracts.personal_history != TEAM_GOLD_FEATURE_CONTRACT_VERSION:
+        raise ValueError("comeback bands must join feature_contracts.personal_history")
+    if pack.feature_contracts.population != TEAM_GOLD_POPULATION_CONTRACT_VERSION:
+        raise ValueError("comeback provenance must use loltrends-population-v2")
 
+    actual = tuple((row.lower_bound, row.upper_bound) for row in pack.comeback_odds)
+    if actual != _COMEBACK_BOUNDS:
+        raise ValueError("v2 comeback bands must be [2000,3000), [3000,5000), [5000,∞)")
+
+    for row in pack.comeback_odds:
+        if row.provenance_key != "comeback_odds":
+            raise ValueError("comeback bands must use the comeback_odds provenance block")
+        provenance = pack.provenance.get(row.provenance_key)
+        if provenance is None:
+            raise ValueError("comeback bands must have a provenance block")
+        if provenance.feature_contract_version != TEAM_GOLD_POPULATION_CONTRACT_VERSION:
+            raise ValueError("comeback provenance must remain population evidence")
+        if row.release_status in {"available", "approximate"}:
+            if row.rate is None or row.sample < _COMEBACK_MIN_SAMPLE:
+                raise ValueError("released comeback bands must meet the minimum sample floor")
+        elif row.rate is not None or row.sample != 0:
+            raise ValueError("suppressed comeback bands must not carry rate or sample")
 
 def _validate_finding_semantics(pack: FindingsPackV2) -> None:
     for row in pack.findings:

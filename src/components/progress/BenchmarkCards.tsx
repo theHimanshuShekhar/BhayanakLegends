@@ -1,4 +1,6 @@
 import type { RoleBenchmark } from "../../api/types";
+import type { LegacyBenchmarkEvidence } from "../populationEvidence";
+import { EvidenceMeta } from "../populationEvidence";
 import { formatCount } from "../format";
 
 function deltaLabel(delta: number): string {
@@ -11,7 +13,13 @@ const METRICS = [
   { key: "gold_diff_10", populationKey: "gold_diff_10_median", label: "GOLD DIFF@10" },
 ] as const;
 
-export function BenchmarkCards({ rows }: { rows: RoleBenchmark[] }) {
+export function BenchmarkCards({
+  rows,
+  historicalRows = [],
+}: {
+  rows: RoleBenchmark[];
+  historicalRows?: LegacyBenchmarkEvidence[];
+}) {
   return (
     <ul
       aria-label="Benchmarks by role"
@@ -114,6 +122,37 @@ export function BenchmarkCards({ rows }: { rows: RoleBenchmark[] }) {
                   <span style={{ color: "var(--color-info)" }}>{median}</span> ·{" "}
                   {formatCount(r.population.sample, "games")}
                 </div>
+              </div>
+            </li>
+          );
+        }),
+      )}
+      {historicalRows.flatMap((row) =>
+        METRICS.map((metric) => {
+          const median = metric.key === "cs10"
+            ? row.cs10Median
+            : metric.key === "level10"
+              ? row.level10Median
+              : row.goldDiff10Median;
+          if (median == null) return null;
+          return (
+            <li key={`v1-${row.role}-${metric.key}`} aria-label={`${metric.label} ${row.role}`}>
+              <div className="card3" style={{ padding: 11 }} data-testid={`benchmark-${row.role}`}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                  <span style={{ fontSize: 9, letterSpacing: ".08em", color: "var(--color-dimmer)" }}>
+                    {metric.label} · {row.role}
+                  </span>
+                  <span className="pill" style={{ background: "var(--color-info-low)", color: "var(--color-info)", padding: "2px 7px" }}>
+                    Historical v1
+                  </span>
+                </div>
+                <div className="mono-n" style={{ font: "700 25px/1.1 var(--font-mono)", marginTop: 6, color: "var(--color-info)" }}>
+                  {median.toFixed(1)}
+                </div>
+                <div data-testid={`benchmark-pop-${row.role}`} style={{ marginTop: 6, fontSize: 9, color: "var(--color-dimmer)" }}>
+                  historical population median <span style={{ color: "var(--color-info)" }}>{median.toFixed(1)}</span> · {formatCount(row.sample, "games")}
+                </div>
+                <EvidenceMeta metadata={row.metadata} />
               </div>
             </li>
           );

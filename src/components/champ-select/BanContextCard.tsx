@@ -1,4 +1,4 @@
-import type { FindingsPackV2 } from "../../api/pack-v2";
+import type { FindingsPack } from "../../api/pack-v2";
 import {
   EvidenceMeta,
   banCorrelationEvidence,
@@ -6,8 +6,10 @@ import {
 } from "../populationEvidence";
 import { formatCorrelation } from "../format";
 import { SectionHead } from "../ui";
+import { isFindingsPackV1 } from "../../api/pack-v1";
 
-export function BanContextCard({ pack }: { pack: FindingsPackV2 | undefined }) {
+export function BanContextCard({ pack }: { pack: FindingsPack | undefined }) {
+  const legacy = isFindingsPackV1(pack);
   const evidence = banCorrelationEvidence(pack);
   const unavailable = !evidence
     ? "Unavailable: pooled ban-rate/win-rate correlation evidence is missing or malformed."
@@ -21,7 +23,7 @@ export function BanContextCard({ pack }: { pack: FindingsPackV2 | undefined }) {
 
   return (
     <div className="card3" data-testid="card-ban-context" style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-      <SectionHead label="BAN CONTEXT · DIAGNOSTIC POPULATION EVIDENCE" color="var(--color-info)" />
+      <SectionHead label={legacy ? "BAN CONTEXT · HISTORICAL POPULATION EVIDENCE" : "BAN CONTEXT · DIAGNOSTIC POPULATION EVIDENCE"} color="var(--color-info)" />
       <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
         <span className="mono-n" data-testid="ban-correlation" style={{ font: "700 22px var(--font-mono)", color: "var(--color-info)" }}>
           {evidence?.value == null ? "—" : `r=${formatCorrelation(evidence.value)}`}

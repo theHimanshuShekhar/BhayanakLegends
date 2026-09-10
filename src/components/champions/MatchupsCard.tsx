@@ -67,9 +67,12 @@ export function MatchupsCard({
   champion: string | null;
   matchups: MatchupEvidenceRow[];
 }) {
+  const legacy = matchups.some((m) => m.legacy === true);
   const higher = matchups.filter((m) => m.estimate >= 0.5).sort((a, b) => b.estimate - a.estimate);
   const lower = matchups.filter((m) => m.estimate < 0.5).sort((a, b) => a.estimate - b.estimate);
-  const empty = `The current Findings Pack has no directional example for ${champion ?? "this champion"}.`;
+  const empty = legacy
+    ? `Historical v1 Findings Pack has no directional example for ${champion ?? "this champion"}.`
+    : `The current Findings Pack has no directional example for ${champion ?? "this champion"}.`;
 
   return (
     <div
@@ -84,7 +87,7 @@ export function MatchupsCard({
         gap: 9,
       }}
     >
-      <SectionHead label="MATCHUPS · FINDINGS PACK" />
+      <SectionHead label={legacy ? "MATCHUPS · HISTORICAL FINDINGS PACK" : "MATCHUPS · FINDINGS PACK"} />
       {!champion ? (
         <EmptyLine text="Select a champion to see directional examples." />
       ) : (
@@ -122,7 +125,7 @@ export function MatchupsCard({
               color: "var(--color-dimmer)",
             }}
           >
-            Source: Findings Pack · matchup_examples · directional estimate with interval
+            {legacy ? "Source: Historical Findings Pack v1 · matchup_examples · win rate with confidence interval" : "Source: Findings Pack · matchup_examples · directional estimate with interval"}
           </p>
         </>
       )}

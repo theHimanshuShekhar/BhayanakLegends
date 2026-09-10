@@ -254,6 +254,21 @@ def postgame_latest(request: Request) -> dict | None:
         )
     except ValueError:
         parsed_team_state = None
+    if parsed_team_state is None:
+        # A flat team feature is not a substitute for the required nested
+        # TeamState declaration.  Keep unrelated v2 fields, but suppress the
+        # team comparison when its declaration is absent or malformed.
+        numeric_features.pop("team_gold_diff_15m", None)
+    else:
+        flat_team_value = numeric_features.get("team_gold_diff_15m")
+        nested_team_value = parsed_team_state.team_gold_diff_15m
+        if (
+            flat_team_value is None
+            or nested_team_value is None
+            or flat_team_value != nested_team_value
+        ):
+            numeric_features.pop("team_gold_diff_15m", None)
+            parsed_team_state = None
     checkpoints = {
         "gold_diff_10": numeric_features.get("gold_diff_10"),
         "gold_diff_15": None,

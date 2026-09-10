@@ -11,10 +11,13 @@ Findings Pack. The app therefore owns a small extractor for this subset. The
 implementation is replaceable only when the replacement preserves this
 contract or publishes a new contract version.
 
-The application has one storage and feature shape: the v2 schema and
-`loltrends-parity-v2` feature contract. Database initialization creates only
-that shape. The current definitions are the only supported definitions; fields
-with different semantics are not interchangeable.
+The current extractor and storage shape is the v2 schema with the
+`loltrends-parity-v2` feature contract. Legacy v1 Findings Packs remain
+readable through explicit schema dispatch for unrelated historical evidence,
+but v1 comeback anchors and personal `gold_diff_15` checkpoints are not
+translated into v2 team state. Inference, comeback comparison, and signed
+release activation require v2; v1 therefore suppresses those surfaces.
+Fields with different semantics are not interchangeable.
 
 ## Normative contract: `loltrends-parity-v2`
 
@@ -28,7 +31,7 @@ defined feature is never substituted.
 | `cs10` | minion kills | At 10 minutes, `minionsKilled + jungleMinionsKilled` for the local participant. Missing counters count as zero. |
 | `level10` | champion levels | The local participant's level at 10 minutes. A missing level counts as zero. |
 | `gold_diff_10` | gold | Local `totalGold` minus the median `totalGold` of every participant in the selected 10-minute frame; non-numeric gold is excluded from the median pool. |
-| `team_gold_diff_15m` | gold | Local team total gold minus the opposing team total gold in the selected 15-minute frame. All ten participants and two five-player teams are required. |
+| `team_gold_diff_15m` | gold | Own-team total gold minus enemy-team total gold from the latest populated frame at or before 900 seconds, only after a populated frame at or after 900 seconds proves reachability; exactly ten finite participants in two unambiguous five-player teams are required. |
 | `recalls_before_15m` | recalls | Count of conservative fountain-arrival observations before 15 minutes. |
 | `avg_banked_gold_at_recall_by_15m` | gold | Mean `currentGold` at those pre-15-minute recall arrivals; unavailable when any selected arrival value is missing or has an ordering-ambiguous purchase event. |
 | `avg_banked_gold_at_recall_by_20m` | gold | Mean `currentGold` at all conservative recall arrivals before 20 minutes, with the same missing-data rule. |
@@ -76,6 +79,18 @@ A definition, formula, unit, checkpoint, or missing-data rule change requires
 a new contract version and coordinated fixture and consumer updates. Every
 consumer must reject an undeclared or mismatched contract instead of guessing
 which definition was intended.
+
+The comeback row contract repeats the join explicitly: its feature is
+`team_gold_diff_15m`, version is `loltrends-parity-v2`, and
+`sign_convention` is
+`own_team_total_gold_minus_enemy_team_total_gold`. Rows are diagnostic,
+retain the exact descriptive eligibility sentence, and use
+`loltrends-population-v2` only for comeback population provenance. The
+population key is not interchangeable with the Personal History compatibility
+key.
+
+The row eligibility declaration is descriptive rather than imperative:
+`non-surrendered Eligible Match; populated frame at/after 900s proves reachability; latest valid frame at/before 900s; exactly ten unique participants in two unambiguous five-player teams; finite gold for all ten`.
 
 ## Consequences
 

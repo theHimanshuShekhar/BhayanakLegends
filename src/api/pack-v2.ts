@@ -5,6 +5,15 @@
  * relabel a rate, interval, or rank as another kind of result.
  */
 
+import type { FindingsPackV1 } from "./pack-v1";
+
+export const TEAM_GOLD_FEATURE_CONTRACT_VERSION = "loltrends-parity-v2" as const;
+export const TEAM_GOLD_POPULATION_CONTRACT_VERSION = "loltrends-population-v2" as const;
+export const TEAM_GOLD_SIGN_CONVENTION =
+  "own_team_total_gold_minus_enemy_team_total_gold" as const;
+export const TEAM_GOLD_ELIGIBILITY =
+  "non-surrendered Eligible Match; populated frame at/after 900s proves reachability; latest valid frame at/before 900s; exactly ten unique participants in two unambiguous five-player teams; finite gold for all ten" as const;
+
 export type PackV2ReleaseStatus =
   | "available"
   | "approximate"
@@ -162,17 +171,18 @@ export type PackV2Objective = PackV2EvidenceMetadata & {
 
 export interface PackV2ComebackBand extends PackV2EvidenceMetadata {
   feature: "team_gold_diff_15m";
-  feature_contract_version: string;
+  feature_contract_version: typeof TEAM_GOLD_FEATURE_CONTRACT_VERSION;
+  sign_convention: typeof TEAM_GOLD_SIGN_CONVENTION;
   checkpoint_seconds: 900;
   unit: "gold";
   lower_bound: number;
   upper_bound: number | null;
-  include_lower: boolean;
+  include_lower: true;
   include_upper: false;
   rate: number | null;
   sample: number;
-  eligibility: string;
-  tier: PackV2Tier;
+  eligibility: typeof TEAM_GOLD_ELIGIBILITY;
+  tier: "diagnostic";
   release_status: PackV2ReleaseStatus;
   release_reason?: string | null;
 }
@@ -340,10 +350,20 @@ export interface FindingsPackV2 {
   models?: Record<string, PackV2ModelDeclaration> | null;
 }
 
-export function isFindingsPackV2(value: unknown): value is FindingsPackV2 {
-  return (
+export type FindingsPack = FindingsPackV1 | FindingsPackV2;
+
+export function isFindingsPack(value: unknown): value is FindingsPack {
+  return isFindingsPackV2(value) || (
     typeof value === "object" &&
     value !== null &&
-    (value as { schema_version?: unknown }).schema_version === 2
+    "schema_version" in value &&
+    value.schema_version === 1
   );
+}
+
+export function isFindingsPackV2(value: unknown): value is FindingsPackV2 {
+  if (typeof value !== "object" || value === null || !("schema_version" in value)) {
+    return false;
+  }
+  return value.schema_version === 2;
 }

@@ -1,10 +1,10 @@
 import { ReactNode, useEffect, useRef } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { usePack } from "../api/hooks";
+import { isFindingsPackV2 } from "../api/pack-v2";
 import { useEvents } from "../api/sse";
 import { LiveCompanion } from "./LiveCompanion";
 import { UpdaterStatus } from "./UpdaterStatus";
-
 const NAV = [
   { to: "/live", label: "Live Companion" },
   { to: "/champ-select", label: "Champ select" },
@@ -46,13 +46,20 @@ export function ConnectionStatus({ connected }: { connected: boolean }) {
 
 export function Layout({ children }: { children: ReactNode }) {
   const connected = useEvents();
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
   const pack = usePack();
-  const dataset = pack.data?.dataset;
-  const matchCount = dataset?.eligible_matches.toLocaleString() ?? "unavailable";
-  const packLabel = pack.data
-    ? `Findings Pack ${pack.data.pack_version} · ${matchCount} matches · ${dataset?.patch_range.min}–${dataset?.patch_range.max}`
-    : "Findings Pack · unavailable";
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const packV2 = isFindingsPackV2(pack.data) ? pack.data : null;
+  const dataset = packV2?.dataset;
+  const matchCount = dataset
+    ? dataset.eligible_matches.toLocaleString()
+    : pack.data?.schema_version === 1
+      ? pack.data.dataset.player_games.toLocaleString()
+      : "unavailable";
+  const packLabel = packV2 && dataset
+    ? `Findings Pack ${packV2.pack_version} · ${matchCount} matches · ${dataset.patch_range.min}–${dataset.patch_range.max}`
+    : pack.data?.schema_version === 1
+      ? `Findings Pack ${pack.data.pack_version} · ${matchCount} player games · legacy v1`
+      : "Findings Pack · unavailable";
   const skipInitialFocus = useRef(true);
   const screenRef = useRef<HTMLElement>(null);
   const focusRafRef = useRef<number>(0);

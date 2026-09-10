@@ -4,6 +4,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { actionableErrorMessage } from "../api/client";
 import { useEvents } from "../api/sse";
 import { useLiveSession, useLiveStatus, usePack } from "../api/hooks";
+import { isFindingsPack } from "../api/pack-v2";
+import { isFindingsPackV1 } from "../api/pack-v1";
 import type {
   ChampSelectAllyView,
   ChampSelectSessionView,
@@ -88,7 +90,7 @@ function findingsPackState(query: {
 }): FindingsPackState {
   if (query.isLoading || query.isPending) return "loading";
   if (query.isError) return "error";
-  return query.data ? "available" : "missing";
+  return isFindingsPackV1(query.data) ? "legacy" : query.data ? "available" : "missing";
 }
 
 export function ChampSelectPage() {
@@ -96,7 +98,7 @@ export function ChampSelectPage() {
   const sessionQuery = useLiveSession();
   const statusQuery = useLiveStatus();
   const packQuery = usePack();
-
+  const packEvidence = isFindingsPack(packQuery.data) ? packQuery.data : undefined;
   // Poll is primary; SSE champselect.state frames update the same cache the
   // moment the sidecar pushes them (fallback when a poll window misses a
   // transition).
@@ -120,7 +122,7 @@ export function ChampSelectPage() {
   const timerUrgent = timerKnown && timerSec <= TIMER_URGENT_S;
   const localTier =
     sessionView.locked && sessionView.localChampion
-      ? tierEvidence(packQuery.data, sessionView.assignedRole).find(
+      ? tierEvidence(packEvidence, sessionView.assignedRole).find(
           (entry) => entry.champion === sessionView.localChampion,
         )?.rankBand ?? null
       : null;
@@ -162,7 +164,7 @@ export function ChampSelectPage() {
         }}
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 11, minHeight: 0, minWidth: 0 }}>
-          <MasteryCard pack={packQuery.data} packState={packState} />
+          <MasteryCard pack={packEvidence} packState={packState} />
           <YourLaneCard
             champion={sessionView.localChampion}
             tier={localTier}
@@ -175,7 +177,7 @@ export function ChampSelectPage() {
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0, minWidth: 0 }}>
           <PopulationRoleTiers
-            pack={packQuery.data}
+            pack={packEvidence}
             role={sessionView.assignedRole}
             packState={packState}
             locked={sessionView.locked}
@@ -197,7 +199,7 @@ export function ChampSelectPage() {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0, minWidth: 0 }}>
-          <BanContextCard pack={packQuery.data} />
+          <BanContextCard pack={packEvidence} />
           <YourSideCard session={sessionView} />
           <MatchStartCard session={sessionView} />
         </div>

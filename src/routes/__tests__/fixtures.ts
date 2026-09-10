@@ -1,7 +1,8 @@
 import type { ChampSelectSnapshot, InGameSnapshot, LiveStatus } from "../../api/types";
+import type { FindingsPackV1 } from "../../api/pack-v1";
 import type { FindingsPackV2 } from "../../api/pack-v2";
+import shippedLegacyFindingsPack from "../../../backend/tests/fixtures/findings-pack.v1.json";
 import shippedFindingsPack from "../../../pack/findings-pack.v2.json";
-
 export const idleStatus: LiveStatus = {
   champ_select: { active: false, phase: null },
   ingame: { active: false, game_id: null, mode: null, clock_s: 0 },
@@ -130,6 +131,7 @@ export const ingameActive: LiveStatus = {
 export const forbiddenEnemyName = "FixturePlayer03-BL03";
 
 const shippedPack = shippedFindingsPack as unknown as FindingsPackV2;
+export const shippedLegacyPack = shippedLegacyFindingsPack as unknown as FindingsPackV1;
 
 export function makePack(overrides: Record<string, unknown> = {}): FindingsPackV2 {
   return {
