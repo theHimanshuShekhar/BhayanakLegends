@@ -822,3 +822,118 @@ async def test_sync_done_is_exactly_once_and_survives_full_subscriber_queue():
         frames.append(json.loads(queue.get_nowait())["type"])
     assert frames[-1] == "sync.done"
     assert frames.count("sync.done") == 1
+
+
+class _RouteRecorderClient:
+    def __init__(self, route: str, behavior: dict[str, Exception | dict]) -> None:
+        self.route = route
+        self._behavior = behavior
+        self.closed = False
+
+    async def account_by_riot_id(self, riot_id: str) -> dict:
+        outcome = self._behavior.get(self.route)
+        if isinstance(outcome, Exception):
+            raise outcome
+        assert isinstance(outcome, dict)
+        return outcome
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+def _fallback_service(tmp_path: Path, behavior: dict[str, Exception | dict]):
+    store = Store(tmp_path / "app.db")
+    tried: list[str] = []
+
+    def factory(_key: str, route: str):
+        tried.append(route)
+        return _RouteRecorderClient(route, behavior)
+
+    service = SyncService(store, Hub(), lambda: {}, client_factory=factory)
+    return service, store, tried
+
+
+async def test_account_fallback_sea_forbidden_then_asia_succeeds(tmp_path: Path):
+    service, _, tried = _fallback_service(
+        tmp_path,
+        {
+            "sea": RiotForbidden("Riot API key was rejected"),
+            "asia": {"puuid": "fallback-puuid"},
+            "americas": {"puuid": "fallback-puuid"},
+            "europe": {"puuid": "fallback-puuid"},
+        },
+    )
+    account = await service._account_by_riot_id_with_fallback(
+        "key", "SeaPlayer#SEA01", "sea"
+    )
+    assert account["puuid"] == "fallback-puuid"
+    assert tried[:2] == ["sea", "asia"]
+
+
+async def test_account_fallback_all_forbidden_raises_forbidden(tmp_path: Path):
+    service, _, tried = _fallback_service(
+        tmp_path,
+        {
+            "sea": RiotForbidden("Riot API key was rejected"),
+            "asia": RiotForbidden("Riot API key was rejected"),
+            "americas": RiotForbidden("Riot API key was rejected"),
+            "europe": RiotForbidden("Riot API key was rejected"),
+        },
+    )
+    with pytest.raises(RiotForbidden):
+        await service._account_by_riot_id_with_fallback("key", "Player#1234", "sea")
+    assert tried[0] == "sea"
+    assert set(tried) == {"sea", "asia", "americas", "europe"}
+
+
+async def test_account_fallback_forbidden_then_notfound_raises_notfound(tmp_path: Path):
+    service, _, _ = _fallback_service(
+        tmp_path,
+        {
+            "sea": RiotForbidden("Riot API key was rejected"),
+            "asia": RiotNotFound("Riot resource was not found"),
+            "americas": RiotNotFound("Riot resource was not found"),
+            "europe": RiotNotFound("Riot resource was not found"),
+        },
+    )
+    with pytest.raises(RiotNotFound):
+        await service._account_by_riot_id_with_fallback("key", "Missing#0000", "sea")
+
+
+async def test_account_fallback_does_not_fan_out_on_rate_limit(tmp_path: Path):
+    service, _, tried = _fallback_service(
+        tmp_path,
+        {"sea": RiotRateLimited(1.0)},
+    )
+    with pytest.raises(RiotRateLimited):
+        await service._account_by_riot_id_with_fallback("key", "Player#1234", "sea")
+    assert tried == ["sea"]
+
+
+async def test_resolve_owner_uses_fallback_and_keeps_selected_route(tmp_path: Path):
+    store = Store(tmp_path / "app.db")
+    tried: list[str] = []
+
+    def factory(_key: str, route: str):
+        tried.append(route)
+        behavior: dict[str, Exception | dict] = (
+            {"puuid": "sea-fallback-puuid"}
+            if route == "asia"
+            else RiotForbidden("Riot API key was rejected")
+        )
+        if isinstance(behavior, dict):
+            return _RouteRecorderClient(route, {route: behavior})
+        return _RouteRecorderClient(
+            route,
+            {"sea": behavior, "americas": behavior, "europe": behavior, route: behavior},
+        )
+
+    settings = {"riot_key": "key", "riot_id": "SeaPlayer#SEA01", "region_route": "sea"}
+    service = SyncService(store, Hub(), lambda: settings, client_factory=factory)
+    generation = store.begin_owner_transition("resolving")
+    await service._resolve_owner(generation)
+    scope = store.capture_owner_scope()
+    assert scope["owner_state"] == "active"
+    assert store._puuid_for_owner(scope["owner_key"]) == "sea-fallback-puuid"
+    assert store.get_setting("region_route") in (None, "sea")
+    assert tried[:2] == ["sea", "asia"]

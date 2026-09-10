@@ -56,6 +56,12 @@ class _Cancelled(Exception):
 
 BACKFILL_TOTAL = 1000
 
+# Account-v1 lookup is route-sensitive: sea.api.riotgames.com rejects valid
+# keys/IDs with 403 while the same identity resolves on asia. Match-v5
+# discovery must stay on the user-selected route (SEA holds SEA matches),
+# so account resolution tries the selected route first then falls back.
+ACCOUNT_FALLBACK_ORDER = ("asia", "americas", "europe", "sea")
+
 
 def _now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -105,6 +111,51 @@ class SyncService:
     @staticmethod
     def _default_client_factory(api_key: str, region_route: str) -> Any:
         return RiotClient(api_key, region_route)
+
+    @staticmethod
+    def _account_route_order(selected: str) -> list[str]:
+        order = [selected] if selected else []
+        for route in ACCOUNT_FALLBACK_ORDER:
+            if route not in order:
+                order.append(route)
+        return order
+
+    async def _account_by_riot_id_with_fallback(
+        self, api_key: str, riot_id: str, region_route: str
+    ) -> dict[str, Any]:
+        """Resolve Riot ID, falling back across regional routes.
+
+        Only RiotForbidden/RiotNotFound trigger fallback: a 404 proves the
+        key was accepted, so a later 404 means the ID is the problem.
+        Rate-limit/transport errors propagate without fan-out.
+        """
+        last_forbidden: Exception | None = None
+        seen_not_found: Exception | None = None
+        for route in self._account_route_order(region_route):
+            client: Any | None = None
+            try:
+                client = self._client_factory(api_key, route)
+                result = await client.account_by_riot_id(riot_id)
+                if route != region_route:
+                    log.info("Riot account resolved via fallback route %s", route)
+                return result
+            except RiotNotFound as exc:
+                seen_not_found = exc
+                continue
+            except RiotForbidden as exc:
+                last_forbidden = exc
+                continue
+            finally:
+                if client is not None:
+                    try:
+                        await client.aclose()
+                    except Exception:
+                        log.warning("Riot account resolver client close failed")
+        if seen_not_found is not None:
+            raise seen_not_found
+        if last_forbidden is not None:
+            raise last_forbidden
+        raise RiotNotFound("Riot resource was not found")
 
     def attach_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         """Capture the app's asyncio loop so worker threads can publish SSE."""
@@ -256,26 +307,19 @@ class SyncService:
         if not riot_id or not isinstance(riot_key, str) or not riot_key.strip():
             raise ValueError("Riot identity requires a Riot ID and API key")
         region_route = str(settings.get("region_route") or "sea")
-        client: Any | None = None
-        try:
-            client = self._client_factory(riot_key, region_route)
-            account = await client.account_by_riot_id(riot_id)
-            scope = self.store.capture_owner_scope()
-            if (
-                int(scope["generation"]) != generation
-                or scope["owner_state"] != "resolving"
-            ):
-                raise StaleOwnerGeneration("identity transition superseded")
-            puuid = str(account.get("puuid") or "").strip()
-            if not puuid:
-                raise ValueError("identity response missing puuid")
-            self.store.activate_owner(puuid, riot_id, region_route, generation)
-        finally:
-            if client is not None:
-                try:
-                    await client.aclose()
-                except Exception:
-                    log.warning("Riot account resolver client close failed")
+        account = await self._account_by_riot_id_with_fallback(
+            riot_key, riot_id, region_route
+        )
+        scope = self.store.capture_owner_scope()
+        if (
+            int(scope["generation"]) != generation
+            or scope["owner_state"] != "resolving"
+        ):
+            raise StaleOwnerGeneration("identity transition superseded")
+        puuid = str(account.get("puuid") or "").strip()
+        if not puuid:
+            raise ValueError("identity response missing puuid")
+        self.store.activate_owner(puuid, riot_id, region_route, generation)
 
     def start(self) -> dict[str, Any]:
         """Kick era-first Backfill for one captured owner generation."""
@@ -509,7 +553,9 @@ class SyncService:
                 else None
             )
             if not puuid:
-                account = await client.account_by_riot_id(riot_id)
+                account = await self._account_by_riot_id_with_fallback(
+                    api_key, riot_id, region_route
+                )
                 if self._cancel.is_set():
                     raise _Cancelled()
                 scope = self.store.capture_owner_scope()
