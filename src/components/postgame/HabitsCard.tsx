@@ -1,8 +1,13 @@
 import type { CSSProperties } from "react";
 import type { HabitOutcome, PostGameDigest } from "../../api/types";
 import type { FindingsPackV2 } from "../../api/pack-v2";
-import { formatClock, formatRate } from "../format";
-import { habitEvidence } from "../populationEvidence";
+import { formatClock, formatEffectPerSd, formatRate } from "../format";
+import {
+  habitEvidence,
+  habitEvidenceReleased,
+  habitFavorableDirection,
+  type HabitEvidenceView,
+} from "../populationEvidence";
 import { SectionHead, Unavailable } from "../ui";
 
 const VERDICT_PILL: Record<HabitOutcome["verdict"], CSSProperties> = {
@@ -60,6 +65,17 @@ function personalFeatureRows(digest: PostGameDigest | null): PersonalFeatureRow[
   });
 }
 
+function populationDescription(row: HabitEvidenceView): string {
+  if (!habitEvidenceReleased(row)) {
+    return `Population association unavailable: ${row.releaseReason ?? row.contractIssue ?? "evidence is unavailable"}`;
+  }
+  const effect = formatEffectPerSd(row.effect);
+  if (row.key === "plates_by_14m") {
+    return `Diagnostic · era-sensitive · ${row.label} · ${effect}. Observational population association, not a guarantee. ${row.caveats[0] ?? ""}`;
+  }
+  return `${habitFavorableDirection(row)} · ${effect}. Observational population association, not a guarantee. ${row.caveats[0] ?? ""}`;
+}
+
 
 /** Personal observations stay separate from Findings Pack population effects. */
 export function HabitsCard({
@@ -105,33 +121,42 @@ export function HabitsCard({
         <>
       {outcomeRows.length > 0 && (
         <ul aria-label="Personal habit outcomes" data-testid="habit-outcomes" style={{ display: "flex", flexDirection: "column", gap: 6, listStyle: "none", margin: 0, padding: 0 }}>
-          {outcomeRows.map((habit) => {
-            const population = populationRows.find((candidate) => candidate.feature === habit.key) ?? null;
-            return (
-              <li key={habit.key} data-testid={`habit-${habit.key}`} style={{ display: "flex", alignItems: "center", gap: 9, padding: "7px 9px", borderRadius: 12, background: "var(--color-surface-2)", boxShadow: "var(--shadow-z1)" }}>
-                <span className="mono-n" style={{ width: 70, fontSize: 9.5, color: "var(--color-dimmer)" }}>{habit.value}</span>
-                <span style={{ flex: 1, fontSize: 10.5 }}>{habit.label}</span>
-                <span className="pill" style={{ ...VERDICT_PILL[habit.verdict], fontSize: 8, padding: "2px 7px" }}>{habit.verdict}</span>
-                {population && (
-                  <span style={{ fontSize: 8, color: "var(--color-info)" }}>
-                    ×{population.effect.toFixed(2)} {population.unit}
-                  </span>
-                )}
-              </li>
-            );
-          })}
+          {outcomeRows.map((habit) => (
+            <li key={habit.key} data-testid={`habit-${habit.key}`} style={{ display: "flex", alignItems: "center", gap: 9, padding: "7px 9px", borderRadius: 12, background: "var(--color-surface-2)", boxShadow: "var(--shadow-z1)" }}>
+              <span className="mono-n" style={{ width: 70, fontSize: 9.5, color: "var(--color-dimmer)" }}>{habit.value}</span>
+              <span style={{ flex: 1, fontSize: 10.5 }}>{habit.label}</span>
+              <span className="pill" style={{ ...VERDICT_PILL[habit.verdict], fontSize: 8, padding: "2px 7px" }}>{habit.verdict}</span>
+            </li>
+          ))}
         </ul>
+      )}
+      {populationRows.length > 0 && (
+        <div data-testid="population-habit-guidance">
+          <SectionHead level={3} dot={false} label="Findings Pack population associations" />
+          <ul aria-label="Population habit associations" style={{ display: "flex", flexDirection: "column", gap: 6, listStyle: "none", margin: "7px 0 0", padding: 0 }}>
+            {populationRows.map((row) => (
+              <li
+                key={row.key}
+                data-testid={`population-habit-${row.key}`}
+                style={{ padding: "7px 9px", borderRadius: 12, background: "var(--color-surface-2)", boxShadow: "var(--shadow-z1)", fontSize: 9, lineHeight: 1.45, color: "var(--color-dimmer)" }}
+              >
+                {populationDescription(row)}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
       {personalRows.length > 0 && (
         <ul aria-label="Personal feature observations" data-testid="habit-feature-observations" style={{ display: "flex", flexDirection: "column", gap: 6, listStyle: "none", margin: 0, padding: 0 }}>
           {personalRows.map((row) => {
-            const population = populationRows.find((candidate) => candidate.feature === row.feature) ?? null;
+            const population =
+              row.feature === "first_dragon_by_20m_s"
+                ? populationRows.find((candidate) => candidate.key === "first_dragon_timing") ?? null
+                : populationRows.find((candidate) => candidate.feature === row.feature) ?? null;
             const populationContext = population
               ? row.feature === "first_dragon_by_20m_s"
-                ? `Timing association only · ×${population.effect.toFixed(2)} ${population.unit} · possession and denial are separate objective measures. ${population.caveats[0]}`
-                : row.feature === "plates_taken_by_14m"
-                  ? `Diagnostic · era-sensitive · ×${population.effect.toFixed(2)} ${population.unit} · ${population.caveats[0]}`
-                  : `Population association · ×${population.effect.toFixed(2)} ${population.unit} · ${population.caveats[0]}`
+                ? `Timing association only · ${populationDescription(population)} Local observation uses bounded ${row.feature}; population timing uses whole-match first_dragon_s. Possession and denial are separate objective measures.`
+                : populationDescription(population)
               : row.feature === "first_dragon_by_20m_s"
                 ? "Timing association context unavailable; possession and denial are separate objective measures."
                 : row.feature === "early_fight_participation_rate"

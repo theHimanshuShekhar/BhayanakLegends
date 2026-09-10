@@ -308,7 +308,7 @@ interface WhatIfResponse {
 | `live.status` | `LiveStatus` (coarse health) |
 | `pack.updated` | `{schema_version, pack_version}` |
 | `hello` | `{app_version, pack_version}` (sent on connect) |
-## Findings Pack schema dispatch and v2 contract
+## Findings Pack schema dispatch and v2 contract (current release v3)
 `GET /pack` returns a discriminated `FindingsPackV1 | FindingsPackV2`
 payload. `schema_version` is the discriminator and the filename must agree:
 `findings-pack.v1.json` is parsed only by the historical v1 model, while
@@ -338,13 +338,31 @@ output schema is the unchanged consumer schema generated from
 atomically from the bundled seed on first startup; an existing active pack
 wins over a changed bundled seed.
 
-The v2 root has `schema_version: 2`, a patch range of `14.17` through
-`16.17`, and the following discriminated evidence collections: `findings`,
-`habits`, `objectives`, `comeback_odds`, `ban_context`, `tier_list`,
-`matchup_examples`, `checkpoints`, `route_archetypes`, and `build_evidence`.
-Every row has patch scope, population scope, era-stability, caveats, source
-document/section/reference, provenance key, tier, and explicit release
-status. Diagnostic rows never use recommendation language.
+The v2 root has `schema_version: 2`; the current Findings Pack release is
+`pack_version: "v3"`. Its patch range is `14.17` through `16.17`, and it has
+the following discriminated evidence collections: `findings`, `habits`,
+`objectives`, `comeback_odds`, `ban_context`, `tier_list`, `matchup_examples`,
+`checkpoints`, `route_archetypes`, and `build_evidence`. Every row has patch
+scope, population scope, era-stability, caveats, source
+document/section/reference, provenance key, tier, and explicit release status.
+Diagnostic rows never use recommendation language.
+
+The expanded-corpus habit rows are published as pooled, per-standard-deviation
+odds-ratio effects: safe-recall share `2.32`, later first-dragon timing `0.77`
+(`Earlier first-dragon timing` is the favorable direction), and more banked
+gold at recall `0.80` (`Lower banked gold at recall` is the favorable
+direction). Their required `unit` is exactly
+`odds_ratio_per_standard_deviation`; it is never omitted, reformatted as a
+rate/percentage, or reconstructed by the consumer. Each row remains
+independently available or withheld, with its own release reason and
+reverse-causation caveats. The plate row remains weak, era-sensitive review
+context with its existing inferential detail.
+
+The canonical population feature identifiers for these three rows are the
+whole-match producer features `unseen_recall_share`, `first_dragon_s`, and
+`avg_banked_gold_at_recall`. They are not aliases for bounded Personal History
+features such as `unseen_recall_share_by_20m`, `first_dragon_by_20m_s`, or
+`avg_banked_gold_at_recall_by_20m`; those contracts remain distinct.
 
 
 ### Findings Pack v2 feature contracts

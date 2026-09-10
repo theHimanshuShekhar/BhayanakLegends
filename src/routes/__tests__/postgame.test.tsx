@@ -14,6 +14,7 @@ vi.mock("../../api/client", () => ({
     settings: vi.fn(),
     postgameLatest: vi.fn(),
   },
+  actionableErrorMessage: () => "Findings Pack unavailable",
 }));
 
 function renderPage() {
@@ -149,6 +150,74 @@ describe("PostGamePage", () => {
     expect(observations).toHaveTextContent(/Timing association only/i);
     expect(observations).toHaveTextContent(/Diagnostic · era-sensitive/i);
     expect(observations).not.toHaveTextContent(/fight more|take dragon|must/i);
+
+    const population = screen.getByTestId("population-habit-guidance");
+    expect(population).toHaveTextContent("Higher safe-recall share is the favorable direction");
+    expect(population).toHaveTextContent("Later first-dragon timing");
+    expect(population).toHaveTextContent("Earlier first-dragon timing is the favorable direction");
+    expect(population).toHaveTextContent("Lower banked gold at recall is the favorable direction");
+    expect(population).toHaveTextContent("×2.32 effect per SD");
+    expect(population).toHaveTextContent("Observational population association, not a guarantee.");
+    expect(population).not.toHaveTextContent(/%|rate/i);
+  });
+
+  it("keeps loaded siblings visible when one population habit row is withheld", async () => {
+    const source = makePack();
+    vi.mocked(api.postgameLatest).mockResolvedValue(digest);
+    vi.mocked(api.pack).mockResolvedValueOnce(
+      makePack({
+        habits: source.habits.map((row) =>
+          row.key === "banked_gold_at_recall"
+            ? {
+                ...row,
+                effect: undefined,
+                release_status: "withheld",
+                sample: 0,
+                release_reason: "Banked-gold population evidence is withheld for review.",
+              }
+            : row,
+        ),
+      }),
+    );
+    renderPage();
+
+    const population = await screen.findByTestId("population-habit-guidance");
+    expect(screen.getByTestId("population-habit-banked_gold_at_recall")).toHaveTextContent(
+      "Banked-gold population evidence is withheld for review.",
+    );
+    expect(screen.getByTestId("population-habit-safe_recall_share")).toHaveTextContent(
+      "×2.32 effect per SD",
+    );
+    expect(population).toHaveTextContent("Later first-dragon timing");
+  });
+
+  it("renders row-local unavailable states when the valid pack has no habit rows", async () => {
+    vi.mocked(api.postgameLatest).mockResolvedValue(digest);
+    vi.mocked(api.pack).mockResolvedValueOnce(makePack({ habits: [] }));
+    renderPage();
+
+    const population = await screen.findByTestId("population-habit-guidance");
+    for (const key of [
+      "safe_recall_share",
+      "first_dragon_timing",
+      "banked_gold_at_recall",
+      "plates_by_14m",
+    ]) {
+      expect(screen.getByTestId(`population-habit-${key}`)).toHaveTextContent(
+        "Population association unavailable",
+      );
+    }
+    expect(population).not.toHaveTextContent("×2.32 effect per SD");
+  });
+
+  it("shows an honest pack-unavailable error without substituting population rows", async () => {
+    vi.mocked(api.postgameLatest).mockResolvedValue(digest);
+    vi.mocked(api.pack).mockRejectedValueOnce(new Error("pack unavailable"));
+    renderPage();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Findings Pack unavailable");
+    expect(await screen.findByTestId("habit-outcomes")).toHaveTextContent("Recall safely");
+    expect(screen.queryByTestId("population-habit-guidance")).not.toBeInTheDocument();
   });
 
   it("suppresses a deficit below the minimum when exact cohorts are available", async () => {

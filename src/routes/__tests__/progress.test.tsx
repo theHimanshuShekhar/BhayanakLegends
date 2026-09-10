@@ -23,6 +23,7 @@ vi.mock("../../api/client", () => ({
     benchmarks: vi.fn(),
     liveStatus: vi.fn(),
   },
+  actionableErrorMessage: () => "Findings Pack unavailable",
 }));
 
 vi.mock("../../api/sse", () => ({
@@ -205,20 +206,78 @@ describe("ProgressPage", () => {
   });
 
 
-  it("withholds lever adoption when canonical habit evidence is absent", async () => {
-    const pack = makePack();
-    vi.mocked(api.pack).mockResolvedValue({ ...pack, habits: [] });
+  it("renders loaded population habit evidence with directional effects", async () => {
     renderPage(<ProgressPage />);
 
-    expect(await screen.findByTestId("habit-evidence-unavailable")).toHaveTextContent(
-      "compatible v2 habit evidence unavailable",
+    await screen.findByText("Findings Pack v3");
+    const lever = screen.getByTestId("lever-adoption");
+
+    expect(lever).toHaveTextContent("Findings Pack v3");
+    expect(lever).toHaveTextContent("Higher safe-recall share");
+    expect(lever).toHaveTextContent("Later first-dragon timing");
+    expect(lever).toHaveTextContent("More banked gold at recall");
+    expect(lever).toHaveTextContent("×2.32 effect per SD");
+  });
+
+  it("keeps loaded siblings visible when one population habit row is withheld", async () => {
+    const source = makePack();
+    vi.mocked(api.pack).mockResolvedValueOnce(
+      makePack({
+        habits: source.habits.map((row) =>
+          row.key === "first_dragon_timing"
+            ? {
+                ...row,
+                effect: undefined,
+                release_status: "withheld",
+                sample: 0,
+                release_reason: "First-dragon population evidence is withheld for review.",
+              }
+            : row,
+        ),
+      }),
     );
+    renderPage(<ProgressPage />);
+
+    const withheldRow = await screen.findByTestId("habit-row-first_dragon_timing");
+    const lever = screen.getByTestId("lever-adoption");
+    expect(withheldRow).toHaveTextContent(
+      "First-dragon population evidence is withheld for review.",
+    );
+    expect(screen.getByTestId("habit-row-safe_recall_share")).toHaveTextContent(
+      "×2.32 effect per SD",
+    );
+    expect(screen.getByTestId("habit-row-banked_gold_at_recall")).toHaveTextContent(
+      "×0.80 effect per SD",
+    );
+    expect(lever).toHaveTextContent("population associations");
+  });
+
+  it("renders every population habit as unavailable when the valid pack has no rows", async () => {
+    vi.mocked(api.pack).mockResolvedValueOnce(makePack({ habits: [] }));
+    renderPage(<ProgressPage />);
+
+    await screen.findByTestId("habit-row-safe_recall_share");
+    const lever = screen.getByTestId("lever-adoption");
+    for (const key of [
+      "safe_recall_share",
+      "first_dragon_timing",
+      "banked_gold_at_recall",
+      "plates_by_14m",
+    ]) {
+      expect(screen.getByTestId(`habit-row-${key}`)).toHaveTextContent("Unavailable");
+    }
+    expect(lever).not.toHaveTextContent("×2.32 effect per SD");
+  });
+
+  it("shows the unavailable Findings Pack badge when no pack is supplied", async () => {
+    vi.mocked(api.pack).mockRejectedValueOnce(new Error("pack unavailable"));
+    renderPage(<ProgressPage />);
+
+    await screen.findByRole("alert");
+    const lever = screen.getByTestId("lever-adoption");
+    expect(lever).toHaveTextContent("Findings Pack unavailable");
     expect(screen.queryByTestId("habit-row-safe_recall_share")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("habit-row-first_dragon_timing")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("habit-row-banked_gold_at_recall")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("habit-row-plates_by_14m")).not.toBeInTheDocument();
-    expect(screen.getByTestId("lever-adoption")).toHaveTextContent("Findings Pack v2");
-    expect(screen.getByTestId("lever-adoption")).toHaveTextContent(/population associations/i);
+    expect(lever).toHaveTextContent("compatible Findings Pack habit evidence unavailable");
   });
 
 

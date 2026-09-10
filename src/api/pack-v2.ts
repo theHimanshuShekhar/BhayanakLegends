@@ -142,7 +142,7 @@ export interface PackV2Habit extends PackV2EvidenceMetadata {
     | "percentage_points"
     | "win_rate";
   unit: string;
-  effect: number;
+  effect?: number;
   effect_interval?: PackV2HabitEffectInterval;
   coefficient?: number;
   p_value?: number;
@@ -155,7 +155,7 @@ export interface PackV2Habit extends PackV2EvidenceMetadata {
   tier: PackV2Tier;
   release_status: PackV2ReleaseStatus;
   sample: number;
-  release_reason?: string;
+  release_reason?: string | null;
 }
 
 export type PackV2Objective = PackV2EvidenceMetadata & {

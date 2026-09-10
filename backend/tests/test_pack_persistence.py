@@ -50,7 +50,7 @@ def test_fresh_install_seeds_durable_active_pack_without_mutating_bundle(
     with TestClient(app) as client:
         response = client.get("/health", headers=AUTH)
     assert response.status_code == 200
-    assert response.json()["pack_version"] == "v2"
+    assert response.json()["pack_version"] == "v3"
 
 
 def test_existing_active_pack_wins_over_changed_bundled_seed(tmp_path: Path, monkeypatch) -> None:
@@ -68,7 +68,7 @@ def test_existing_active_pack_wins_over_changed_bundled_seed(tmp_path: Path, mon
     restarted = create_app(config, credential_store=InMemoryCredentialStore())
 
     assert (active / "findings-pack.v2.json").read_bytes() == original_active
-    assert restarted.state.pack.version() == "v2"
+    assert restarted.state.pack.version() == "v3"
 
 
 def test_active_pack_survives_restart_without_bundle(tmp_path: Path, monkeypatch) -> None:
@@ -82,7 +82,7 @@ def test_active_pack_survives_restart_without_bundle(tmp_path: Path, monkeypatch
 
     restarted = create_app(config, credential_store=InMemoryCredentialStore())
 
-    assert restarted.state.pack.version() == "v2"
+    assert restarted.state.pack.version() == "v3"
     assert config.resolved_active_pack_dir().is_dir()
 
 

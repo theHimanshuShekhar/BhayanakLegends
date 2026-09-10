@@ -1,24 +1,25 @@
 import type { FindingsPackV2 } from "../../api/pack-v2";
-import { formatEffectPerSd, formatPercentagePoints, formatRate } from "../format";
+import { formatEffectPerSd } from "../format";
+import {
+  habitEvidence,
+  habitEvidenceReleased,
+  habitFavorableDirection,
+} from "../populationEvidence";
 import { SectionHead } from "../ui";
-
-function effectLabel(metricKind: string, effect: number): string {
-  if (metricKind === "odds_ratio" || metricKind === "odds_ratio_per_standard_deviation") {
-    return formatEffectPerSd(effect);
-  }
-  if (metricKind === "win_rate") return formatRate(effect);
-  return formatPercentagePoints(effect);
-}
 
 /** Actionable Findings Pack habits are population associations, not live state. */
 export function RightNowCard({ pack }: { pack: FindingsPackV2 | undefined }) {
-  const habits = (pack?.habits ?? [])
-    .filter((habit) => habit.release_status === "available")
-    .map((habit) => ({
-      key: habit.key,
-      label: habit.label,
-      effectLabel: effectLabel(habit.metric_kind, habit.effect),
-    }));
+  const habits = habitEvidence(pack).map((habit) => {
+    const available = habitEvidenceReleased(habit);
+    return {
+      ...habit,
+      available,
+      effectLabel: formatEffectPerSd(
+        available ? habit.effect : undefined,
+        habit.releaseReason ?? habit.contractIssue ?? "habit evidence unavailable",
+      ),
+    };
+  });
   return (
     <section
       className="card3"
@@ -65,13 +66,15 @@ export function RightNowCard({ pack }: { pack: FindingsPackV2 | undefined }) {
               Habit
             </span>
             <p style={{ margin: 0, fontSize: 10.5, lineHeight: 1.5, color: "var(--color-soft-text)" }}>
-              {habit.label} — worth {habit.effectLabel}.
+              {habit.available
+                ? `${habitFavorableDirection(habit)} — ${habit.effectLabel}. Observational population association, not a guarantee.`
+                : `${habit.label} — Population association unavailable: ${habit.releaseReason ?? habit.contractIssue ?? "evidence is unavailable"}`}
             </p>
           </li>
         ))}
         {habits.length === 0 && (
           <li role="status" style={{ padding: "8px 9px", color: "var(--color-dimmer)", fontSize: 10 }}>
-            Unavailable: no released habit associations in the Findings Pack.
+            Unavailable: no valid Findings Pack habit rows are active.
           </li>
         )}
       </ul>

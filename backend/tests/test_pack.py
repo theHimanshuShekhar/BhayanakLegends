@@ -78,7 +78,7 @@ def test_pack_matches_canonical_schema_and_strict_model(generator):
 
     assert SCHEMA == generator.build_schema()
     assert model.schema_version == 2
-    assert model.pack_version == "v2"
+    assert model.pack_version == "v3"
     assert model.dataset.eligible_matches > 0
 
 
@@ -108,6 +108,53 @@ def test_v2_comeback_rows_pin_sign_eligibility_tier_and_population_provenance():
     assert PACK["feature_contracts"]["personal_history"] == "loltrends-parity-v2"
     assert PACK["feature_contracts"]["population"] == "loltrends-population-v2"
     assert PACK["provenance"]["comeback_odds"]["feature_contract_version"] == "loltrends-population-v2"
+def test_v2_habit_release_rows_pin_canonical_effects_and_direction() -> None:
+    rows = {row["key"]: row for row in PACK["habits"]}
+    assert (rows["safe_recall_share"]["effect"], rows["safe_recall_share"]["label"]) == (
+        2.32,
+        "Higher safe-recall share",
+    )
+    assert (rows["first_dragon_timing"]["effect"], rows["first_dragon_timing"]["label"]) == (
+        0.77,
+        "Later first-dragon timing",
+    )
+    assert (
+        rows["banked_gold_at_recall"]["effect"],
+        rows["banked_gold_at_recall"]["label"],
+    ) == (0.80, "More banked gold at recall")
+    for key in ("safe_recall_share", "first_dragon_timing", "banked_gold_at_recall"):
+        row = rows[key]
+        assert row["metric_kind"] == "odds_ratio"
+        assert row["unit"] == "odds_ratio_per_standard_deviation"
+        assert row["tier"] == "actionable"
+        assert row["release_status"] == "available"
+        assert row["era_stability"] == "stable"
+        assert not {
+            "effect_interval",
+            "coefficient",
+            "p_value",
+            "significant",
+            "era_results",
+        } & row.keys()
+
+
+@pytest.mark.parametrize("effect", [1.077413, 0.730246, 1.282502])
+def test_v2_habit_validation_rejects_superseded_effects(effect: float) -> None:
+    broken = copy.deepcopy(PACK)
+    row = next(row for row in broken["habits"] if row["key"] != "plates_by_14m")
+    row["effect"] = effect
+    with pytest.raises(PydanticValidationError):
+        FindingsPackV2.model_validate(broken)
+
+
+def test_v2_habit_validation_accepts_report_headline_without_inferential_detail() -> None:
+    broken = copy.deepcopy(PACK)
+    for row in broken["habits"]:
+        if row["key"] in {"safe_recall_share", "first_dragon_timing", "banked_gold_at_recall"}:
+            for field in ("effect_interval", "coefficient", "p_value", "significant", "era_results"):
+                row.pop(field, None)
+    FindingsPackV2.model_validate(broken)
+
 
 
 def test_schema_rejects_unknown_root_and_row_fields():
@@ -414,7 +461,7 @@ def test_generator_fails_closed_on_incompatible_upstream_shape(tmp_path: Path):
 
 def test_header_and_release_contract_fields_are_v2_only():
     assert PACK["schema_version"] == 2
-    assert PACK["pack_version"] == "v2"
+    assert PACK["pack_version"] == "v3"
     assert PACK["feature_contracts"]["personal_history"] == "loltrends-parity-v2"
     assert set(PACK) == {
         "schema_version",

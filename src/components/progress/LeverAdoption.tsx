@@ -1,9 +1,16 @@
-import type { FindingsPackV2 } from "../../api/pack-v2";
-import { habitEvidence } from "../populationEvidence";
+import type { FindingsPack } from "../../api/pack-v2";
+import { isFindingsPackV2 } from "../../api/pack-v2";
+import { formatEffectPerSd } from "../format";
+import {
+  habitEvidence,
+  habitEvidenceReleased,
+  habitFavorableDirection,
+} from "../populationEvidence";
 import { SectionHead, Unavailable } from "../ui";
 
-export function LeverAdoption({ pack }: { pack: FindingsPackV2 | undefined }) {
-  const habits = habitEvidence(pack);
+export function LeverAdoption({ pack }: { pack: FindingsPack | undefined }) {
+  const v2Pack = isFindingsPackV2(pack) ? pack : undefined;
+  const habits = habitEvidence(v2Pack);
   return (
     <div
       className="card3b"
@@ -16,7 +23,7 @@ export function LeverAdoption({ pack }: { pack: FindingsPackV2 | undefined }) {
         color="var(--color-info)"
         right={
           <span className="pill" style={{ background: "var(--color-info-low)", color: "var(--color-soft-blue)" }}>
-            Findings Pack v2
+            {v2Pack ? `Findings Pack ${v2Pack.pack_version}` : "Findings Pack unavailable"}
           </span>
         }
       />
@@ -26,7 +33,7 @@ export function LeverAdoption({ pack }: { pack: FindingsPackV2 | undefined }) {
           data-testid="habit-evidence-unavailable"
           style={{ padding: "12px 10px", borderRadius: 13, background: "var(--color-surface-3)", fontSize: 10, lineHeight: 1.45, color: "var(--color-dim)" }}
         >
-          <Unavailable reason="compatible v2 habit evidence unavailable" />
+          <Unavailable reason="compatible Findings Pack habit evidence unavailable" />
         </div>
       ) : (
         <ul
@@ -34,11 +41,18 @@ export function LeverAdoption({ pack }: { pack: FindingsPackV2 | undefined }) {
           style={{ display: "flex", flexDirection: "column", gap: 8, listStyle: "none", margin: 0, padding: 0 }}
         >
           {habits.map((habit) => {
-            const available =
-              (habit.release_status === "available" || habit.release_status === "approximate") &&
-              Number.isFinite(habit.effect) &&
-              habit.sample > 0;
+            const available = habitEvidenceReleased(habit);
             const weakPlate = habit.key === "plates_by_14m";
+            const unavailableReason =
+              habit.releaseReason ?? habit.contractIssue ?? "effect unavailable";
+            const sampleLabel =
+              habit.sample == null
+                ? "Sample unavailable"
+                : `${habit.sample.toLocaleString("en-US")} exposures`;
+            const eraLabel =
+              habit.eraStability === "sensitive"
+                ? "era-sensitive"
+                : habit.eraStability ?? "era status unavailable";
             return (
               <li
                 key={habit.key}
@@ -56,7 +70,8 @@ export function LeverAdoption({ pack }: { pack: FindingsPackV2 | undefined }) {
                   <div style={{ flex: 1 }}>
                     <div style={{ font: "600 11px var(--font-mono)" }}>{habit.label}</div>
                     <div style={{ fontSize: 9, color: "var(--color-dim)" }}>
-                      {weakPlate ? "Diagnostic · era-sensitive" : "Population association"} · {habit.unit}
+                      {weakPlate ? "Diagnostic · era-sensitive" : habitFavorableDirection(habit)} ·{" "}
+                      {habit.unit ?? "unit unavailable"}
                     </div>
                   </div>
                   <span
@@ -67,12 +82,19 @@ export function LeverAdoption({ pack }: { pack: FindingsPackV2 | undefined }) {
                       padding: "2px 7px",
                     }}
                   >
-                    {available ? `×${habit.effect.toFixed(2)}` : <Unavailable reason={habit.release_status === "withheld" ? "evidence withheld" : "effect unavailable"} />}
+                    {available
+                      ? formatEffectPerSd(habit.effect)
+                      : <Unavailable reason={unavailableReason} />}
                   </span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 8.5, color: "var(--color-dimmer)" }}>
-                  <span>{habit.sample.toLocaleString("en-US")} exposures</span>
-                  <span>{habit.era_stability === "sensitive" ? "era-sensitive" : habit.era_stability}</span>
+                  <span>{sampleLabel}</span>
+                  <span>{eraLabel}</span>
+                </div>
+                <div style={{ fontSize: 8.5, lineHeight: 1.4, color: "var(--color-dimmer)" }}>
+                  {available
+                    ? `Observational population association, not a guarantee. ${habit.caveats[0] ?? ""}`
+                    : `Population association unavailable: ${unavailableReason}`}
                 </div>
                 <div
                   data-testid={`habit-bar-${habit.key}`}

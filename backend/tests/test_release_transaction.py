@@ -40,18 +40,21 @@ TEST_PUBLIC_KEY = TEST_PRIVATE_KEY.public_key().public_bytes_raw()
 TOKEN = "test-token-123456789012345678901234"
 AUTH = {"X-BL-Token": TOKEN, "Host": "127.0.0.1:23110"}
 
+SEED_PACK_VERSION = "v3"
+CANDIDATE_PACK_VERSION = "v4"
+
 
 def _asset(*, extra_artifact: bool = False) -> bytes:
     pack = minimal_pack()
-    pack["pack_version"] = "v3"
+    pack["pack_version"] = CANDIDATE_PACK_VERSION
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_STORED) as archive:
         archive.writestr("findings-pack.v2.json", json.dumps(pack))
         for relative, data in canonical_model_assets(pack).items():
             archive.writestr(relative, data)
-        archive.writestr("payload/honest-model.bin", b"model-v3")
+        archive.writestr("payload/honest-model.bin", b"model-v4")
         if extra_artifact:
-            archive.writestr("payload/added-in-v3.bin", b"brand-new")
+            archive.writestr("payload/added-in-v4.bin", b"brand-new")
     return output.getvalue()
 
 
@@ -69,11 +72,9 @@ def _app_and_channel(
     )
     app = create_app(config, credential_store=InMemoryCredentialStore())
     active = app.state.pack.pack_dir
-    assert active == tmp_path / "data" / "findings-pack" / "active"
-
     canonical = minimal_pack()
     manifest = {
-        "pack_version": "v3",
+        "pack_version": CANDIDATE_PACK_VERSION,
         "schema_version": 2,
         "feature_contract_version": canonical["feature_contracts"]["population"],
         "download_url": "asset.zip",
@@ -134,15 +135,15 @@ async def test_update_publishes_pack_updated_after_reload(tmp_path: Path) -> Non
 
     frames = [json.loads(frame.removeprefix("data: ")) for frame in _drain(queue)]
     assert [frame["type"] for frame in frames] == ["pack.updated"]
-    assert frames[0]["data"] == {"schema_version": 2, "pack_version": "v3"}
-    assert app.state.pack_version == "v3"
+    assert frames[0]["data"] == {"schema_version": 2, "pack_version": CANDIDATE_PACK_VERSION}
+    assert app.state.pack_version == CANDIDATE_PACK_VERSION
     temps, rollbacks = _leftovers(app)
     assert not temps and not rollbacks
 
     health = TestClient(app).get("/health", headers=AUTH)
     assert health.status_code == 200
     assert health.json()["status"] == "ok"
-    assert health.json()["pack_version"] == "v3"
+    assert health.json()["pack_version"] == CANDIDATE_PACK_VERSION
 
 
 async def test_activated_generation_survives_restart(tmp_path: Path) -> None:
@@ -153,12 +154,12 @@ async def test_activated_generation_survives_restart(tmp_path: Path) -> None:
 
     current = app.state.pack.pack_dir
     assert current != previous
-    assert json.loads((previous / "findings-pack.v2.json").read_text())["pack_version"] == "v2"
-    assert json.loads((current / "findings-pack.v2.json").read_text())["pack_version"] == "v3"
+    assert json.loads((previous / "findings-pack.v2.json").read_text())["pack_version"] == SEED_PACK_VERSION
+    assert json.loads((current / "findings-pack.v2.json").read_text())["pack_version"] == CANDIDATE_PACK_VERSION
 
     restarted = PackStore(app.state.config.resolved_active_pack_dir())
     restarted.initialize()
-    assert restarted.version() == "v3"
+    assert restarted.version() == CANDIDATE_PACK_VERSION
 
 
 async def test_corrupt_pointer_recovers_last_successfully_activated_pack(
@@ -174,8 +175,8 @@ async def test_corrupt_pointer_recovers_last_successfully_activated_pack(
     restarted = PackStore(logical)
     restarted.initialize()
 
-    assert restarted.version() == "v3"
-    assert json.loads((logical / "findings-pack.v2.json").read_text())["pack_version"] == "v3"
+    assert restarted.version() == CANDIDATE_PACK_VERSION
+    assert json.loads((logical / "findings-pack.v2.json").read_text())["pack_version"] == CANDIDATE_PACK_VERSION
 
 
 async def test_reload_failure_restores_previous_pack_and_suppresses_event(
@@ -205,8 +206,8 @@ async def test_reload_failure_restores_previous_pack_and_suppresses_event(
     assert calls["count"] >= 2
     assert (active / "findings-pack.v2.json").read_bytes() == original_json
     assert (active / "payload" / "honest-model.bin").read_bytes() == b"model-previous"
-    assert not (active / "payload" / "added-in-v3.bin").exists()
-    assert app.state.pack_version == "v2"
+    assert not (active / "payload" / "added-in-v4.bin").exists()
+    assert app.state.pack_version == SEED_PACK_VERSION
     temps, rollbacks = _leftovers(app)
     assert not temps and not rollbacks
 
@@ -218,10 +219,10 @@ async def test_reload_failure_restores_previous_pack_and_suppresses_event(
     )
     hello = json.loads((await hello_gen.__anext__()).removeprefix("data: "))
     assert hello["type"] == "hello"
-    assert hello["data"] == {"app_version": APP_VERSION, "pack_version": "v2"}
+    assert hello["data"] == {"app_version": APP_VERSION, "pack_version": SEED_PACK_VERSION}
 
     client = TestClient(app)
-    assert client.get("/health", headers=AUTH).json()["pack_version"] == "v2"
+    assert client.get("/health", headers=AUTH).json()["pack_version"] == SEED_PACK_VERSION
     assert client.get("/pack", headers=AUTH).status_code == 200
 
 
@@ -253,7 +254,7 @@ async def test_interrupted_artifact_staging_keeps_previous_pack(
     assert _drain(queue) == []
     assert (active / "findings-pack.v2.json").read_bytes() == original_json
     assert (active / "payload" / "honest-model.bin").read_bytes() == b"model-previous"
-    assert app.state.pack_version == "v2"
+    assert app.state.pack_version == SEED_PACK_VERSION
     temps, rollbacks = _leftovers(app)
     assert not temps and not rollbacks
 
@@ -286,7 +287,7 @@ async def test_interrupted_json_commit_keeps_previous_pack(
     assert _drain(queue) == []
     assert (active / "findings-pack.v2.json").read_bytes() == original_json
     assert (active / "payload" / "honest-model.bin").read_bytes() == b"model-previous"
-    assert app.state.pack_version == "v2"
+    assert app.state.pack_version == SEED_PACK_VERSION
     temps, rollbacks = _leftovers(app)
     assert not temps and not rollbacks
 
@@ -303,7 +304,7 @@ async def test_rejected_candidate_keeps_prior_version_reporting(tmp_path: Path) 
 
     assert _drain(queue) == []
     assert (active / "findings-pack.v2.json").read_bytes() == original_json
-    assert app.state.pack_version == "v2"
+    assert app.state.pack_version == SEED_PACK_VERSION
     temps, rollbacks = _leftovers(app)
     assert not temps and not rollbacks
 
@@ -311,4 +312,4 @@ async def test_rejected_candidate_keeps_prior_version_reporting(tmp_path: Path) 
     health = client.get("/health", headers=AUTH)
     assert health.status_code == 200
     assert health.json()["status"] == "ok"
-    assert health.json()["pack_version"] == "v2"
+    assert client.get("/health", headers=AUTH).json()["pack_version"] == SEED_PACK_VERSION

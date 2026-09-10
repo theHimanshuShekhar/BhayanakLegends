@@ -32,6 +32,9 @@ ROOT = Path(__file__).resolve().parents[2]
 PACK_DIR = ROOT / "pack"
 SCHEMA_PATH = PACK_DIR / "pack.schema.json"
 
+SEED_PACK_VERSION = "v3"
+CANDIDATE_PACK_VERSION = "v4"
+
 def _onnx_bytes(*, output: str = "probability", operator: str = "Identity") -> bytes:
     onnx = pytest.importorskip("onnx")
     from onnx import TensorProto, helper
@@ -232,7 +235,7 @@ def test_available_surrender_advisor_is_rejected_by_pack_contract(tmp_path: Path
 async def test_release_manifest_pins_available_model_card_and_artifact(tmp_path: Path) -> None:
     root, pack, _artifact, _card_payload = _fixture_pack(tmp_path)
     release_pack = copy.deepcopy(pack)
-    release_pack["pack_version"] = "v3"
+    release_pack["pack_version"] = CANDIDATE_PACK_VERSION
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w") as archive:
         archive.writestr("findings-pack.v2.json", json.dumps(release_pack))
@@ -242,7 +245,7 @@ async def test_release_manifest_pins_available_model_card_and_artifact(tmp_path:
     asset = output.getvalue()
     contracts = release_pack["feature_contracts"]
     manifest = {
-        "pack_version": "v3",
+        "pack_version": CANDIDATE_PACK_VERSION,
         "schema_version": 2,
         "feature_contract_versions": {
             "population": contracts["population"],
@@ -268,7 +271,7 @@ async def test_release_manifest_pins_available_model_card_and_artifact(tmp_path:
 
     store = PackStore(root)
     store.initialize()
-    assert store.version() == "v2"
+    assert store.version() == SEED_PACK_VERSION
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     channel = ReleaseChannel(
@@ -280,13 +283,13 @@ async def test_release_manifest_pins_available_model_card_and_artifact(tmp_path:
         manifest_public_key=private_key.public_key().public_bytes_raw(),
         pack_store=store,
     )
-    result = await channel.check_and_activate("v2")
+    result = await channel.check_and_activate(SEED_PACK_VERSION)
     assert result.activated
-    assert store.version() == "v3"
+    assert store.version() == CANDIDATE_PACK_VERSION
     active = channel.pack_dir
     assert active != root
-    assert json.loads((root / "findings-pack.v2.json").read_text())["pack_version"] == "v2"
-    assert json.loads((active / "findings-pack.v2.json").read_text())["pack_version"] == "v3"
+    assert json.loads((root / "findings-pack.v2.json").read_text())["pack_version"] == SEED_PACK_VERSION
+    assert json.loads((active / "findings-pack.v2.json").read_text())["pack_version"] == CANDIDATE_PACK_VERSION
     for relative, data in declared_model_assets(release_pack, root).items():
         assert (active / relative).read_bytes() == data
 
@@ -297,7 +300,7 @@ def test_corrupt_active_model_recovers_last_known_good_pack(tmp_path: Path) -> N
     root, _pack, _artifact, _card_payload = _fixture_pack(tmp_path)
     store = PackStore(root)
     store.initialize()
-    assert store.load()["pack_version"] == "v2"
+    assert store.load()["pack_version"] == SEED_PACK_VERSION
     (root / "models" / "fixture.onnx").unlink()
 
     restarted = PackStore(root)
@@ -323,7 +326,7 @@ def test_restart_does_not_promote_orphan_generation_without_committed_pointer(
     restarted = PackStore(root)
     restarted.initialize()
 
-    assert restarted.version() == "v2"
+    assert restarted.version() == SEED_PACK_VERSION
     assert restarted.pack_dir == root
     assert not orphan.exists()
 
@@ -338,7 +341,7 @@ def test_committed_generation_survives_cleanup_failure(
     candidate = tmp_path / "candidate"
     shutil.copytree(root, candidate)
     (candidate / "findings-pack.v2.json").write_text(
-        json.dumps({**pack, "pack_version": "v3"}),
+        json.dumps({**pack, "pack_version": CANDIDATE_PACK_VERSION}),
         encoding="utf-8",
     )
     transaction = store.activate_candidate(candidate)
@@ -351,7 +354,7 @@ def test_committed_generation_survives_cleanup_failure(
     transaction.finalize()
     store.reload()
 
-    assert store.version() == "v3"
+    assert store.version() == CANDIDATE_PACK_VERSION
 
 
 def test_failed_legacy_pointer_setup_removes_orphan_generation(
@@ -381,11 +384,11 @@ def test_failed_pointer_rollback_keeps_cache_on_committed_generation(
     root, pack, _artifact, _card_payload = _fixture_pack(tmp_path)
     store = PackStore(root)
     store.initialize()
-    assert store.version() == "v2"
+    assert store.version() == SEED_PACK_VERSION
     candidate = tmp_path / "candidate"
     shutil.copytree(root, candidate)
     (candidate / "findings-pack.v2.json").write_text(
-        json.dumps({**pack, "pack_version": "v3"}),
+        json.dumps({**pack, "pack_version": CANDIDATE_PACK_VERSION}),
         encoding="utf-8",
     )
     transaction = store.activate_candidate(candidate)
@@ -397,7 +400,7 @@ def test_failed_pointer_rollback_keeps_cache_on_committed_generation(
     with pytest.raises(OSError, match="pointer rollback"):
         transaction.rollback()
 
-    assert store.version() == "v3"
+    assert store.version() == CANDIDATE_PACK_VERSION
 
 
 def test_activation_waits_for_outer_what_if_read_transaction(
@@ -411,7 +414,7 @@ def test_activation_waits_for_outer_what_if_read_transaction(
     candidate = tmp_path / "candidate"
     shutil.copytree(root, candidate)
     candidate_pack = json.loads((candidate / "findings-pack.v2.json").read_text())
-    candidate_pack["pack_version"] = "v3"
+    candidate_pack["pack_version"] = CANDIDATE_PACK_VERSION
     (candidate / "findings-pack.v2.json").write_text(
         json.dumps(candidate_pack),
         encoding="utf-8",

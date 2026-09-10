@@ -79,6 +79,66 @@ describe("LiveMatchPage", () => {
     expect(screen.getByTestId("objectives-caption")).toHaveTextContent(
       "no objective row is a causal swing claim",
     );
+    const habits = await screen.findByTestId("habit-nudges");
+    await screen.findByTestId("habit-nudge-safe_recall_share");
+    expect(habits).toHaveTextContent("Higher safe-recall share");
+    expect(habits).toHaveTextContent("Later first-dragon timing");
+    expect(habits).toHaveTextContent("Earlier first-dragon timing is the favorable direction");
+    expect(habits).toHaveTextContent("Lower banked gold at recall");
+    expect(habits).toHaveTextContent("×2.32 effect per SD");
+    expect(habits).toHaveTextContent("Observational population association, not a guarantee.");
+    expect(habits).not.toHaveTextContent(/%|rate/i);
+  });
+
+  it("keeps loaded siblings visible when one population habit row is missing", async () => {
+    const source = makePack();
+    vi.mocked(api.pack).mockResolvedValueOnce(
+      makePack({ habits: source.habits.filter((row) => row.key !== "safe_recall_share") }),
+    );
+    renderPage();
+
+    await screen.findByTestId("habit-nudge-first_dragon_timing");
+    expect(screen.getByTestId("habit-nudge-safe_recall_share")).toHaveTextContent(
+      "Population association unavailable",
+    );
+    expect(screen.getByTestId("habit-nudge-first_dragon_timing")).toHaveTextContent(
+      "×0.77 effect per SD",
+    );
+    const bankedGold = screen.getByTestId("habit-nudge-banked_gold_at_recall");
+    expect(bankedGold).toHaveTextContent(
+      "Lower banked gold at recall is the favorable direction; the published association measures more banked gold",
+    );
+    expect(bankedGold).toHaveTextContent("×0.80 effect per SD");
+  });
+
+  it("renders every habit as unavailable when the valid pack has no habit rows", async () => {
+    vi.mocked(api.pack).mockResolvedValueOnce(makePack({ habits: [] }));
+    renderPage();
+
+    await screen.findByTestId("habit-nudge-safe_recall_share");
+    for (const key of [
+      "safe_recall_share",
+      "first_dragon_timing",
+      "banked_gold_at_recall",
+      "plates_by_14m",
+    ]) {
+      expect(screen.getByTestId(`habit-nudge-${key}`)).toHaveTextContent(
+        "Population association unavailable",
+      );
+    }
+    expect(screen.getByTestId("habit-nudges")).not.toHaveTextContent(
+      "×2.32 effect per SD",
+    );
+  });
+
+  it("shows population evidence unavailable when no pack is supplied", async () => {
+    vi.mocked(api.pack).mockRejectedValueOnce(new Error("pack unavailable"));
+    renderPage();
+
+    await screen.findByRole("alert");
+    const habits = screen.getByTestId("habit-nudges");
+    expect(habits).toHaveTextContent("no valid Findings Pack habit rows are active");
+    expect(habits.querySelector('[data-testid="habit-nudge-safe_recall_share"]')).toBeNull();
   });
 
   it("renders the strict in-game roster, events, totals, and items", async () => {
@@ -136,21 +196,21 @@ describe("LiveMatchPage", () => {
     expect(screen.getByTestId("event-feed")).toHaveTextContent("7 events");
   });
 
-  it("keeps pack version labels v2-only and rejects non-v2 update frames", async () => {
-    vi.mocked(api.pack).mockResolvedValueOnce(makePack({ pack_version: "v2" }));
+  it("keeps the v3 release label for schema-v2 updates and rejects non-v2 frames", async () => {
+    vi.mocked(api.pack).mockResolvedValueOnce(makePack({ pack_version: "v3" }));
     renderPage();
-    expect(await screen.findByText("Findings Pack v2")).toBeInTheDocument();
+    expect(await screen.findByText("Findings Pack v3")).toBeInTheDocument();
     const packCallsBeforeUpdate = vi.mocked(api.pack).mock.calls.length;
-    act(() => pushSse!({ type: "pack.updated", ts: "now", data: { schema_version: 2, pack_version: "v2" } }));
+    act(() => pushSse!({ type: "pack.updated", ts: "now", data: { schema_version: 2, pack_version: "v3" } }));
     await waitFor(() =>
       expect(vi.mocked(api.pack).mock.calls.length).toBeGreaterThan(packCallsBeforeUpdate),
     );
-    await waitFor(() => expect(screen.getByText("Findings Pack v2")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Findings Pack v3")).toBeInTheDocument());
 
     act(() => {
       pushSse!({ type: "pack.updated", ts: "old", data: { schema_version: 1, pack_version: "v1" } } as never);
       pushSse!({ type: "pack.updated", ts: "bad", data: { schema_version: 3, pack_version: "v3" } } as never);
     });
-    expect(screen.getByText("Findings Pack v2")).toBeInTheDocument();
+    expect(screen.getByText("Findings Pack v3")).toBeInTheDocument();
   });
 });

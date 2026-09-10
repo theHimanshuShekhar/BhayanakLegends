@@ -53,22 +53,22 @@ _BAN_CORRELATION_KEY = "ban_win_rate_correlation"
 _BAN_CORRELATION_VALUE = 0.062353
 _HABIT_SPECS: dict[str, tuple[str, float, FindingTierV2, EraStabilityV2]] = {
     "safe_recall_share": (
-        "unseen_recall_share_by_20m",
-        1.077413,
+        "unseen_recall_share",
+        2.32,
         "actionable",
-        "sensitive",
+        "stable",
     ),
     "first_dragon_timing": (
-        "first_dragon_by_20m_s",
-        0.730246,
+        "first_dragon_s",
+        0.77,
         "actionable",
         "stable",
     ),
     "banked_gold_at_recall": (
-        "avg_banked_gold_at_recall_by_20m",
-        1.282502,
+        "avg_banked_gold_at_recall",
+        0.80,
         "actionable",
-        "insufficient",
+        "stable",
     ),
     "plates_by_14m": (
         "plates_taken_by_14m",
@@ -76,6 +76,12 @@ _HABIT_SPECS: dict[str, tuple[str, float, FindingTierV2, EraStabilityV2]] = {
         "a-lite",
         "sensitive",
     ),
+}
+_HABIT_LABELS = {
+    "safe_recall_share": "Higher safe-recall share",
+    "first_dragon_timing": "Later first-dragon timing",
+    "banked_gold_at_recall": "More banked gold at recall",
+    "plates_by_14m": "Turret plates are weak review context",
 }
 _HABIT_ERAS = ("14.x", "15.x", "16.x")
 _HABIT_METRIC = "odds_ratio"
@@ -307,8 +313,7 @@ class PackV2Habit(PackV2EvidenceMetadata):
 
     @model_validator(mode="after")
     def release_reason_for_unavailable(self) -> "PackV2Habit":
-        details = (
-            self.effect,
+        detail_values = (
             self.effect_interval,
             self.coefficient,
             self.p_value,
@@ -318,19 +323,25 @@ class PackV2Habit(PackV2EvidenceMetadata):
         if self.release_status in {"withheld", "superseded"}:
             if not self.release_reason or not self.release_reason.strip():
                 raise ValueError("withheld or superseded habit requires release_reason")
-            if any(value is not None for value in details):
+            if self.effect is not None or any(value is not None for value in detail_values):
                 raise ValueError("withheld or superseded habit cannot carry effect details")
         else:
             if self.release_reason is not None and not self.release_reason.strip():
                 raise ValueError("release_reason must be nonempty when supplied")
-            if self.sample <= 0 or any(value is None for value in details):
-                raise ValueError("released habit requires complete effect details")
-            if self.era_results is None or set(self.era_results) != set(_HABIT_ERAS):
-                raise ValueError("released habit must include every era result")
-            assert self.effect is not None
-            assert self.effect_interval is not None
-            if not self.effect_interval.lower <= self.effect <= self.effect_interval.upper:
-                raise ValueError("habit effect must lie inside its interval")
+            if self.sample <= 0 or self.effect is None:
+                raise ValueError("released habit requires a pooled effect and positive sample")
+            detail_present = tuple(value is not None for value in detail_values)
+            if any(detail_present) and not all(detail_present):
+                raise ValueError(
+                    "released habit inferential details must be complete when supplied"
+                )
+            if all(detail_present):
+                assert self.effect_interval is not None
+                if not self.effect_interval.lower <= self.effect <= self.effect_interval.upper:
+                    raise ValueError("habit effect must lie inside its interval")
+                assert self.era_results is not None
+                if set(self.era_results) != set(_HABIT_ERAS):
+                    raise ValueError("released habit era results are incomplete")
         return self
 
 
@@ -910,27 +921,39 @@ def _validate_habits(pack: FindingsPackV2) -> None:
         if expected is None:
             raise ValueError(f"unsupported v2 habit key {row.key!r}")
         feature, effect, tier, era_stability = expected
+        if row.label != _HABIT_LABELS[row.key]:
+            raise ValueError(f"habit {row.key!r} has the wrong directional label")
         if row.feature != feature:
             raise ValueError(f"habit {row.key!r} uses the wrong feature contract")
         if row.metric_kind != _HABIT_METRIC or row.unit != _HABIT_UNIT:
             raise ValueError(f"habit {row.key!r} must use odds-ratio-per-SD units")
         if row.tier != tier:
             raise ValueError(f"habit {row.key!r} has the wrong evidence tier")
-        if row.era_stability != era_stability:
-            raise ValueError(f"habit {row.key!r} has the wrong era-stability declaration")
         if row.release_status in {"available", "approximate"}:
+            if row.era_stability != era_stability:
+                raise ValueError(f"habit {row.key!r} has the wrong era-stability declaration")
             if row.effect is None or not math.isclose(row.effect, effect, rel_tol=0, abs_tol=1e-9):
                 raise ValueError(f"habit {row.key!r} does not match the current release effect")
+            if row.key in {"safe_recall_share", "first_dragon_timing", "banked_gold_at_recall"} and any(
+                value is not None
+                for value in (
+                    row.effect_interval,
+                    row.coefficient,
+                    row.p_value,
+                    row.significant,
+                    row.era_results,
+                )
+            ):
+                raise ValueError(f"habit {row.key!r} carries unsupported inferential details")
             if row.key == "plates_by_14m" and (
                 row.strength != "weak" or row.review_context_only is not True
             ):
                 raise ValueError("plates habit must remain weak era-sensitive review context")
-        elif row.strength is not None or row.review_context_only is not None:
-            raise ValueError("habit review metadata is only valid for released plates evidence")
-        if row.key != "plates_by_14m" and (
-            row.strength is not None or row.review_context_only is not None
-        ):
-            raise ValueError("habit review metadata is only valid for plates_by_14m")
+        else:
+            if row.era_stability not in {era_stability, "not_evaluated"}:
+                raise ValueError(f"habit {row.key!r} has the wrong withheld era declaration")
+            if row.strength is not None or row.review_context_only is not None:
+                raise ValueError("habit review metadata is only valid for released plates evidence")
 
 
 

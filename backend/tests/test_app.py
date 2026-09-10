@@ -65,6 +65,23 @@ def test_health_requires_auth(client):
     assert "pack_version" in body
 
 
+def test_pack_endpoint_serves_expanded_habit_headlines(client):
+    response = client.get("/pack", headers=AUTH)
+    assert response.status_code == 200
+    rows = {row["key"]: row for row in response.json()["habits"]}
+
+    assert rows["safe_recall_share"]["effect"] == 2.32
+    assert rows["first_dragon_timing"]["effect"] == 0.77
+    assert rows["banked_gold_at_recall"]["effect"] == 0.80
+    for key in ("safe_recall_share", "first_dragon_timing", "banked_gold_at_recall"):
+        assert rows[key]["unit"] == "odds_ratio_per_standard_deviation"
+        assert rows[key]["release_status"] == "available"
+        assert rows[key]["era_stability"] == "stable"
+        assert not any(
+            field in rows[key]
+            for field in ("effect_interval", "coefficient", "p_value", "significant", "era_results")
+        )
+
 
 def test_invalid_findings_pack_returns_bounded_503_and_degraded_health(
     client, monkeypatch

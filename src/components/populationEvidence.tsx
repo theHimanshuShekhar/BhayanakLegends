@@ -4,7 +4,6 @@ import type {
   FindingsPackV2,
   PackV2BuildEvidence,
   PackV2Finding,
-  PackV2Habit,
   PackV2RouteArchetype,
 } from "../api/pack-v2";
 import { isFindingsPackV1 } from "../api/pack-v1";
@@ -133,28 +132,38 @@ const MASTERY_PREMIUM = 1.94;
 const BAN_CORRELATION = 0.062353;
 const HABIT_SPECS: Record<
   string,
-  { feature: string; effect: number; tier: EvidenceTier; era: EvidenceEraStability }
+  {
+    feature: string;
+    label: string;
+    effect: number;
+    tier: EvidenceTier;
+    era: EvidenceEraStability;
+  }
 > = {
   safe_recall_share: {
-    feature: "unseen_recall_share_by_20m",
-    effect: 1.077413,
+    feature: "unseen_recall_share",
+    label: "Higher safe-recall share",
+    effect: 2.32,
     tier: "actionable",
-    era: "sensitive",
+    era: "stable",
   },
   first_dragon_timing: {
-    feature: "first_dragon_by_20m_s",
-    effect: 0.730246,
+    feature: "first_dragon_s",
+    label: "Later first-dragon timing",
+    effect: 0.77,
     tier: "actionable",
     era: "stable",
   },
   banked_gold_at_recall: {
-    feature: "avg_banked_gold_at_recall_by_20m",
-    effect: 1.282502,
+    feature: "avg_banked_gold_at_recall",
+    label: "More banked gold at recall",
+    effect: 0.8,
     tier: "actionable",
-    era: "insufficient",
+    era: "stable",
   },
   plates_by_14m: {
     feature: "plates_taken_by_14m",
+    label: "Turret plates are weak review context",
     effect: 1.024972,
     tier: "a-lite",
     era: "sensitive",
@@ -179,6 +188,9 @@ function probability(value: unknown): value is number {
 
 function positiveInteger(value: unknown): value is number {
   return finite(value) && Number.isInteger(value) && value > 0;
+}
+function nonNegativeInteger(value: unknown): value is number {
+  return finite(value) && Number.isInteger(value) && value >= 0;
 }
 
 
@@ -497,25 +509,148 @@ export function banCorrelationEvidence(pack: FindingsPack | undefined): BanCorre
     metadata,
   };
 }
+export interface HabitEvidenceView {
+  key: string;
+  label: string;
+  expectedFeature: string;
+  feature: string | null;
+  metric: string | null;
+  unit: string | null;
+  tier: EvidenceTier | null;
+  releaseStatus: EvidenceReleaseStatus | null;
+  effect: number | null;
+  sample: number | null;
+  patchRange: PatchRange | null;
+  populationScope: string | null;
+  eraStability: EvidenceEraStability | null;
+  caveats: string[];
+  sourceDocument: string | null;
+  sourceSection: string | null;
+  sourceRef: string | null;
+  provenanceKey: string | null;
+  eligibility: string | null;
+  releaseReason: string | null;
+  contractIssue: string | null;
+  strength: "weak" | null;
+  reviewContextOnly: boolean;
+}
 
-export function habitEvidence(pack: FindingsPackV2 | undefined): PackV2Habit[] {
+function habitView(
+  key: string,
+  expected: (typeof HABIT_SPECS)[string],
+  raw: AnyRecord | null,
+  contractIssue: string | null = null,
+): HabitEvidenceView {
+  const status = readReleaseStatus(raw?.release_status);
+  const effect = finite(raw?.effect) ? raw.effect : null;
+  const feature = stringValue(raw?.feature);
+  const metric = stringValue(raw?.metric_kind) ?? stringValue(raw?.metric);
+  const unit = stringValue(raw?.unit);
+  const tier = readTier(raw?.tier);
+  const sample = nonNegativeInteger(raw?.sample) ? raw.sample : null;
+  const patchRange = readPatchRange(raw?.patch_range);
+  const eraStability = readEraStability(raw?.era_stability);
+  const issue =
+    contractIssue ??
+    (raw !== null && (status === "available" || status === "approximate")
+      ? "The habit row does not match the released contract."
+      : raw !== null && status === null
+        ? "The habit row metadata is malformed."
+        : null);
+  const releasedContract =
+    (status === "available" || status === "approximate") &&
+    raw?.label === expected.label &&
+    feature === expected.feature &&
+    metric === HABIT_METRIC &&
+    unit === HABIT_UNIT &&
+    tier === expected.tier &&
+    eraStability === expected.era &&
+    positiveInteger(sample) &&
+    finite(effect) &&
+    Math.abs(effect - expected.effect) < 1e-9 &&
+    (key === "plates_by_14m" || !unsupportedHabitDetails(raw ?? {}));
+  return {
+    key,
+    label: expected.label,
+    expectedFeature: expected.feature,
+    feature,
+    metric,
+    unit,
+    tier,
+    releaseStatus: status,
+    effect: releasedContract ? effect : null,
+    sample,
+    patchRange,
+    populationScope: stringValue(raw?.population_scope),
+    eraStability,
+    caveats: stringArray(raw?.caveats),
+    sourceDocument: stringValue(raw?.source_document),
+    sourceSection: stringValue(raw?.source_section),
+    sourceRef: stringValue(raw?.source_ref),
+    provenanceKey: stringValue(raw?.provenance_key),
+    eligibility: stringValue(raw?.eligibility),
+    releaseReason: stringValue(raw?.release_reason),
+    contractIssue: issue,
+    strength: raw?.strength === "weak" ? "weak" : null,
+    reviewContextOnly: raw?.review_context_only === true,
+  };
+}
+
+export function habitEvidenceReleased(
+  row: Pick<HabitEvidenceView, "releaseStatus" | "effect" | "sample">,
+): boolean {
+  return (
+    (row.releaseStatus === "available" || row.releaseStatus === "approximate") &&
+    finite(row.effect) &&
+    positiveInteger(row.sample)
+  );
+}
+
+function unsupportedHabitDetails(row: AnyRecord): boolean {
+  return [
+    row.effect_interval,
+    row.coefficient,
+    row.p_value,
+    row.significant,
+    row.era_results,
+  ].some((value) => value !== undefined && value !== null);
+}
+
+export function habitEvidence(pack: FindingsPackV2 | undefined): HabitEvidenceView[] {
   const data = packData(pack);
   if (!data || !isFindingsPackV2(data)) return [];
-  return data.habits.filter((habit) => {
-    const expected = HABIT_SPECS[habit.key];
-    if (
-      !expected ||
-      (habit.release_status !== "available" && habit.release_status !== "approximate") ||
-      habit.feature !== expected.feature ||
-      habit.metric_kind !== HABIT_METRIC ||
-      habit.unit !== HABIT_UNIT ||
-      habit.tier !== expected.tier ||
-      habit.era_stability !== expected.era
-    ) {
-      return false;
+
+  const rowsByKey = new Map<string, AnyRecord[]>();
+  const rawRows = Array.isArray(data.habits) ? data.habits : [];
+  for (const item of rawRows) {
+    const row = record(item);
+    const key = stringValue(row?.key);
+    if (!row || !key || !HABIT_SPECS[key]) continue;
+    const rows = rowsByKey.get(key) ?? [];
+    rows.push(row);
+    rowsByKey.set(key, rows);
+  }
+  return Object.entries(HABIT_SPECS).map(([key, expected]) => {
+    const rows = rowsByKey.get(key) ?? [];
+    if (rows.length === 0) {
+      return habitView(key, expected, null, "The habit row is missing from the active pack.");
     }
-    return finite(habit.effect) && Math.abs(habit.effect - expected.effect) < 1e-9;
+    const issue = rows.length > 1 ? "The habit row is duplicated." : null;
+    return habitView(key, expected, rows[0], issue);
   });
+}
+
+export function habitFavorableDirection(row: Pick<HabitEvidenceView, "key" | "label">): string {
+  if (row.key === "first_dragon_timing") {
+    return "Earlier first-dragon timing is the favorable direction; the published association measures Later first-dragon timing";
+  }
+  if (row.key === "banked_gold_at_recall") {
+    return "Lower banked gold at recall is the favorable direction; the published association measures more banked gold";
+  }
+  if (row.key === "plates_by_14m") {
+    return "Diagnostic plate context only; not an actionable population lever";
+  }
+  return `${row.label} is the favorable direction`;
 }
 
 function normalizeTierRow(item: unknown): TierEvidenceRow | null {
