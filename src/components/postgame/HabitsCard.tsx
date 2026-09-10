@@ -5,7 +5,6 @@ import { formatClock, formatEffectPerSd, formatRate } from "../format";
 import {
   habitEvidence,
   habitEvidenceReleased,
-  habitFavorableDirection,
   type HabitEvidenceView,
 } from "../populationEvidence";
 import { SectionHead, Unavailable } from "../ui";
@@ -70,10 +69,9 @@ function populationDescription(row: HabitEvidenceView): string {
     return `Population association unavailable: ${row.releaseReason ?? row.contractIssue ?? "evidence is unavailable"}`;
   }
   const effect = formatEffectPerSd(row.effect);
-  if (row.key === "plates_by_14m") {
-    return `Diagnostic · era-sensitive · ${row.label} · ${effect}. Observational population association, not a guarantee. ${row.caveats[0] ?? ""}`;
-  }
-  return `${habitFavorableDirection(row)} · ${effect}. Observational population association, not a guarantee. ${row.caveats[0] ?? ""}`;
+  const caveat = row.caveats.join(" ");
+  const explanation = caveat ? ` ${caveat}` : "";
+  return `${row.label} · ${effect}. Observational population association, not a guarantee.${explanation}`;
 }
 
 
@@ -162,7 +160,7 @@ export function HabitsCard({
                 : row.feature === "early_fight_participation_rate"
                   ? "Diagnostic participation context unavailable for this feature."
                   : row.feature === "plates_taken_by_14m"
-                    ? "Diagnostic · era-sensitive population context unavailable for this feature."
+                    ? "Weak, era-sensitive review context unavailable for this feature."
                     : "Population context unavailable for this feature.";
             return (
               <li key={row.key} data-testid={`habit-${row.key}`} style={{ display: "flex", flexDirection: "column", gap: 5, padding: "7px 9px", borderRadius: 12, background: "var(--color-surface-2)", boxShadow: "var(--shadow-z1)" }}>

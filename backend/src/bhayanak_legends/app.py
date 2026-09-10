@@ -33,7 +33,7 @@ from .models import (
 )
 from .inference import InferenceRuntime
 from .pack import PackError, PackStore
-from .pack_v2 import FindingsPackV2
+from .pack_v2 import FindingsPackV2, normalize_served_pack_v2
 from .pack_v1 import FindingsPackV1
 from .routers_data import router as data_router
 from .routers_events import build_events_router
@@ -59,7 +59,7 @@ def _validate_pack_payload(payload: object) -> FindingsPackV1 | FindingsPackV2:
     if schema_version == 1:
         return FindingsPackV1.model_validate(payload)
     if schema_version == 2:
-        return FindingsPackV2.model_validate(payload)
+        return FindingsPackV2.model_validate(normalize_served_pack_v2(payload))
     raise ValueError("unsupported Findings Pack schema version")
 
 

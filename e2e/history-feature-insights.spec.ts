@@ -153,7 +153,7 @@ test.describe("Personal History feature insights", () => {
     await expect(observations).toContainText("8:32");
     await expect(observations).toContainText("2 plates");
     await expect(observations).toContainText(/possession and denial are separate/i);
-    await expect(observations).toContainText(/Diagnostic · era-sensitive/i);
+    await expect(observations).toContainText(/Weak, era-sensitive review context unavailable/i);
     await expect(page.getByTestId("habit-outcomes")).toHaveCount(0);
   });
 });

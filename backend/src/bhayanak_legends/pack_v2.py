@@ -72,7 +72,7 @@ _HABIT_SPECS: dict[str, tuple[str, float, FindingTierV2, EraStabilityV2]] = {
     ),
     "plates_by_14m": (
         "plates_taken_by_14m",
-        1.024972,
+        1.03,
         "a-lite",
         "sensitive",
     ),
@@ -86,6 +86,216 @@ _HABIT_LABELS = {
 _HABIT_ERAS = ("14.x", "15.x", "16.x")
 _HABIT_METRIC = "odds_ratio"
 _HABIT_UNIT = "odds_ratio_per_standard_deviation"
+
+_PLATE_DETAIL_FIELDS = (
+    "effect",
+    "effect_interval",
+    "coefficient",
+    "p_value",
+    "significant",
+    "era_results",
+    "strength",
+    "review_context_only",
+)
+
+
+def _finite_number(value: object) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+    )
+
+
+def _plate_interval_shape_is_valid(value: object) -> bool:
+    if not isinstance(value, Mapping):
+        return False
+    lower = value.get("lower")
+    upper = value.get("upper")
+    return (
+        _finite_number(lower)
+        and _finite_number(upper)
+        and float(lower) > 0
+        and float(upper) >= float(lower)
+    )
+
+
+def _plate_interval_is_compatible(value: object, effect: float) -> bool:
+    if not _plate_interval_shape_is_valid(value):
+        return False
+    assert isinstance(value, Mapping)
+    return float(value["lower"]) <= effect <= float(value["upper"])
+
+
+def _plate_detail_shape_is_valid(row: Mapping[str, object]) -> bool:
+    interval = row.get("effect_interval")
+    if interval is not None and not _plate_interval_shape_is_valid(interval):
+        return False
+    coefficient = row.get("coefficient")
+    if coefficient is not None and not _finite_number(coefficient):
+        return False
+    p_value = row.get("p_value")
+    if p_value is not None and (
+        not _finite_number(p_value) or not 0 <= float(p_value) <= 1
+    ):
+        return False
+    significant = row.get("significant")
+    if significant is not None and not isinstance(significant, bool):
+        return False
+    era_results = row.get("era_results")
+    if era_results is None:
+        return True
+    if not isinstance(era_results, Mapping):
+        return False
+    for era in era_results.values():
+        if not isinstance(era, Mapping):
+            return False
+        status = era.get("status")
+        sample = era.get("sample")
+        effect = era.get("effect")
+        era_interval = era.get("effect_interval")
+        coefficient = era.get("coefficient")
+        p_value = era.get("p_value")
+        significant = era.get("significant")
+        if (
+            status not in ("available", "insufficient_data")
+            or not isinstance(sample, int)
+            or isinstance(sample, bool)
+            or sample < 0
+            or (effect is not None and (not _finite_number(effect) or float(effect) <= 0))
+            or (era_interval is not None and not _plate_interval_shape_is_valid(era_interval))
+            or (coefficient is not None and not _finite_number(coefficient))
+            or (
+                p_value is not None
+                and (not _finite_number(p_value) or not 0 <= float(p_value) <= 1)
+            )
+            or (significant is not None and not isinstance(significant, bool))
+        ):
+            return False
+    return True
+
+
+
+
+def _plate_details_are_compatible(row: Mapping[str, object], expected_effect: float) -> bool:
+    if (
+        not _finite_number(row.get("effect"))
+        or not math.isclose(float(row["effect"]), expected_effect, rel_tol=0, abs_tol=1e-9)
+        or not _plate_interval_is_compatible(row.get("effect_interval"), expected_effect)
+        or not _finite_number(row.get("coefficient"))
+        or not _finite_number(row.get("p_value"))
+        or not 0 <= float(row["p_value"]) < 0.05
+        or row.get("significant") is not True
+    ):
+        return False
+    era_results = row.get("era_results")
+    if not isinstance(era_results, Mapping) or set(era_results) != set(_HABIT_ERAS):
+        return False
+    for era_name in _HABIT_ERAS:
+        era = era_results.get(era_name)
+        if not isinstance(era, Mapping):
+            return False
+        effect = era.get("effect")
+        coefficient = era.get("coefficient")
+        p_value = era.get("p_value")
+        significant = era.get("significant")
+        sample = era.get("sample")
+        if (
+            era.get("status") != "available"
+            or not isinstance(sample, int)
+            or isinstance(sample, bool)
+            or sample <= 0
+            or not _finite_number(effect)
+            or not _plate_interval_is_compatible(era.get("effect_interval"), float(effect))
+            or not _finite_number(coefficient)
+            or not _finite_number(p_value)
+            or not 0 <= float(p_value) <= 1
+            or not isinstance(significant, bool)
+        ):
+            return False
+        if era_name == "14.x" and (
+            float(effect) >= 1
+            or float(coefficient) >= 0
+            or float(p_value) < 0.05
+            or significant is not False
+        ):
+            return False
+    return True
+
+
+def normalize_served_pack_v2(payload: object) -> object:
+    """Withhold only a recognizable plate semantic mismatch at the serve seam."""
+    if not isinstance(payload, dict):
+        return payload
+    habits = payload.get("habits")
+    if not isinstance(habits, list):
+        return payload
+    plate_indexes = [
+        index
+        for index, row in enumerate(habits)
+        if isinstance(row, dict) and row.get("key") == "plates_by_14m"
+    ]
+    if len(plate_indexes) != 1:
+        return payload
+    plate_index = plate_indexes[0]
+    row = habits[plate_index]
+    assert isinstance(row, dict)
+    expected_feature, expected_effect, expected_tier, expected_era = _HABIT_SPECS["plates_by_14m"]
+    if (
+        row.get("label") != _HABIT_LABELS["plates_by_14m"]
+        or row.get("feature") != expected_feature
+        or row.get("metric_kind") != _HABIT_METRIC
+        or row.get("unit") != _HABIT_UNIT
+        or row.get("release_status") not in ("available", "approximate")
+        or row.get("tier") not in ("actionable", "diagnostic", "a-lite")
+        or row.get("era_stability") not in (
+            "stable",
+            "sensitive",
+            "insufficient",
+            "not_evaluated",
+        )
+        or isinstance(row.get("effect"), bool)
+        or not _finite_number(row.get("effect"))
+        or isinstance(row.get("sample"), bool)
+        or not isinstance(row.get("sample"), int)
+        or row["sample"] <= 0
+        or row.get("strength") not in (None, "weak")
+        or (
+            "review_context_only" in row
+            and row.get("review_context_only") is not None
+            and not isinstance(row.get("review_context_only"), bool)
+        )
+        or not _plate_detail_shape_is_valid(row)
+    ):
+        return payload
+    metadata_compatible = (
+        row.get("tier") == expected_tier
+        and row.get("era_stability") == expected_era
+        and row.get("strength") == "weak"
+        and row.get("review_context_only") is True
+    )
+    if metadata_compatible and _plate_details_are_compatible(row, expected_effect):
+        return payload
+    normalized_row = dict(row)
+    for field in _PLATE_DETAIL_FIELDS:
+        normalized_row.pop(field, None)
+    normalized_row.update(
+        {
+            "tier": "a-lite",
+            "release_status": "withheld",
+            "era_stability": "not_evaluated",
+            "sample": 0,
+            "release_reason": (
+                "Plate population evidence was withheld because its review-context "
+                "metadata or inferential detail did not match the released contract."
+            ),
+        }
+    )
+    normalized_habits = list(habits)
+    normalized_habits[plate_index] = normalized_row
+    normalized = dict(payload)
+    normalized["habits"] = normalized_habits
+    return normalized
 _OBJECTIVE_METRIC_ORDER = (
     "possession_rate",
     "before_time_rate",
@@ -945,10 +1155,35 @@ def _validate_habits(pack: FindingsPackV2) -> None:
                 )
             ):
                 raise ValueError(f"habit {row.key!r} carries unsupported inferential details")
-            if row.key == "plates_by_14m" and (
-                row.strength != "weak" or row.review_context_only is not True
-            ):
-                raise ValueError("plates habit must remain weak era-sensitive review context")
+            if row.key == "plates_by_14m":
+                if row.strength != "weak" or row.review_context_only is not True:
+                    raise ValueError("plates habit must remain weak era-sensitive review context")
+                if (
+                    row.effect_interval is None
+                    or row.coefficient is None
+                    or row.p_value is None
+                    or row.significant is not True
+                    or row.p_value >= 0.05
+                    or row.era_results is None
+                    or set(row.era_results) != set(_HABIT_ERAS)
+                ):
+                    raise ValueError(
+                        "plates habit must retain complete pooled and era evidence"
+                    )
+                fourteenth = row.era_results["14.x"]
+                if (
+                    fourteenth.status != "available"
+                    or fourteenth.effect is None
+                    or fourteenth.effect >= 1
+                    or fourteenth.coefficient is None
+                    or fourteenth.coefficient >= 0
+                    or fourteenth.p_value is None
+                    or fourteenth.p_value < 0.05
+                    or fourteenth.significant is not False
+                ):
+                    raise ValueError(
+                        "plates 14.x evidence must reverse direction and remain non-significant"
+                    )
         else:
             if row.era_stability not in {era_stability, "not_evaluated"}:
                 raise ValueError(f"habit {row.key!r} has the wrong withheld era declaration")
@@ -1083,8 +1318,8 @@ def validate_pack_v2_semantics(pack: FindingsPackV2) -> None:
 __all__ = [
     "EXECUTABLE_MODEL_KEYS",
     "FindingsPackV2",
+    "normalize_served_pack_v2",
     "PackV2Artifact",
-    "PackV2BanContext",
     "PackV2BuildEvidence",
     "PackV2Checkpoint",
     "PackV2ComebackBand",

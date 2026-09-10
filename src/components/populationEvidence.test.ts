@@ -69,4 +69,50 @@ describe("Findings Pack v2 habit evidence", () => {
     expect(rows.safe_recall_share).toMatchObject({ releaseStatus: "available", effect: 2.32 });
     expect(rows.first_dragon_timing).toMatchObject({ releaseStatus: "available", effect: 0.77 });
   });
+
+  it("exposes the exact plate headline and review-only metadata", () => {
+    const rows = Object.fromEntries(habitEvidence(makePack()).map((row) => [row.key, row]));
+
+    expect(rows.plates_by_14m).toMatchObject({
+      effect: 1.03,
+      label: "Turret plates are weak review context",
+      expectedFeature: "plates_taken_by_14m",
+      feature: "plates_taken_by_14m",
+      tier: "a-lite",
+      releaseStatus: "available",
+      eraStability: "sensitive",
+      strength: "weak",
+      reviewContextOnly: true,
+    });
+  });
+
+  it("withholds an incompatible plate row while retaining siblings", () => {
+    const source = makePack();
+    const pack = makePack({
+      habits: source.habits.map((row) =>
+        row.key === "plates_by_14m" ? { ...row, tier: "actionable" } : row,
+      ),
+    });
+    const rows = Object.fromEntries(habitEvidence(pack).map((row) => [row.key, row]));
+
+    expect(rows.plates_by_14m.effect).toBeNull();
+    expect(rows.plates_by_14m.contractIssue).toMatch(/contract/i);
+    expect(rows.safe_recall_share).toMatchObject({ releaseStatus: "available", effect: 2.32 });
+    expect(rows.banked_gold_at_recall).toMatchObject({ releaseStatus: "available", effect: 0.8 });
+  });
+
+  it("withholds plate interpretation when detailed evidence is missing", () => {
+    const source = makePack();
+    const pack = makePack({
+      habits: source.habits.map((row) =>
+        row.key === "plates_by_14m" ? { ...row, era_results: undefined } : row,
+      ),
+    });
+    const rows = Object.fromEntries(habitEvidence(pack).map((row) => [row.key, row]));
+
+    expect(rows.plates_by_14m.effect).toBeNull();
+    expect(rows.plates_by_14m.contractIssue).toMatch(/contract/i);
+    expect(rows.safe_recall_share).toMatchObject({ releaseStatus: "available", effect: 2.32 });
+    expect(rows.banked_gold_at_recall).toMatchObject({ releaseStatus: "available", effect: 0.8 });
+  });
 });

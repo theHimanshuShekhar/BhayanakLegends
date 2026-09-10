@@ -40,8 +40,8 @@ TEST_PUBLIC_KEY = TEST_PRIVATE_KEY.public_key().public_bytes_raw()
 TOKEN = "test-token-123456789012345678901234"
 AUTH = {"X-BL-Token": TOKEN, "Host": "127.0.0.1:23110"}
 
-SEED_PACK_VERSION = "v3"
-CANDIDATE_PACK_VERSION = "v4"
+SEED_PACK_VERSION = "v4"
+CANDIDATE_PACK_VERSION = "v5"
 
 
 def _asset(*, extra_artifact: bool = False) -> bytes:
@@ -52,9 +52,9 @@ def _asset(*, extra_artifact: bool = False) -> bytes:
         archive.writestr("findings-pack.v2.json", json.dumps(pack))
         for relative, data in canonical_model_assets(pack).items():
             archive.writestr(relative, data)
-        archive.writestr("payload/honest-model.bin", b"model-v4")
+        archive.writestr("payload/honest-model.bin", b"model-v5")
         if extra_artifact:
-            archive.writestr("payload/added-in-v4.bin", b"brand-new")
+            archive.writestr("payload/added-in-v5.bin", b"brand-new")
     return output.getvalue()
 
 
@@ -206,7 +206,7 @@ async def test_reload_failure_restores_previous_pack_and_suppresses_event(
     assert calls["count"] >= 2
     assert (active / "findings-pack.v2.json").read_bytes() == original_json
     assert (active / "payload" / "honest-model.bin").read_bytes() == b"model-previous"
-    assert not (active / "payload" / "added-in-v4.bin").exists()
+    assert not (active / "payload" / "added-in-v5.bin").exists()
     assert app.state.pack_version == SEED_PACK_VERSION
     temps, rollbacks = _leftovers(app)
     assert not temps and not rollbacks

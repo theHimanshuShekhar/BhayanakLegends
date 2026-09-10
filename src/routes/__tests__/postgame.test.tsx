@@ -148,17 +148,64 @@ describe("PostGamePage", () => {
     expect(observations).toHaveTextContent("Plates taken by 14 minutes");
     expect(observations).toHaveTextContent("2 plates");
     expect(observations).toHaveTextContent(/Timing association only/i);
-    expect(observations).toHaveTextContent(/Diagnostic · era-sensitive/i);
+    expect(observations).toHaveTextContent(/the 14\.x direction differs and is not significant/i);
     expect(observations).not.toHaveTextContent(/fight more|take dragon|must/i);
 
     const population = screen.getByTestId("population-habit-guidance");
-    expect(population).toHaveTextContent("Higher safe-recall share is the favorable direction");
+    expect(population).toHaveTextContent("Higher safe-recall share");
     expect(population).toHaveTextContent("Later first-dragon timing");
-    expect(population).toHaveTextContent("Earlier first-dragon timing is the favorable direction");
-    expect(population).toHaveTextContent("Lower banked gold at recall is the favorable direction");
+    expect(population).toHaveTextContent("Turret plates are weak review context");
+    expect(population).toHaveTextContent("The pooled plate association is small; the 14.x direction differs and is not significant.");
     expect(population).toHaveTextContent("×2.32 effect per SD");
     expect(population).toHaveTextContent("Observational population association, not a guarantee.");
     expect(population).not.toHaveTextContent(/%|rate/i);
+  });
+
+  it("keeps the observed plate value when population plate context is incompatible", async () => {
+    const source = makePack();
+    vi.mocked(api.postgameLatest).mockResolvedValue({
+      ...digest,
+      habits: [],
+      features: {
+        plates_taken_by_14m: 3,
+      },
+    });
+    vi.mocked(api.pack).mockResolvedValueOnce(
+      makePack({
+        habits: source.habits.map((row) =>
+          row.key === "plates_by_14m"
+            ? {
+                ...row,
+                effect: undefined,
+                effect_interval: undefined,
+                coefficient: undefined,
+                p_value: undefined,
+                significant: undefined,
+                era_results: undefined,
+                strength: undefined,
+                review_context_only: undefined,
+                tier: "a-lite",
+                release_status: "withheld",
+                sample: 0,
+                era_stability: "not_evaluated",
+                release_reason: "Plate population evidence was withheld because its review-context metadata did not match the released contract.",
+              }
+            : row,
+        ),
+      }),
+    );
+    renderPage();
+
+    const observations = await screen.findByTestId("habit-feature-observations");
+    expect(observations).toHaveTextContent("Plates taken by 14 minutes");
+    expect(observations).toHaveTextContent("3 plates");
+
+    const population = screen.getByTestId("population-habit-guidance");
+    expect(screen.getByTestId("population-habit-plates_by_14m")).toHaveTextContent(
+      "Population association unavailable",
+    );
+    expect(population).toHaveTextContent("×2.32 effect per SD");
+    expect(population).toHaveTextContent("Later first-dragon timing");
   });
 
   it("keeps loaded siblings visible when one population habit row is withheld", async () => {

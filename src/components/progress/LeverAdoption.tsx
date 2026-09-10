@@ -4,7 +4,6 @@ import { formatEffectPerSd } from "../format";
 import {
   habitEvidence,
   habitEvidenceReleased,
-  habitFavorableDirection,
 } from "../populationEvidence";
 import { SectionHead, Unavailable } from "../ui";
 
@@ -42,7 +41,6 @@ export function LeverAdoption({ pack }: { pack: FindingsPack | undefined }) {
         >
           {habits.map((habit) => {
             const available = habitEvidenceReleased(habit);
-            const weakPlate = habit.key === "plates_by_14m";
             const unavailableReason =
               habit.releaseReason ?? habit.contractIssue ?? "effect unavailable";
             const sampleLabel =
@@ -53,6 +51,20 @@ export function LeverAdoption({ pack }: { pack: FindingsPack | undefined }) {
               habit.eraStability === "sensitive"
                 ? "era-sensitive"
                 : habit.eraStability ?? "era status unavailable";
+            const classification = [
+              habit.tier === "actionable"
+                ? "Actionable"
+                : habit.tier === "diagnostic"
+                  ? "Diagnostic"
+                  : habit.tier === "a-lite"
+                    ? "A-lite"
+                    : null,
+              habit.strength,
+              habit.eraStability === "sensitive" ? "era-sensitive" : null,
+              habit.unit ?? "unit unavailable",
+            ].filter((value): value is string => value !== null).join(" · ");
+            const caveat = habit.caveats.join(" ");
+            const explanation = caveat || "Evidence caveat unavailable.";
             return (
               <li
                 key={habit.key}
@@ -68,10 +80,9 @@ export function LeverAdoption({ pack }: { pack: FindingsPack | undefined }) {
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
                   <div style={{ flex: 1 }}>
-                    <div style={{ font: "600 11px var(--font-mono)" }}>{habit.label}</div>
+                    <div style={{ fontSize: 10.5 }}>{habit.label}</div>
                     <div style={{ fontSize: 9, color: "var(--color-dim)" }}>
-                      {weakPlate ? "Diagnostic · era-sensitive" : habitFavorableDirection(habit)} ·{" "}
-                      {habit.unit ?? "unit unavailable"}
+                      {classification}
                     </div>
                   </div>
                   <span
@@ -93,8 +104,8 @@ export function LeverAdoption({ pack }: { pack: FindingsPack | undefined }) {
                 </div>
                 <div style={{ fontSize: 8.5, lineHeight: 1.4, color: "var(--color-dimmer)" }}>
                   {available
-                    ? `Observational population association, not a guarantee. ${habit.caveats[0] ?? ""}`
-                    : `Population association unavailable: ${unavailableReason}`}
+                    ? `Observational population association, not a guarantee. ${explanation}`
+                    : `Population association unavailable: ${unavailableReason}${caveat ? ` ${caveat}` : ""}`}
                 </div>
                 <div
                   data-testid={`habit-bar-${habit.key}`}

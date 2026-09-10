@@ -58,7 +58,8 @@ FEATURE_CAVEATS: dict[FeatureKey, str] = {
         "Timing association only; possession and denial are separate objective measures."
     ),
     "plates_taken_by_14m": (
-        "Weak, era-sensitive diagnostic association; not a causal recommendation."
+        "Weak, era-sensitive diagnostic association; the 14.x direction differs and is not "
+        "significant; not a causal recommendation."
     ),
 }
 MIN_FEATURE_BASELINE_SAMPLE = 5

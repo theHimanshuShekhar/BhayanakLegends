@@ -73,6 +73,16 @@ def test_pack_endpoint_serves_expanded_habit_headlines(client):
     assert rows["safe_recall_share"]["effect"] == 2.32
     assert rows["first_dragon_timing"]["effect"] == 0.77
     assert rows["banked_gold_at_recall"]["effect"] == 0.80
+    plate = rows["plates_by_14m"]
+    assert plate["effect"] == 1.03
+    assert plate["tier"] == "a-lite"
+    assert plate["strength"] == "weak"
+    assert plate["review_context_only"] is True
+    assert plate["era_stability"] == "sensitive"
+    assert plate["era_results"]["14.x"]["effect"] < 1
+    assert plate["era_results"]["14.x"]["coefficient"] < 0
+    assert plate["era_results"]["14.x"]["significant"] is False
+    assert plate["era_results"]["14.x"]["p_value"] >= 0.05
     for key in ("safe_recall_share", "first_dragon_timing", "banked_gold_at_recall"):
         assert rows[key]["unit"] == "odds_ratio_per_standard_deviation"
         assert rows[key]["release_status"] == "available"

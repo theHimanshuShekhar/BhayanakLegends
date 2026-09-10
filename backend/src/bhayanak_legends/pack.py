@@ -18,7 +18,7 @@ from pydantic import ValidationError
 
 from .model_runtime import ModelRuntimeError, validate_model_artifact
 from .pack_v1 import FindingsPackV1, build_v1_schema
-from .pack_v2 import FindingsPackV2, validate_pack_v2_semantics
+from .pack_v2 import FindingsPackV2, normalize_served_pack_v2, validate_pack_v2_semantics
 
 PACK_FILENAME = "findings-pack.v2.json"
 PACK_FILENAME_V1 = "findings-pack.v1.json"
@@ -168,6 +168,7 @@ def validate_pack_directory(
     schema_path: Path | None = None,
     required_model_artifacts: Iterable[tuple[Path, str | None]] = (),
     require_schema: bool = True,
+    normalize_served_plate_mismatch: bool = False,
 ) -> dict:
     """Validate one explicitly versioned Findings Pack payload."""
 
@@ -191,6 +192,8 @@ def validate_pack_directory(
         )
     if require_schema and schema_version == 2 and not selected_schema.is_file():
         raise PackError(f"Findings Pack schema missing at {selected_schema}")
+    if schema_version == 2 and normalize_served_plate_mismatch:
+        pack = normalize_served_pack_v2(pack)
 
     # The shared filename is historical. Dispatch by the payload version
     # before applying it: a v2 schema must never be used to reject a valid
@@ -458,12 +461,14 @@ class PackStore:
             if keep is None or path != keep:
                 shutil.rmtree(path, ignore_errors=True)
 
+
     def _validate_existing(self, directory: Path) -> dict:
         schema_path = directory / SCHEMA_FILENAME
         return validate_pack_directory(
             directory,
             schema_path=schema_path if schema_path.exists() else None,
             require_schema=False,
+            normalize_served_plate_mismatch=True,
         )
 
     def _snapshot_last_known_good(self) -> None:

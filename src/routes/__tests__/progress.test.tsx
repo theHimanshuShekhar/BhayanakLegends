@@ -209,13 +209,15 @@ describe("ProgressPage", () => {
   it("renders loaded population habit evidence with directional effects", async () => {
     renderPage(<ProgressPage />);
 
-    await screen.findByText("Findings Pack v3");
+    await screen.findByText("Findings Pack v4");
     const lever = screen.getByTestId("lever-adoption");
 
-    expect(lever).toHaveTextContent("Findings Pack v3");
+    expect(lever).toHaveTextContent("Findings Pack v4");
     expect(lever).toHaveTextContent("Higher safe-recall share");
     expect(lever).toHaveTextContent("Later first-dragon timing");
     expect(lever).toHaveTextContent("More banked gold at recall");
+    expect(lever).toHaveTextContent("Turret plates are weak review context");
+    expect(lever).toHaveTextContent("era-sensitive");
     expect(lever).toHaveTextContent("×2.32 effect per SD");
   });
 
@@ -250,6 +252,44 @@ describe("ProgressPage", () => {
       "×0.80 effect per SD",
     );
     expect(lever).toHaveTextContent("population associations");
+  });
+
+  it("keeps siblings loaded when served plate interpretation is withheld", async () => {
+    const source = makePack();
+    vi.mocked(api.pack).mockResolvedValueOnce(
+      makePack({
+        habits: source.habits.map((row) =>
+          row.key === "plates_by_14m"
+            ? {
+                ...row,
+                effect: undefined,
+                effect_interval: undefined,
+                coefficient: undefined,
+                p_value: undefined,
+                significant: undefined,
+                era_results: undefined,
+                strength: undefined,
+                review_context_only: undefined,
+                tier: "a-lite",
+                release_status: "withheld",
+                sample: 0,
+                era_stability: "not_evaluated",
+                release_reason: "Plate population evidence was withheld because its review-context metadata did not match the released contract.",
+              }
+            : row,
+        ),
+      }),
+    );
+    renderPage(<ProgressPage />);
+    const plate = await screen.findByTestId("habit-row-plates_by_14m");
+
+    expect(plate).toHaveTextContent("Turret plates are weak review context");
+    expect(screen.getByTestId("habit-row-safe_recall_share")).toHaveTextContent(
+      "×2.32 effect per SD",
+    );
+    expect(screen.getByTestId("habit-row-first_dragon_timing")).toHaveTextContent(
+      "×0.77 effect per SD",
+    );
   });
 
   it("renders every population habit as unavailable when the valid pack has no rows", async () => {

@@ -164,7 +164,7 @@ const HABIT_SPECS: Record<
   plates_by_14m: {
     feature: "plates_taken_by_14m",
     label: "Turret plates are weak review context",
-    effect: 1.024972,
+    effect: 1.03,
     tier: "a-lite",
     era: "sensitive",
   },
@@ -535,6 +535,70 @@ export interface HabitEvidenceView {
   reviewContextOnly: boolean;
 }
 
+function plateDetailsCompatible(row: AnyRecord): boolean {
+  if (row.strength !== "weak" || row.review_context_only !== true) return false;
+  const pooledInterval = record(row.effect_interval);
+  if (
+    row.significant !== true ||
+    !finite(row.coefficient) ||
+    !finite(row.p_value) ||
+    row.p_value < 0 ||
+    row.p_value >= 0.05 ||
+    row.p_value > 1 ||
+    !pooledInterval ||
+    !finite(pooledInterval.lower) ||
+    !finite(pooledInterval.upper) ||
+    pooledInterval.lower <= 0 ||
+    pooledInterval.lower > pooledInterval.upper ||
+    !record(row.era_results)
+  ) {
+    return false;
+  }
+  const eraResults = record(row.era_results);
+  if (!eraResults) return false;
+  const eraEvidence = ["14.x", "15.x", "16.x"].map((era) => record(eraResults[era]));
+  if (
+    eraEvidence.some((era) => {
+      if (!era) return true;
+      const interval = record(era.effect_interval);
+      const eraEffect = era.effect;
+      const eraCoefficient = era.coefficient;
+      const eraPValue = era.p_value;
+      return (
+        era.status !== "available" ||
+        !positiveInteger(era.sample) ||
+        !finite(eraEffect) ||
+        !finite(eraCoefficient) ||
+        !finite(eraPValue) ||
+        eraPValue < 0 ||
+        eraPValue > 1 ||
+        typeof era.significant !== "boolean" ||
+        !interval ||
+        !finite(interval.lower) ||
+        !finite(interval.upper) ||
+        interval.lower <= 0 ||
+        interval.lower > interval.upper
+      );
+    })
+  ) {
+    return false;
+  }
+  const fourteenth = record(eraResults["14.x"]);
+  if (!fourteenth) return false;
+  const fourteenthEffect = fourteenth.effect;
+  const fourteenthCoefficient = fourteenth.coefficient;
+  const fourteenthPValue = fourteenth.p_value;
+  return (
+    finite(fourteenthEffect) &&
+    fourteenthEffect < 1 &&
+    finite(fourteenthCoefficient) &&
+    fourteenthCoefficient < 0 &&
+    finite(fourteenthPValue) &&
+    fourteenthPValue >= 0.05 &&
+    fourteenth.significant === false
+  );
+}
+
 function habitView(
   key: string,
   expected: (typeof HABIT_SPECS)[string],
@@ -568,7 +632,9 @@ function habitView(
     positiveInteger(sample) &&
     finite(effect) &&
     Math.abs(effect - expected.effect) < 1e-9 &&
-    (key === "plates_by_14m" || !unsupportedHabitDetails(raw ?? {}));
+    (key === "plates_by_14m"
+      ? plateDetailsCompatible(raw ?? {})
+      : !unsupportedHabitDetails(raw ?? {}));
   return {
     key,
     label: expected.label,
@@ -648,7 +714,7 @@ export function habitFavorableDirection(row: Pick<HabitEvidenceView, "key" | "la
     return "Lower banked gold at recall is the favorable direction; the published association measures more banked gold";
   }
   if (row.key === "plates_by_14m") {
-    return "Diagnostic plate context only; not an actionable population lever";
+    return "Weak, era-sensitive review context only; the 14.x direction differs and is not significant";
   }
   return `${row.label} is the favorable direction`;
 }

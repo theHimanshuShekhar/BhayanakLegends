@@ -78,7 +78,7 @@ def test_pack_matches_canonical_schema_and_strict_model(generator):
 
     assert SCHEMA == generator.build_schema()
     assert model.schema_version == 2
-    assert model.pack_version == "v3"
+    assert model.pack_version == "v4"
     assert model.dataset.eligible_matches > 0
 
 
@@ -155,6 +155,39 @@ def test_v2_habit_validation_accepts_report_headline_without_inferential_detail(
                 row.pop(field, None)
     FindingsPackV2.model_validate(broken)
 
+
+
+
+
+def test_v2_plate_habit_pins_exact_headline_and_review_context() -> None:
+    plate = next(row for row in PACK["habits"] if row["key"] == "plates_by_14m")
+
+    assert plate["effect"] == 1.03
+    assert plate["tier"] == "a-lite"
+    assert plate["strength"] == "weak"
+    assert plate["review_context_only"] is True
+    assert plate["era_stability"] == "sensitive"
+    assert plate["era_results"]["14.x"]["effect"] < 1
+    assert plate["era_results"]["14.x"]["coefficient"] < 0
+    assert plate["era_results"]["14.x"]["significant"] is False
+    assert plate["era_results"]["14.x"]["p_value"] >= 0.05
+
+
+def test_v2_plate_habit_rejects_stale_headline_effect() -> None:
+    broken = copy.deepcopy(PACK)
+    plate = next(row for row in broken["habits"] if row["key"] == "plates_by_14m")
+    plate["effect"] = 1.024972
+
+    with pytest.raises(PydanticValidationError):
+        FindingsPackV2.model_validate(broken)
+
+def test_v2_plate_habit_rejects_incomplete_detailed_evidence() -> None:
+    broken = copy.deepcopy(PACK)
+    plate = next(row for row in broken["habits"] if row["key"] == "plates_by_14m")
+    plate.pop("era_results")
+
+    with pytest.raises(PydanticValidationError):
+        FindingsPackV2.model_validate(broken)
 
 
 def test_schema_rejects_unknown_root_and_row_fields():
@@ -461,7 +494,7 @@ def test_generator_fails_closed_on_incompatible_upstream_shape(tmp_path: Path):
 
 def test_header_and_release_contract_fields_are_v2_only():
     assert PACK["schema_version"] == 2
-    assert PACK["pack_version"] == "v3"
+    assert PACK["pack_version"] == "v4"
     assert PACK["feature_contracts"]["personal_history"] == "loltrends-parity-v2"
     assert set(PACK) == {
         "schema_version",

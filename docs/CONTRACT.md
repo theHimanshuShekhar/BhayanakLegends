@@ -308,7 +308,7 @@ interface WhatIfResponse {
 | `live.status` | `LiveStatus` (coarse health) |
 | `pack.updated` | `{schema_version, pack_version}` |
 | `hello` | `{app_version, pack_version}` (sent on connect) |
-## Findings Pack schema dispatch and v2 contract (current release v3)
+## Findings Pack schema dispatch and v2 contract (current release v4)
 `GET /pack` returns a discriminated `FindingsPackV1 | FindingsPackV2`
 payload. `schema_version` is the discriminator and the filename must agree:
 `findings-pack.v1.json` is parsed only by the historical v1 model, while
@@ -339,7 +339,7 @@ atomically from the bundled seed on first startup; an existing active pack
 wins over a changed bundled seed.
 
 The v2 root has `schema_version: 2`; the current Findings Pack release is
-`pack_version: "v3"`. Its patch range is `14.17` through `16.17`, and it has
+`pack_version: "v4"`. Its patch range is `14.17` through `16.17`, and it has
 the following discriminated evidence collections: `findings`, `habits`,
 `objectives`, `comeback_odds`, `ban_context`, `tier_list`, `matchup_examples`,
 `checkpoints`, `route_archetypes`, and `build_evidence`. Every row has patch

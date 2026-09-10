@@ -50,7 +50,64 @@ def test_fresh_install_seeds_durable_active_pack_without_mutating_bundle(
     with TestClient(app) as client:
         response = client.get("/health", headers=AUTH)
     assert response.status_code == 200
-    assert response.json()["pack_version"] == "v3"
+    assert response.json()["pack_version"] == "v4"
+
+
+def test_serving_withholds_only_incompatible_plate_row(tmp_path: Path, monkeypatch) -> None:
+    seed = _copy_seed(tmp_path)
+    payload_path = seed / "findings-pack.v2.json"
+    payload = json.loads(payload_path.read_text())
+    plate = next(row for row in payload["habits"] if row["key"] == "plates_by_14m")
+    plate["tier"] = "actionable"
+    payload_path.write_text(json.dumps(payload))
+    monkeypatch.setattr(config_module.sys, "_MEIPASS", str(seed.parent), raising=False)
+
+    config = _config(tmp_path)
+    app = create_app(config, credential_store=InMemoryCredentialStore())
+
+    with TestClient(app) as client:
+        response = client.get("/pack", headers=AUTH)
+
+    assert response.status_code == 200
+    rows = {row["key"]: row for row in response.json()["habits"]}
+    served_plate = rows["plates_by_14m"]
+    assert served_plate["release_status"] == "withheld"
+    assert served_plate["sample"] == 0
+    assert served_plate["tier"] == "a-lite"
+    assert "effect" not in served_plate
+    assert "review-context metadata" in served_plate["release_reason"]
+    assert rows["safe_recall_share"]["effect"] == 2.32
+    assert rows["first_dragon_timing"]["effect"] == 0.77
+    assert rows["banked_gold_at_recall"]["effect"] == 0.8
+
+
+def test_serving_withholds_plate_when_detailed_evidence_is_missing(
+    tmp_path: Path, monkeypatch
+) -> None:
+    seed = _copy_seed(tmp_path)
+    payload_path = seed / "findings-pack.v2.json"
+    payload = json.loads(payload_path.read_text())
+    plate = next(row for row in payload["habits"] if row["key"] == "plates_by_14m")
+    plate.pop("era_results")
+    payload_path.write_text(json.dumps(payload))
+    monkeypatch.setattr(config_module.sys, "_MEIPASS", str(seed.parent), raising=False)
+
+    app = create_app(_config(tmp_path), credential_store=InMemoryCredentialStore())
+
+    with TestClient(app) as client:
+        response = client.get("/pack", headers=AUTH)
+
+    assert response.status_code == 200
+    rows = {row["key"]: row for row in response.json()["habits"]}
+    served_plate = rows["plates_by_14m"]
+    assert served_plate["release_status"] == "withheld"
+    assert served_plate["sample"] == 0
+    assert "effect" not in served_plate
+    assert "inferential detail" in served_plate["release_reason"]
+    assert rows["safe_recall_share"]["effect"] == 2.32
+    assert rows["banked_gold_at_recall"]["effect"] == 0.8
+
+
 
 
 def test_existing_active_pack_wins_over_changed_bundled_seed(tmp_path: Path, monkeypatch) -> None:
@@ -68,7 +125,7 @@ def test_existing_active_pack_wins_over_changed_bundled_seed(tmp_path: Path, mon
     restarted = create_app(config, credential_store=InMemoryCredentialStore())
 
     assert (active / "findings-pack.v2.json").read_bytes() == original_active
-    assert restarted.state.pack.version() == "v3"
+    assert restarted.state.pack.version() == "v4"
 
 
 def test_active_pack_survives_restart_without_bundle(tmp_path: Path, monkeypatch) -> None:
@@ -82,7 +139,7 @@ def test_active_pack_survives_restart_without_bundle(tmp_path: Path, monkeypatch
 
     restarted = create_app(config, credential_store=InMemoryCredentialStore())
 
-    assert restarted.state.pack.version() == "v3"
+    assert restarted.state.pack.version() == "v4"
     assert config.resolved_active_pack_dir().is_dir()
 
 

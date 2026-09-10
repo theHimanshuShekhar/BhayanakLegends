@@ -32,8 +32,8 @@ ROOT = Path(__file__).resolve().parents[2]
 PACK_DIR = ROOT / "pack"
 SCHEMA_PATH = PACK_DIR / "pack.schema.json"
 
-SEED_PACK_VERSION = "v3"
-CANDIDATE_PACK_VERSION = "v4"
+SEED_PACK_VERSION = "v4"
+CANDIDATE_PACK_VERSION = "v5"
 
 def _onnx_bytes(*, output: str = "probability", operator: str = "Identity") -> bytes:
     onnx = pytest.importorskip("onnx")

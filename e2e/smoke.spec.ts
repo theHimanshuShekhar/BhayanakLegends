@@ -32,14 +32,14 @@ test.describe("Bhayanak Legends v2 smoke", () => {
     const pack = await packResponse.json();
     expect(pack).toMatchObject({
       schema_version: 2,
-      pack_version: "v3",
+      pack_version: "v4",
       patch_range: { min: "14.17", max: "16.17" },
       dataset: { eligible_matches: 125_031, participant_performances: 1_250_310 },
     });
     await page.goto("/live");
     await expect(page.getByTestId("sidecar-dot")).toBeVisible();
     await expect(
-      page.getByText("Findings Pack v3 · 125,031 matches · 14.17–16.17", { exact: true }),
+      page.getByText("Findings Pack v4 · 125,031 matches · 14.17–16.17", { exact: true }),
     ).toBeVisible({ timeout: 15_000 });
   });
 

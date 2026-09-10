@@ -30,7 +30,7 @@ const points: HistoryFeatureTrajectoryPoint[] = [
     value: 2,
     sample_size: 1,
     status: "available",
-    caveat: "Plate evidence is weak and era-sensitive.",
+    caveat: "Weak, era-sensitive diagnostic association; the 14.x direction differs and is not significant; not a causal recommendation.",
   },
   {
     feature_key: "plates_taken_by_14m",
@@ -70,7 +70,7 @@ describe("FeatureInsights", () => {
     const card = screen.getByTestId("feature-trajectory-plates_taken_by_14m");
     expect(card).toHaveTextContent("2 plates");
     expect(card).toHaveTextContent("2026-08-01");
-    expect(card).toHaveTextContent("Plate evidence is weak and era-sensitive.");
+    expect(card).toHaveTextContent(/the 14\.x direction differs and is not significant/i);
     expect(screen.getByTestId("journal-feature-insights")).toHaveAttribute(
       "aria-labelledby",
       "journal-feature-insights-heading",
