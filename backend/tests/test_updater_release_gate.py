@@ -146,7 +146,7 @@ def test_updater_artifacts_enabled_in_tauri_config():
 
 
 def test_all_release_version_sources_are_aligned():
-    expected = "0.1.14"
+    expected = "0.1.15"
     package = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))
     tauri = json.loads(CONFIG.read_text(encoding="utf-8"))
     backend = tomllib.loads(
