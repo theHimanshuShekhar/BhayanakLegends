@@ -733,6 +733,14 @@ impl SidecarProcessAdapter for ProductionSidecarAdapter {
                 std::env::consts::EXE_SUFFIX
             )));
             command.env("BHAYANAK_TOKEN", token);
+            // The packaged sidecar must never pop a console window on the
+            // user's machine. The debug branch above keeps its console.
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                const CREATE_NO_WINDOW: u32 = 0x08000000;
+                command.creation_flags(CREATE_NO_WINDOW);
+            }
             command
         };
         let mut child = command

@@ -37,3 +37,9 @@ _Avoid_: baseline, average
 **Trajectory**:
 The per-match rolling win-rate line across a player's Personal History.
 _Avoid_: progress chart, trend line
+
+### Hosting
+
+**Sidecar**:
+The local FastAPI companion process spawned and supervised by the Tauri shell; the webview's only backend.
+_Avoid_: backend, server

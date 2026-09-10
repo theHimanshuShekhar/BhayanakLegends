@@ -65,12 +65,26 @@ if capture:
 if os.environ.get('FAKE_PYINSTALLER_WRITE_OUTPUT') == '1':
     output = pathlib.Path.cwd() / 'dist' / 'bhayanak-legends-sidecar.exe'
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_bytes(b'fresh sidecar')
+    output.write_bytes(bytes.fromhex(os.environ.get('FAKE_PYINSTALLER_OUTPUT_HEX', '')))
 raise SystemExit(int(os.environ.get('FAKE_PYINSTALLER_EXIT', '0')))
 """
     )
     fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
     return fake
+
+
+def minimal_pe(subsystem: int) -> bytes:
+    """Smallest byte string with a readable PE subsystem field."""
+    data = bytearray(0x80 + 4 + 20 + 70)
+    data[0:2] = b"MZ"
+    data[0x3C:0x40] = (0x80).to_bytes(4, "little")
+    data[0x80:0x84] = b"PE\0\0"
+    data[0x80 + 4 + 20 + 68 : 0x80 + 4 + 20 + 70] = subsystem.to_bytes(2, "little")
+    return bytes(data)
+
+
+GUI_PE = minimal_pe(2)
+CONSOLE_PE = minimal_pe(3)
 
 
 def test_build_copies_target_triple_and_passes_locked_pyinstaller_recipe(tmp_path, monkeypatch):
@@ -80,6 +94,7 @@ def test_build_copies_target_triple_and_passes_locked_pyinstaller_recipe(tmp_pat
     args_file = tmp_path / "args.json"
     monkeypatch.setenv("FAKE_PYINSTALLER_ARGS", str(args_file))
     monkeypatch.setenv("FAKE_PYINSTALLER_WRITE_OUTPUT", "1")
+    monkeypatch.setenv("FAKE_PYINSTALLER_OUTPUT_HEX", GUI_PE.hex())
     caller = tmp_path / "caller"
     caller.mkdir()
     monkeypatch.chdir(caller)
@@ -87,11 +102,12 @@ def test_build_copies_target_triple_and_passes_locked_pyinstaller_recipe(tmp_pat
     tool.build_windows_sidecar(repo_root=root, pyinstaller=str(fake))
 
     target = root / "src-tauri/binaries/bhayanak-legends-sidecar-x86_64-pc-windows-msvc.exe"
-    assert target.read_bytes() == b"fresh sidecar"
+    assert target.read_bytes() == GUI_PE
     invocation = json.loads(args_file.read_text())
     assert invocation["cwd"] == str(root / "backend")
     assert invocation["args"] == [
         "--onefile",
+        "--noconsole",
         "--name",
         "bhayanak-legends-sidecar",
         "--add-data",
@@ -100,6 +116,41 @@ def test_build_copies_target_triple_and_passes_locked_pyinstaller_recipe(tmp_pat
         "bhayanak_legends",
         str(root / "backend/src/bhayanak_legends/sidecar.py"),
     ]
+
+
+def test_build_refuses_console_subsystem_output(tmp_path, monkeypatch):
+    tool = load_build_tool()
+    root = make_project(tmp_path)
+    fake = make_fake_pyinstaller(tmp_path)
+    monkeypatch.setenv("FAKE_PYINSTALLER_WRITE_OUTPUT", "1")
+    monkeypatch.setenv("FAKE_PYINSTALLER_OUTPUT_HEX", CONSOLE_PE.hex())
+
+    with pytest.raises(RuntimeError, match="console-subsystem"):
+        tool.build_windows_sidecar(repo_root=root, pyinstaller=str(fake))
+
+
+def test_build_refuses_malformed_output(tmp_path, monkeypatch):
+    tool = load_build_tool()
+    root = make_project(tmp_path)
+    fake = make_fake_pyinstaller(tmp_path)
+    monkeypatch.setenv("FAKE_PYINSTALLER_WRITE_OUTPUT", "1")
+    monkeypatch.setenv("FAKE_PYINSTALLER_OUTPUT_HEX", b"fresh sidecar".hex())
+
+    with pytest.raises(RuntimeError, match="Not a Windows executable"):
+        tool.build_windows_sidecar(repo_root=root, pyinstaller=str(fake))
+
+
+def test_pe_subsystem_reader_accepts_gui_and_rejects_console(tmp_path):
+    tool = load_build_tool()
+    gui = tmp_path / "gui.exe"
+    gui.write_bytes(GUI_PE)
+    assert tool.pe_subsystem(gui) == 2
+    tool.assert_windowed_subsystem(gui)
+    console = tmp_path / "console.exe"
+    console.write_bytes(CONSOLE_PE)
+    assert tool.pe_subsystem(console) == 3
+    with pytest.raises(RuntimeError, match="console-subsystem"):
+        tool.assert_windowed_subsystem(console)
 
 
 def test_build_rejects_missing_output_and_removes_stale_artifacts(tmp_path, monkeypatch):

@@ -22,6 +22,12 @@ PACK_DIRECTORY = Path("pack")
 BACKEND_DIST = Path("backend/dist")
 TARGET_DIRECTORY = Path("src-tauri/binaries")
 
+# IMAGE_SUBSYSTEM_WINDOWS_GUI: the staged sidecar must never pop a console
+# window on the user's machine. PyInstaller is asked for --noconsole, and this
+# is asserted on the staged bytes below so a dropped flag fails the build.
+WINDOWS_GUI_SUBSYSTEM = 2
+WINDOWS_CUI_SUBSYSTEM = 3
+
 
 def build_windows_sidecar(
     *,
@@ -54,6 +60,7 @@ def build_windows_sidecar(
     command = [
         pyinstaller,
         "--onefile",
+        "--noconsole",
         "--name",
         SIDECAR_NAME,
         "--add-data",
@@ -73,7 +80,34 @@ def build_windows_sidecar(
     shutil.copy2(source_executable, target_executable)
     if not target_executable.is_file():
         raise RuntimeError(f"Failed to stage sidecar executable: {target_executable}")
+    assert_windowed_subsystem(target_executable)
     return target_executable
+
+
+def pe_subsystem(executable: Path) -> int:
+    """Read the Windows PE subsystem field from an executable's bytes."""
+    data = executable.read_bytes()
+    if len(data) < 0x40 or data[0:2] != b"MZ":
+        raise RuntimeError(f"Not a Windows executable: {executable}")
+    e_lfanew = int.from_bytes(data[0x3C:0x40], "little")
+    optional_header = e_lfanew + 4 + 20
+    if len(data) < optional_header + 70 or data[e_lfanew : e_lfanew + 4] != b"PE\0\0":
+        raise RuntimeError(f"Malformed Windows executable headers: {executable}")
+    return int.from_bytes(data[optional_header + 68 : optional_header + 70], "little")
+
+
+def assert_windowed_subsystem(executable: Path) -> None:
+    """Refuse a staged sidecar that would pop a console window."""
+    subsystem = pe_subsystem(executable)
+    if subsystem == WINDOWS_CUI_SUBSYSTEM:
+        raise RuntimeError(
+            f"Staged sidecar is a console-subsystem binary and would pop a "
+            f"console window: {executable}"
+        )
+    if subsystem != WINDOWS_GUI_SUBSYSTEM:
+        raise RuntimeError(
+            f"Staged sidecar has an unexpected PE subsystem ({subsystem}): {executable}"
+        )
 
 
 def main() -> None:
