@@ -11,7 +11,7 @@ Friends-first by design: every population number is learned from the friend grou
 
 ## Architecture
 
-Tauri 2 shell → spawns a PyInstaller-packaged **FastAPI sidecar** on loopback (port + token negotiated at spawn). The webview talks REST + SSE to the sidecar only. Population numbers and model artifacts come from the versioned **Findings Pack** (LoLTrends' only obligation); personal features are extracted from match/timeline JSONs on-device. Decisions: [docs/adr/](docs/adr/) · glossary: [CONTEXT.md](CONTEXT.md) · interfaces: [docs/CONTRACT.md](docs/CONTRACT.md).
+Tauri 2 shell → spawns a PyInstaller-packaged **FastAPI sidecar** on loopback (port + token negotiated at spawn). The installed app runs the sidecar windowless; its presence is shown by the sidecar-dot in the main window. The webview talks REST + SSE to the sidecar only. Population numbers and model artifacts come from the versioned **Findings Pack** (LoLTrends' only obligation); personal features are extracted from match/timeline JSONs on-device. Decisions: [docs/adr/](docs/adr/) · glossary: [CONTEXT.md](CONTEXT.md) · interfaces: [docs/CONTRACT.md](docs/CONTRACT.md).
 
 ## Development
 
@@ -32,6 +32,8 @@ pnpm tauri dev
 ```
 
 Dev match data: point the app's import endpoint at a LoLTrends-layout folder (`POST /dev/import {dir}`), or run a real sync from the History screen with your own Riot personal key.
+
+Sync notes: Riot account lookup tries the selected region route first, then falls back across the other regional routes — SEA's account endpoint rejects valid keys, so SEA players resolve via Asia automatically. Match history always downloads on the selected route, so keep it on the route holding your matches (SEA for SG/PH/VN shards); resolving on Asia and seeing `0 / 0 matches` means the route is wrong, not the key.
 
 ## Testing
 
