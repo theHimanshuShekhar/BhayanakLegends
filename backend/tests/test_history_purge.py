@@ -194,6 +194,41 @@ def test_filter_repo_changes_every_reachable_commit_oid(tmp_path: Path) -> None:
     assert PURGE.reachable_origin_commits(repository).isdisjoint(before.commit_ids)
 
 
+def test_fixture_projection_permits_only_reviewed_identity_replacements(tmp_path: Path) -> None:
+    before = tmp_path / "before"
+    after = tmp_path / "after"
+    for repository in (before, after):
+        repository.mkdir()
+        git(repository, "init", "-q", "-b", "main")
+        git(repository, "config", "user.name", "Purge Test")
+        git(repository, "config", "user.email", "purge-test@example.invalid")
+    fixture_path = Path("backend/tests/fixtures/collision.json")
+    (before / fixture_path).parent.mkdir(parents=True)
+    (after / fixture_path).parent.mkdir(parents=True)
+    (before / fixture_path).write_text(
+        json.dumps({"summonerName": "LeakedPlayer", "team": "LeakedPlayer", "score": 7}),
+        encoding="utf-8",
+    )
+    (after / fixture_path).write_text(
+        json.dumps({"summonerName": "FixturePlayer01", "team": "FixturePlayer01", "score": 7}),
+        encoding="utf-8",
+    )
+    commit(before, "before")
+    commit(after, "after")
+
+    replacements = (("LeakedPlayer", "FixturePlayer01"),)
+    assert not PURGE.compare_fixture_projections(before, after)
+    assert PURGE.compare_fixture_projections(before, after, replacements=replacements)
+
+    (after / fixture_path).write_text(
+        json.dumps({"summonerName": "FixturePlayer01", "team": "FixturePlayer01", "score": 8}),
+        encoding="utf-8",
+    )
+    git(after, "add", ".")
+    git(after, "commit", "--amend", "-qm", "after")
+    assert not PURGE.compare_fixture_projections(before, after, replacements=replacements)
+
+
 def test_replacement_ordinals_reserve_participant_linked_targets() -> None:
     puuid = "source-puuid-value"
     linked_name = "related-player-name"

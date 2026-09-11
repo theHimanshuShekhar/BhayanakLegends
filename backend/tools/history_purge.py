@@ -1349,25 +1349,44 @@ def non_identity_projection(value: Any) -> Any:
     return {} if projected is _DROP else projected
 
 
-def fixture_projections(root: Path | str) -> dict[str, frozenset[str]]:
-    """Hash non-identity fixture projections across all reachable fixture blobs."""
+def fixture_projections(
+    root: Path | str,
+    *,
+    replacements: Iterable[tuple[str, str]] = (),
+) -> dict[str, frozenset[str]]:
+    """Hash fixture semantics after applying the reviewed identity replacements."""
+    ordered_replacements = sorted(
+        replacements,
+        key=lambda item: (-len(item[0].encode("utf-8")), item[0].encode("utf-8")),
+    )
     projections: dict[str, set[str]] = {}
     for blob in reachable_blobs(root):
         if "tests/fixtures/" not in blob.path.replace("\\", "/"):
             continue
+        data = blob.data
+        for source, replacement in ordered_replacements:
+            data = data.replace(source.encode("utf-8"), replacement.encode("utf-8"))
         try:
-            document = json.loads(blob.data.decode("utf-8"))
+            document = json.loads(data.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
-            digest = hashlib.sha256(blob.data).hexdigest()
+            digest = hashlib.sha256(data).hexdigest()
         else:
             digest = hashlib.sha256(_canonical_json(non_identity_projection(document))).hexdigest()
         projections.setdefault(blob.path, set()).add(digest)
     return {path: frozenset(values) for path, values in sorted(projections.items())}
 
 
-def compare_fixture_projections(before_root: Path | str, after_root: Path | str) -> bool:
-    """Compare all non-identity fixture projections without exposing values."""
-    return fixture_projections(before_root) == fixture_projections(after_root)
+def compare_fixture_projections(
+    before_root: Path | str,
+    after_root: Path | str,
+    *,
+    replacements: Iterable[tuple[str, str]] = (),
+) -> bool:
+    """Compare fixture semantics while permitting only reviewed replacements."""
+    return fixture_projections(
+        before_root,
+        replacements=replacements,
+    ) == fixture_projections(after_root)
 
 
 def run_history_guard(
@@ -1497,6 +1516,7 @@ def verify_post_rewrite(
     check_pii_path: Path | str | None = None,
     expected_public_refs: Iterable[str | tuple[str, str] | list[str]] | None = None,
     expected_post_public_refs: Iterable[tuple[str, str] | list[str]] | None = None,
+    replacement_entries: Iterable[tuple[str, str]] = (),
 ) -> VerificationResult:
     """Verify a fresh rewrite against all four non-vacuous gates."""
     rewritten = _repository_root(rewritten_root)
@@ -1519,7 +1539,11 @@ def verify_post_rewrite(
     reachable = reachable_origin_commits(rewritten)
     original = frozenset(str(item) for item in original_commit_ids)
     still_reachable = tuple(sorted(reachable & original))
-    projection_equal = compare_fixture_projections(backup_root, rewritten)
+    projection_equal = compare_fixture_projections(
+        backup_root,
+        rewritten,
+        replacements=replacement_entries,
+    )
     result = VerificationResult(
         guard_passed,
         still_reachable,
@@ -1710,6 +1734,26 @@ def _validate_finalization_evidence(evidence: Mapping[str, Any]) -> list[dict[st
     return [dict(item) for item in checklist]
 
 
+def _replacement_map_from_evidence(
+    evidence: Mapping[str, Any],
+    repository: Path,
+) -> ReplacementMap:
+    try:
+        map_path = _ensure_external_path(
+            repository,
+            evidence["replacement_map_path"],
+            "replacement map",
+        )
+        expected_count = int(evidence["replacement_inventory_count"])
+        expected_digest = str(evidence["replacement_map_sha256"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise PurgeError("evidence record lacks replacement-map verification inputs") from exc
+    replacement_map = load_replacement_map(map_path, expected_count=expected_count)
+    if replacement_map.map_sha256 != expected_digest:
+        raise PurgeError("evidence record replacement-map checksum changed")
+    return replacement_map
+
+
 def _verify_computed_post_push(
     evidence: Mapping[str, Any],
     repository: Path,
@@ -1737,6 +1781,7 @@ def _verify_computed_post_push(
         raise PurgeError("evidence record lacks post-push verification inputs") from exc
     _assert_full_mirror(backup_mirror)
     checker = Path(__file__).with_name("check_pii.py").resolve()
+    replacement_map = _replacement_map_from_evidence(evidence, repository)
     result = verify_post_rewrite(
         verification_root,
         backup_mirror,
@@ -1744,6 +1789,7 @@ def _verify_computed_post_push(
         check_pii_path=checker,
         expected_public_refs=pre_manifest,
         expected_post_public_refs=post_manifest,
+        replacement_entries=replacement_map.entries,
     )
     actual_manifest = public_ref_manifest(verification_root)
     expected_values = {
@@ -2026,6 +2072,7 @@ def _apply(args: argparse.Namespace, repository: Path) -> int:
         check_pii_path=checker,
         expected_public_refs=plan.public_ref_manifest,
         expected_post_public_refs=post_candidate_public_refs,
+        replacement_entries=plan.replacement_map.entries,
     )
     post_public_refs = public_ref_manifest(verification_root)
     evidence: dict[str, Any] = {
@@ -2130,6 +2177,7 @@ def _verify_origin(args: argparse.Namespace, repository: Path) -> int:
         raise PurgeError("apply evidence candidate verification mirror is inconsistent")
     if snapshot_repository(backup_mirror) != pre_snapshot:
         raise PurgeError("backup mirror does not match the apply evidence")
+    replacement_map = _replacement_map_from_evidence(evidence, repository)
     canonical_checker = Path(__file__).with_name("check_pii.py").resolve()
     try:
         checker_digest = hashlib.sha256(canonical_checker.read_bytes()).hexdigest()
@@ -2167,6 +2215,7 @@ def _verify_origin(args: argparse.Namespace, repository: Path) -> int:
         check_pii_path=canonical_checker,
         expected_public_refs=pre_manifest,
         expected_post_public_refs=post_manifest,
+        replacement_entries=replacement_map.entries,
     )
     actual_manifest = public_ref_manifest(verification_root)
     post_push = {
