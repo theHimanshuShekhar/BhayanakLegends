@@ -7,6 +7,8 @@ location outside the repository.  Apply mode performs only a guarded local
 rewrite after checking the exact owner authorization, map, and backup
 preconditions; it never contacts a Git remote, force-pushes, sends a
 notification, or claims that independently controlled forks were cleaned up.
+Map deletion is a separate finalize mode that requires owner evidence for the
+candidate and canonical-origin verification gates and every external action.
 The one exception is a bounded, read-only GitHub API lookup that validates an
 explicit owner-authored issue-comment locator after local preflight.  A copied
 issue description or caller-supplied authorization sentence is never enough.
@@ -44,6 +46,7 @@ AUTHORIZATION = (
 # owner-authored GitHub issue-comment locator.
 AUTHORIZED_OWNER = "theHimanshuShekhar"
 AUTHORIZED_REPOSITORY = "theHimanshuShekhar/BhayanakLegends"
+AUTHORIZED_COMMENT_ID = "5625546905"
 AUTHORIZATION_ISSUE = 59
 AUTHORIZATION_RECORD_VERSION = "bhayanak-history-purge-authorization-v1"
 AUTHORIZATION_API_TIMEOUT = 5.0
@@ -51,6 +54,14 @@ AUTHORIZATION_API_TIMEOUT = 5.0
 REQUIRED_AUTHORIZATION = AUTHORIZATION
 EXACT_AUTHORIZATION = AUTHORIZATION
 MAP_VERSION = "bhayanak-history-purge-v1"
+CANONICAL_ORIGIN_URL = "git@github.com:theHimanshuShekhar/BhayanakLegends.git"
+CANONICAL_ORIGIN_URLS = frozenset(
+    {
+        "https://github.com/theHimanshuShekhar/BhayanakLegends",
+        "git@github.com:theHimanshuShekhar/BhayanakLegends",
+        "ssh://git@github.com/theHimanshuShekhar/BhayanakLegends",
+    }
+)
 BACKUP_VERSION = "bhayanak-history-purge-backup-v1"
 EVIDENCE_VERSION = "bhayanak-history-purge-evidence-v1"
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -143,6 +154,7 @@ class ApplyPlan:
     snapshot: RepositorySnapshot
     replacement_map: ReplacementMap
     backup_reviewed: bool
+    public_ref_manifest: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -150,9 +162,14 @@ class VerificationResult:
     history_guard_passed: bool
     original_commits_reachable: tuple[str, ...]
     fixture_projection_equal: bool
+    public_refs_manifest_equal: bool = False
 
 
 POST_REWRITE_CHECKLIST: tuple[tuple[str, str], ...] = (
+    (
+        "force_update_origin_refs",
+        "Atomically force-update every recorded public branch and tag ref after review.",
+    ),
     (
         "regenerate_source_archives_and_releases",
         "Regenerate affected GitHub source archives and release assets after review.",
@@ -186,6 +203,19 @@ POST_REWRITE_CHECKLIST: tuple[tuple[str, str], ...] = (
         "Securely delete the external map only after the complete evidence record is written.",
     ),
 )
+
+_MAP_DELETION_CHECKLIST_ID = "securely_delete_external_map"
+_NON_OPTIONAL_CHECKLIST_IDS = frozenset(
+    {
+        "force_update_origin_refs",
+        "regenerate_source_archives_and_releases",
+        "request_github_support_cache_removal",
+        "fresh_clone_history_guard",
+        "verify_original_commits_unreachable",
+        "compare_non_identity_fixture_projection",
+    }
+)
+
 
 
 def fingerprint(value: str) -> str:
@@ -266,6 +296,80 @@ def _ensure_external_path(root: Path, path: Path | str, kind: str) -> Path:
     if not resolved.parent.exists() or not resolved.parent.is_dir():
         raise PurgeError(f"{kind} parent directory does not exist")
     return resolved
+def _ensure_new_external_path(root: Path, path: Path | str, kind: str) -> Path:
+    """Resolve an external destination that must not exist yet."""
+    destination = _ensure_external_path(root, path, kind)
+    if destination.exists():
+        raise PurgeError(f"{kind} must be a new path")
+    return destination
+
+
+def _public_ref_entries(root: Path | str) -> tuple[tuple[str, str], ...]:
+    """Return the exact public heads/tags ref manifest, failing when empty."""
+    repository = _repository_root(root)
+    entries = tuple(
+        (name, object_id)
+        for name, object_id in _read_refs(repository)
+        if name.startswith("refs/heads/") or name.startswith("refs/tags/")
+    )
+    if not entries:
+        raise PurgeError("public heads/tags ref manifest is empty")
+    return entries
+
+
+def public_ref_manifest(root: Path | str) -> tuple[tuple[str, str], ...]:
+    """Return the exact nonempty public heads/tags ref-to-OID manifest."""
+    return _public_ref_entries(root)
+
+
+def public_ref_names(root: Path | str) -> tuple[str, ...]:
+    """Return public heads/tags names while enforcing a nonempty manifest."""
+    return tuple(name for name, _ in _public_ref_entries(root))
+
+
+def _normalize_public_ref_manifest(
+    manifest: Iterable[str | tuple[str, str] | list[str]],
+) -> tuple[str, ...]:
+    names: list[str] = []
+    for item in manifest:
+        if isinstance(item, str):
+            name = item
+        elif isinstance(item, (tuple, list)) and len(item) == 2:
+            name = str(item[0])
+        else:
+            raise PurgeError("public heads/tags ref manifest is malformed")
+        if not (
+            name.startswith("refs/heads/")
+            or name.startswith("refs/tags/")
+        ):
+            raise PurgeError("public ref manifest contains a non-public ref")
+        names.append(name)
+    normalized = tuple(sorted(set(names)))
+    if len(normalized) != len(names):
+        raise PurgeError("public ref manifest contains duplicate refs")
+    if not normalized:
+        raise PurgeError("public heads/tags ref manifest is empty")
+    return normalized
+
+
+def _normalize_public_ref_entries(
+    manifest: Iterable[tuple[str, str] | list[str]],
+) -> tuple[tuple[str, str], ...]:
+    entries: list[tuple[str, str]] = []
+    for item in manifest:
+        if not isinstance(item, (tuple, list)) or len(item) != 2:
+            raise PurgeError("public ref manifest entries are malformed")
+        name, object_id = str(item[0]), str(item[1])
+        if not (
+            name.startswith("refs/heads/")
+            or name.startswith("refs/tags/")
+        ) or not re.fullmatch(r"[0-9a-f]{40,64}", object_id):
+            raise PurgeError("public ref manifest entries are malformed")
+        entries.append((name, object_id))
+    normalized = tuple(sorted(set(entries)))
+    if len(normalized) != len(entries) or not normalized:
+        raise PurgeError("public heads/tags ref manifest is empty or duplicated")
+    return normalized
 
 
 def _read_refs(root: Path) -> tuple[tuple[str, str], ...]:
@@ -561,24 +665,39 @@ def _replacement_entries(inventory: Inventory) -> tuple[tuple[str, str], ...]:
         category = _replacement_category(source, inventory.categories[source])
         categories_by_source[source] = category
         category_values.setdefault(category, []).append(source)
-    category_ordinals = {
-        category: {
-            source: index
-            for index, source in enumerate(
-                sorted(values, key=lambda item: item.encode("utf-8")), 1
-            )
-        }
+    ordered_category_values = {
+        category: sorted(values, key=lambda item: item.encode("utf-8"))
         for category, values in category_values.items()
     }
-    puuid_ordinals = category_ordinals.get("puuid", {})
+    puuid_ordinals = {
+        source: index
+        for index, source in enumerate(ordered_category_values.get("puuid", ()), 1)
+    }
+    category_ordinals: dict[str, dict[str, int]] = {"puuid": puuid_ordinals}
+    for category, values in ordered_category_values.items():
+        if category == "puuid":
+            continue
+        assigned = {
+            source: puuid_ordinals[related]
+            for source in values
+            if (related := inventory.relations.get(source)) in puuid_ordinals
+        }
+        reserved = set(assigned.values())
+        next_ordinal = 1
+        for source in values:
+            if source in assigned:
+                continue
+            while next_ordinal in reserved:
+                next_ordinal += 1
+            assigned[source] = next_ordinal
+            reserved.add(next_ordinal)
+            next_ordinal += 1
+        category_ordinals[category] = assigned
     entries: list[tuple[str, str]] = []
     replacements: dict[str, str] = {}
     for source in inventory.values:
         category = categories_by_source[source]
         ordinal = category_ordinals[category][source]
-        related = inventory.relations.get(source)
-        if related in puuid_ordinals:
-            ordinal = puuid_ordinals[related]
         if category == "puuid":
             replacement = f"fixture-puuid-{ordinal:02d}"
         elif category == "summoner_id":
@@ -1017,7 +1136,7 @@ def _authorization_comment_matches(
     payload: Mapping[str, Any] | None,
     comment_id: str,
 ) -> bool:
-    if payload is None:
+    if payload is None or comment_id != AUTHORIZED_COMMENT_ID:
         return False
     payload_id = _normalize_comment_id(payload.get("id"))
     if payload_id != comment_id:
@@ -1079,6 +1198,8 @@ def authorization_matches(
     if locator is None:
         return False
     _, resolved_id = locator
+    if resolved_id != AUTHORIZED_COMMENT_ID:
+        return False
     lookup = fetcher or _fetch_authorization_comment
     try:
         payload = lookup(resolved_id)
@@ -1126,6 +1247,7 @@ def preflight_apply(
     expected_entries = dict(_replacement_entries(inventory))
     if dict(replacement_map.entries) != expected_entries:
         raise PurgeError("replacement map does not cover the reviewed inventory")
+    public_refs = public_ref_manifest(repository)
     locator = _authorization_locator(
         authorization_file=external_auth_file,
         authorization_comment_id=authorization_comment_id,
@@ -1148,6 +1270,7 @@ def preflight_apply(
         current,
         replacement_map,
         backup_reviewed,
+        public_refs,
     )
 
 
@@ -1169,15 +1292,25 @@ def _run_filter_repo(plan: ApplyPlan) -> None:
 
 
 def _selected_origin_refs(root: Path) -> tuple[str, ...]:
-    return _archive_refs(_read_refs(root))
+    """Return refs used for reachability checks, requiring public refs."""
+    repository = _repository_root(root)
+    _public_ref_entries(repository)
+    refs = tuple(
+        name
+        for name, _ in _read_refs(repository)
+        if name.startswith("refs/heads/")
+        or name.startswith("refs/tags/")
+        or name.startswith("refs/remotes/origin/")
+    )
+    if not refs:
+        raise PurgeError("selected origin refs are empty")
+    return refs
 
 
 def reachable_origin_commits(root: Path | str) -> frozenset[str]:
     """Return commits reachable from origin branch/tag refs only."""
     repository = _repository_root(root)
     refs = _selected_origin_refs(repository)
-    if not refs:
-        return frozenset()
     raw = _git(repository, "rev-list", *refs)
     return frozenset(line.decode("ascii") for line in raw.splitlines() if line)
 
@@ -1273,21 +1406,128 @@ def run_history_guard(
     return result.returncode == 0
 
 
+def _assert_full_mirror(root: Path) -> None:
+    try:
+        bare = _git(root, "rev-parse", "--is-bare-repository").strip()
+        mirror = _git(root, "config", "--get", "remote.origin.mirror").strip()
+        refspec = _git(root, "config", "--get-all", "remote.origin.fetch")
+    except PurgeError as exc:
+        raise PurgeError("verification repository is not a full mirror") from exc
+    if bare != b"true" or mirror != b"true" or b"+refs/*:refs/*" not in refspec.splitlines():
+        raise PurgeError("verification repository is not a full mirror")
+
+
+def _normalize_origin_url(value: str) -> str:
+    normalized = value.strip().rstrip("/")
+    return normalized[:-4] if normalized.endswith(".git") else normalized
+
+
+def _assert_canonical_origin(root: Path, expected: str | None = None) -> str:
+    try:
+        actual = _git(root, "config", "--get", "remote.origin.url").decode("utf-8").strip()
+    except (PurgeError, UnicodeDecodeError) as exc:
+        raise PurgeError("verification repository has no origin URL") from exc
+    allowed = {_normalize_origin_url(value) for value in CANONICAL_ORIGIN_URLS}
+    if _normalize_origin_url(actual) not in allowed:
+        raise PurgeError("verification repository origin URL is not canonical")
+    if expected is not None and _normalize_origin_url(expected) != _normalize_origin_url(actual):
+        raise PurgeError("verification repository origin URL does not match evidence")
+    return actual
+
+
+def create_origin_verification_mirror(
+    root: Path | str,
+    verification_root: Path | str,
+) -> tuple[Path, str]:
+    """Clone canonical origin into a new external full mirror."""
+    repository = _repository_root(root)
+    destination = _ensure_new_external_path(
+        repository,
+        verification_root,
+        "verification repository",
+    )
+    _run_command(
+        [
+            "git",
+            "clone",
+            "--mirror",
+            CANONICAL_ORIGIN_URL,
+            str(destination),
+        ]
+    )
+    _assert_full_mirror(destination)
+    origin_url = _assert_canonical_origin(destination)
+    public_ref_manifest(destination)
+    return destination, origin_url
+
+
+def create_verification_mirror(
+    source_root: Path | str,
+    verification_root: Path | str,
+) -> Path:
+    """Create a new external mirror from the rewritten local candidate."""
+    source = _repository_root(source_root)
+    destination = _ensure_new_external_path(
+        source,
+        verification_root,
+        "verification repository",
+    )
+    _run_command(
+        [
+            "git",
+            "clone",
+            "--mirror",
+            "--no-local",
+            str(source),
+            str(destination),
+        ]
+    )
+    _assert_full_mirror(destination)
+    public_ref_manifest(destination)
+    return destination
+
+
 def verify_post_rewrite(
     rewritten_root: Path | str,
     backup_root: Path | str,
     original_commit_ids: Iterable[str],
     *,
     check_pii_path: Path | str | None = None,
+    expected_public_refs: Iterable[str | tuple[str, str] | list[str]] | None = None,
+    expected_post_public_refs: Iterable[tuple[str, str] | list[str]] | None = None,
 ) -> VerificationResult:
-    """Verify a fresh rewrite against the backup and original commit set."""
+    """Verify a fresh rewrite against all four non-vacuous gates."""
     rewritten = _repository_root(rewritten_root)
+    public_ref_manifest(rewritten)
+    _assert_full_mirror(rewritten)
+    expected_names = (
+        _normalize_public_ref_manifest(expected_public_refs)
+        if expected_public_refs is not None
+        else public_ref_names(backup_root)
+    )
+    actual_manifest = public_ref_manifest(rewritten)
+    actual_names = tuple(name for name, _ in actual_manifest)
+    names_equal = actual_names == expected_names
+    exact_post_equal = (
+        expected_post_public_refs is None
+        or actual_manifest == _normalize_public_ref_entries(expected_post_public_refs)
+    )
+    manifest_equal = names_equal and exact_post_equal
     guard_passed = run_history_guard(rewritten, check_pii_path=check_pii_path)
     reachable = reachable_origin_commits(rewritten)
     original = frozenset(str(item) for item in original_commit_ids)
     still_reachable = tuple(sorted(reachable & original))
     projection_equal = compare_fixture_projections(backup_root, rewritten)
-    result = VerificationResult(guard_passed, still_reachable, projection_equal)
+    result = VerificationResult(
+        guard_passed,
+        still_reachable,
+        projection_equal,
+        manifest_equal,
+    )
+    if not names_equal:
+        raise PurgeError("public heads/tags ref manifest changed")
+    if not exact_post_equal:
+        raise PurgeError("rewritten public ref OID manifest changed")
     if not guard_passed:
         raise PurgeError("fresh-clone history guard found findings")
     if still_reachable:
@@ -1312,6 +1552,282 @@ def write_evidence_record(path: Path | str, record: Mapping[str, Any], *, root: 
     safe_record = json.loads(json.dumps(record, sort_keys=True))
     _atomic_write(destination, _canonical_json(safe_record) + b"\n")
     return destination
+def _load_evidence_record(path: Path | str, *, root: Path) -> tuple[Path, dict[str, Any]]:
+    """Load an owner-only external evidence record without trusting its claims."""
+    repository = _repository_root(root)
+    destination = _ensure_external_path(repository, path, "evidence record")
+    if destination.is_symlink() or not destination.is_file():
+        raise PurgeError("evidence record is missing or is a symlink")
+    try:
+        mode = stat.S_IMODE(destination.stat().st_mode)
+        if mode & 0o077:
+            raise PurgeError("evidence record permissions must be owner-only")
+        payload = json.loads(destination.read_text(encoding="utf-8"))
+    except PurgeError:
+        raise
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise PurgeError("evidence record cannot be read") from exc
+    if not isinstance(payload, dict) or payload.get("version") != EVIDENCE_VERSION:
+        raise PurgeError("evidence record version is unsupported")
+    return destination, payload
+
+
+def _validate_finalization_evidence(evidence: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Validate post-push gates and every owner-completed checklist item."""
+    if evidence.get("mode") not in {"apply-local-only", "finalize-map-deletion"}:
+        raise PurgeError("evidence record is not an apply record")
+    if evidence.get("external_map_deleted") is not False:
+        raise PurgeError("evidence record does not require map finalization")
+    if evidence.get("force_push_performed") is not True:
+        raise PurgeError("origin force-update evidence is incomplete")
+    try:
+        pre_manifest = _normalize_public_ref_entries(
+            evidence["pre_rewrite_public_ref_manifest"]
+        )
+        post_manifest = _normalize_public_ref_entries(
+            evidence["post_rewrite_public_ref_manifest"]
+        )
+    except (KeyError, TypeError) as exc:
+        raise PurgeError("evidence record lacks exact public ref manifests") from exc
+    if tuple(name for name, _ in pre_manifest) != tuple(name for name, _ in post_manifest):
+        raise PurgeError("evidence record public ref names changed")
+
+    def validate_verification(
+        payload: Any,
+        *,
+        label: str,
+        provenance: str,
+        expected_manifest: tuple[tuple[str, str], ...],
+        computed_by: str,
+    ) -> None:
+        if not isinstance(payload, dict):
+            raise PurgeError(f"evidence record lacks {label} verification")
+        if payload.get("computed") is not True or payload.get("computed_by") != computed_by:
+            raise PurgeError(f"evidence record {label} was not computed by the tool")
+        if payload.get("provenance") != provenance:
+            raise PurgeError(f"evidence record {label} provenance is invalid")
+        if (
+            payload.get("fresh_clone") is not True
+            or payload.get("verification_repo_kind") != "full-mirror"
+        ):
+            raise PurgeError(f"evidence record {label} is not a fresh full mirror")
+        if (
+            not isinstance(payload.get("verification_repo"), str)
+            or not payload["verification_repo"].strip()
+        ):
+            raise PurgeError(f"evidence record lacks {label} mirror provenance")
+        if payload.get("history_guard_passed") is not True:
+            raise PurgeError(f"evidence record lacks a successful {label} history guard")
+        if payload.get("fixture_projection_equal") is not True:
+            raise PurgeError(f"evidence record lacks {label} projection equality")
+        if payload.get("public_refs_manifest_equal") is not True:
+            raise PurgeError(f"evidence record lacks exact {label} ref verification")
+        if payload.get("original_commits_reachable") != []:
+            raise PurgeError(f"evidence record retains original commits in {label}")
+        try:
+            actual_manifest = _normalize_public_ref_entries(payload["public_ref_manifest"])
+        except (KeyError, TypeError) as exc:
+            raise PurgeError(f"evidence record lacks {label} ref manifest") from exc
+        if actual_manifest != expected_manifest:
+            raise PurgeError(f"evidence record {label} ref manifest does not match apply evidence")
+    validate_verification(
+        evidence.get("verification"),
+        label="candidate",
+        provenance="candidate-local-external-mirror",
+        expected_manifest=post_manifest,
+        computed_by="history_purge.apply",
+    )
+    validate_verification(
+        evidence.get("post_push_verification"),
+        label="canonical-origin",
+        provenance="canonical-origin-fresh-mirror",
+        expected_manifest=post_manifest,
+        computed_by="history_purge.verify_origin",
+    )
+    candidate_verification = evidence["verification"]
+    post_push_verification = evidence["post_push_verification"]
+    if (
+        candidate_verification["verification_repo"]
+        == post_push_verification["verification_repo"]
+    ):
+        raise PurgeError("candidate and canonical-origin mirrors must be distinct")
+    checker_path = evidence.get("check_pii_path")
+    checker_digest = evidence.get("check_pii_sha256")
+    canonical_checker = Path(__file__).with_name("check_pii.py").resolve()
+    try:
+        current_checker_digest = hashlib.sha256(canonical_checker.read_bytes()).hexdigest()
+    except OSError as exc:
+        raise PurgeError("history guard script is unavailable") from exc
+    if (
+        checker_path != str(canonical_checker)
+        or checker_digest != current_checker_digest
+    ):
+        raise PurgeError("evidence record check_pii.py identity is stale")
+
+    checklist = evidence.get("checklist")
+    if not isinstance(checklist, list):
+        raise PurgeError("evidence record checklist is missing")
+    expected_ids = {identifier for identifier, _ in POST_REWRITE_CHECKLIST}
+    by_id: dict[str, dict[str, Any]] = {}
+    for item in checklist:
+        if not isinstance(item, dict):
+            raise PurgeError("evidence record checklist is malformed")
+        identifier = item.get("id")
+        status = item.get("status")
+        if (
+            not isinstance(identifier, str)
+            or identifier not in expected_ids
+            or identifier in by_id
+            or not isinstance(status, str)
+        ):
+            raise PurgeError("evidence record checklist is malformed")
+        by_id[identifier] = item
+    if set(by_id) != expected_ids:
+        raise PurgeError("evidence record checklist is incomplete")
+    optional_ids = {
+        "notify_collaborators_to_reclone",
+        "notify_known_fork_owners",
+    }
+    for identifier, item in by_id.items():
+        status = item["status"]
+        if identifier == _MAP_DELETION_CHECKLIST_ID:
+            if status != "owner-required":
+                raise PurgeError("map deletion checklist must be owner-required before finalization")
+            continue
+        if status == "completed":
+            note = item.get("evidence")
+            if not isinstance(note, str) or not note.strip():
+                raise PurgeError(f"checklist item {identifier} lacks evidence")
+            continue
+        if status == "not-applicable" and identifier in optional_ids:
+            reason = item.get("reason")
+            if not isinstance(reason, str) or not reason.strip():
+                raise PurgeError(f"checklist item {identifier} lacks an N/A reason")
+            continue
+        raise PurgeError(f"checklist item {identifier} cannot be {status}")
+    return [dict(item) for item in checklist]
+
+
+def _verify_computed_post_push(
+    evidence: Mapping[str, Any],
+    repository: Path,
+    pre_manifest: tuple[tuple[str, str], ...],
+    post_manifest: tuple[tuple[str, str], ...],
+) -> VerificationResult:
+    payload = evidence.get("post_push_verification")
+    if not isinstance(payload, dict):
+        raise PurgeError("computed canonical-origin verification is missing")
+    verification_root = _ensure_external_path(
+        repository,
+        payload.get("verification_repo"),
+        "canonical-origin verification repository",
+    )
+    _assert_full_mirror(verification_root)
+    origin_url = payload.get("origin_url")
+    if not isinstance(origin_url, str):
+        raise PurgeError("computed canonical-origin URL is missing")
+    actual_origin_url = _assert_canonical_origin(verification_root, origin_url)
+    try:
+        pre_snapshot = _snapshot_from_payload(evidence["pre_rewrite_snapshot"])
+        backup_dir = _ensure_external_path(repository, evidence["backup_dir"], "backup destination")
+        backup_mirror = _repository_root(backup_dir / "mirror")
+    except (KeyError, TypeError, ValueError) as exc:
+        raise PurgeError("evidence record lacks post-push verification inputs") from exc
+    _assert_full_mirror(backup_mirror)
+    checker = Path(__file__).with_name("check_pii.py").resolve()
+    result = verify_post_rewrite(
+        verification_root,
+        backup_mirror,
+        pre_snapshot.commit_ids,
+        check_pii_path=checker,
+        expected_public_refs=pre_manifest,
+        expected_post_public_refs=post_manifest,
+    )
+    actual_manifest = public_ref_manifest(verification_root)
+    expected_values = {
+        "history_guard_passed": result.history_guard_passed,
+        "original_commits_reachable": list(result.original_commits_reachable),
+        "fixture_projection_equal": result.fixture_projection_equal,
+        "public_refs_manifest_equal": result.public_refs_manifest_equal,
+        "public_ref_manifest": [list(item) for item in actual_manifest],
+    }
+    if any(payload.get(key) != value for key, value in expected_values.items()):
+        raise PurgeError("computed canonical-origin verification does not match the mirror")
+    if _normalize_origin_url(payload["origin_url"]) != _normalize_origin_url(actual_origin_url):
+        raise PurgeError("computed canonical-origin URL changed")
+    return result
+
+
+def finalize_map_deletion(
+    root: Path | str,
+    map_path: Path | str,
+    evidence_path: Path | str,
+) -> Path:
+    """Securely delete the map after owner-completed external evidence."""
+    repository = _repository_root(root)
+    evidence_destination, evidence = _load_evidence_record(
+        evidence_path,
+        root=repository,
+    )
+    checklist = _validate_finalization_evidence(evidence)
+    try:
+        pre_manifest = _normalize_public_ref_entries(
+            evidence["pre_rewrite_public_ref_manifest"]
+        )
+        post_manifest = _normalize_public_ref_entries(
+            evidence["post_rewrite_public_ref_manifest"]
+        )
+    except (KeyError, TypeError) as exc:
+        raise PurgeError("evidence record lacks exact public ref manifests") from exc
+    _verify_computed_post_push(
+        evidence,
+        repository,
+        pre_manifest,
+        post_manifest,
+    )
+    map_destination = _ensure_external_path(repository, map_path, "replacement map")
+    recorded_map_path = evidence.get("replacement_map_path")
+    if recorded_map_path is not None and _resolve_path(recorded_map_path) != map_destination:
+        raise PurgeError("replacement map does not match the evidence record")
+    expected_digest = evidence.get("replacement_map_sha256")
+    expected_count = evidence.get("replacement_inventory_count")
+    if (
+        not isinstance(expected_digest, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", expected_digest)
+        or isinstance(expected_count, bool)
+        or not isinstance(expected_count, int)
+        or expected_count < 1
+    ):
+        raise PurgeError("evidence record replacement map metadata is malformed")
+    replacement_map = load_replacement_map(
+        map_destination,
+        expected_count=expected_count,
+    )
+    if replacement_map.map_sha256 != expected_digest:
+        raise PurgeError("replacement map checksum does not match the evidence record")
+    pending = dict(evidence)
+    pending["map_deletion_pending"] = True
+    write_evidence_record(evidence_destination, pending, root=repository)
+    secure_delete(map_destination)
+    updated = dict(pending)
+    updated["map_deletion_pending"] = False
+    updated["external_map_deleted"] = True
+    updated["map_deletion_finalized"] = True
+    updated["checklist"] = [
+        (
+            {
+                **item,
+                "status": "completed",
+                "evidence": "secure deletion completed by finalize-map-deletion",
+            }
+            if item.get("id") == _MAP_DELETION_CHECKLIST_ID
+            else item
+        )
+        for item in checklist
+    ]
+    write_evidence_record(evidence_destination, updated, root=repository)
+    return evidence_destination
+
 
 
 def secure_delete(path: Path | str) -> None:
@@ -1358,8 +1874,18 @@ def _parser() -> argparse.ArgumentParser:
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--dry-run", action="store_true", help="inventory and write an external map only")
     modes.add_argument("--apply", action="store_true", help="rewrite only this local repository after preflight")
+    modes.add_argument(
+        "--verify-origin",
+        action="store_true",
+        help="clone canonical origin and record post-push verification evidence",
+    )
+    modes.add_argument(
+        "--finalize-map-deletion",
+        action="store_true",
+        help="securely delete the external map after owner evidence is complete",
+    )
     parser.add_argument("--root", type=Path, default=REPO_ROOT, help="repository or mirror to inspect")
-    parser.add_argument("--map-path", type=Path, required=True, help="external replacement map destination")
+    parser.add_argument("--map-path", type=Path, help="external replacement map destination")
     parser.add_argument("--backup-dir", type=Path, help="external backup mirror/bundle directory")
     parser.add_argument(
         "--expected-inventory-count",
@@ -1392,11 +1918,6 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--evidence-path", type=Path, help="external JSON evidence record destination")
     parser.add_argument("--verification-repo", type=Path, help="fresh clone/mirror for post-rewrite verification")
     parser.add_argument("--check-pii", type=Path, help="check_pii.py to run for post-rewrite verification")
-    parser.add_argument(
-        "--secure-delete-map",
-        action="store_true",
-        help="securely delete the map only after successful fresh-clone verification and evidence",
-    )
     return parser
 
 
@@ -1408,6 +1929,8 @@ def _print_inventory(inventory: Inventory) -> None:
 
 
 def _dry_run(args: argparse.Namespace, repository: Path) -> int:
+    if args.map_path is None:
+        raise PurgeError("dry-run mode requires --map-path")
     external_map = _ensure_external_path(repository, args.map_path, "replacement map")
     before = snapshot_repository(repository)
     inventory = inventory_repository(repository)
@@ -1445,13 +1968,43 @@ def _dry_run(args: argparse.Namespace, repository: Path) -> int:
 
 
 def _apply(args: argparse.Namespace, repository: Path) -> int:
-    if args.evidence_path is not None and _resolve_path(args.evidence_path) == _resolve_path(args.map_path):
-        raise PurgeError("evidence record must use a path separate from the replacement map")
+    if args.map_path is None:
+        raise PurgeError("apply mode requires --map-path")
     if args.backup_dir is None:
         raise PurgeError("apply mode requires an external backup directory")
+    if args.verification_repo is None:
+        raise PurgeError("apply mode requires a fresh verification repository path")
+    if args.check_pii is None:
+        raise PurgeError("apply mode requires --check-pii")
+    if args.evidence_path is None:
+        raise PurgeError("apply mode requires --evidence-path")
+    external_map = _ensure_external_path(repository, args.map_path, "replacement map")
+    evidence_path = _ensure_new_external_path(
+        repository,
+        args.evidence_path,
+        "evidence record",
+    )
+    if evidence_path == external_map:
+        raise PurgeError("evidence record must use a path separate from the replacement map")
+    verification_path = _ensure_new_external_path(
+        repository,
+        args.verification_repo,
+        "verification repository",
+    )
+    checker = _resolve_path(args.check_pii).resolve()
+    canonical_checker = Path(__file__).with_name("check_pii.py").resolve()
+    if checker != canonical_checker or not checker.is_file():
+        raise PurgeError("apply requires the canonical backend/tools/check_pii.py")
+    try:
+        checker_digest = hashlib.sha256(checker.read_bytes()).hexdigest()
+    except OSError as exc:
+        raise PurgeError("history guard script is unavailable") from exc
+    if not re.fullmatch(r"[0-9a-f]{64}", checker_digest):
+        raise PurgeError("history guard script checksum is invalid")
+    _assert_full_mirror(repository)
     plan = preflight_apply(
         repository,
-        args.map_path,
+        external_map,
         args.backup_dir,
         authorization=args.authorization,
         authorization_file=args.authorization_file,
@@ -1462,42 +2015,53 @@ def _apply(args: argparse.Namespace, repository: Path) -> int:
     )
     _run_filter_repo(plan)
     post_snapshot = snapshot_repository(repository)
+    post_candidate_public_refs = public_ref_manifest(repository)
+    verification_root = create_verification_mirror(repository, verification_path)
+    verification = verify_post_rewrite(
+        verification_root,
+        plan.backup_dir / "mirror",
+        plan.snapshot.commit_ids,
+        check_pii_path=checker,
+        expected_public_refs=plan.public_ref_manifest,
+        expected_post_public_refs=post_candidate_public_refs,
+    )
+    post_public_refs = public_ref_manifest(verification_root)
     evidence: dict[str, Any] = {
         "version": EVIDENCE_VERSION,
         "mode": "apply-local-only",
         "pre_rewrite_snapshot": _snapshot_payload(plan.snapshot),
         "post_rewrite_snapshot": _snapshot_payload(post_snapshot),
+        "pre_rewrite_public_ref_manifest": [list(item) for item in plan.public_ref_manifest],
+        "post_rewrite_public_ref_manifest": [list(item) for item in post_public_refs],
+        "replacement_map_path": str(plan.map_path),
         "replacement_inventory_count": plan.replacement_map.inventory_count,
+        "backup_dir": str(plan.backup_dir),
         "replacement_map_sha256": plan.replacement_map.map_sha256,
         "backup_reviewed": plan.backup_reviewed,
+        "check_pii_path": str(checker),
+        "check_pii_sha256": checker_digest,
+        "verification_repo": str(verification_root),
+        "verification_repo_kind": "full-mirror",
         "remote_contacted": False,
         "force_push_performed": False,
-        "checklist": post_rewrite_checklist(),
-    }
-    verification: VerificationResult | None = None
-    if args.verification_repo is not None:
-        verification = verify_post_rewrite(
-            args.verification_repo,
-            plan.backup_dir / "mirror",
-            plan.snapshot.commit_ids,
-            check_pii_path=args.check_pii,
-        )
-        evidence["verification"] = {
+        "verification": {
+            "computed": True,
+            "computed_by": "history_purge.apply",
+            "provenance": "candidate-local-external-mirror",
+            "fresh_clone": True,
+            "verification_repo_kind": "full-mirror",
+            "verification_repo": str(verification_root),
             "history_guard_passed": verification.history_guard_passed,
             "original_commits_reachable": list(verification.original_commits_reachable),
             "fixture_projection_equal": verification.fixture_projection_equal,
-        }
-    if args.evidence_path is not None:
-        evidence["external_map_deleted"] = False
-        write_evidence_record(args.evidence_path, evidence, root=repository)
-    if args.secure_delete_map:
-        if verification is None or not verification.history_guard_passed or not verification.fixture_projection_equal:
-            raise PurgeError("map deletion requires successful fresh-clone verification")
-        if args.evidence_path is None:
-            raise PurgeError("map deletion requires an evidence record")
-        secure_delete(plan.map_path)
-        evidence["external_map_deleted"] = True
-        write_evidence_record(args.evidence_path, evidence, root=repository)
+            "public_refs_manifest_equal": verification.public_refs_manifest_equal,
+            "public_ref_manifest": [list(item) for item in post_public_refs],
+        },
+        "post_push_verification": None,
+        "checklist": post_rewrite_checklist(),
+        "external_map_deleted": False,
+    }
+    write_evidence_record(evidence_path, evidence, root=repository)
     print(
         json.dumps(
             {
@@ -1505,11 +2069,157 @@ def _apply(args: argparse.Namespace, repository: Path) -> int:
                 "replacement_inventory_count": plan.replacement_map.inventory_count,
                 "pre_rewrite_snapshot_sha256": snapshot_digest(plan.snapshot),
                 "post_rewrite_snapshot_sha256": snapshot_digest(post_snapshot),
+                "pre_rewrite_public_ref_manifest": list(plan.public_ref_manifest),
+                "post_rewrite_public_ref_manifest": list(post_public_refs),
+                "public_refs_manifest_equal": verification.public_refs_manifest_equal,
                 "remote_contacted": False,
                 "force_push": False,
                 "owner_review_required_before_remote_update": True,
-                "evidence_path": str(_resolve_path(args.evidence_path)) if args.evidence_path else None,
-                "external_map_deleted": args.secure_delete_map,
+                "evidence_path": str(evidence_path),
+                "external_map_deleted": False,
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+def _verify_origin(args: argparse.Namespace, repository: Path) -> int:
+    if args.verification_repo is None:
+        raise PurgeError("verify-origin mode requires --verification-repo")
+    if args.evidence_path is None:
+        raise PurgeError("verify-origin mode requires --evidence-path")
+    evidence_path, evidence = _load_evidence_record(
+        args.evidence_path,
+        root=repository,
+    )
+    if evidence.get("mode") != "apply-local-only" or evidence.get("external_map_deleted") is not False:
+        raise PurgeError("verify-origin requires an active apply evidence record")
+    if evidence.get("force_push_performed") is not True:
+        raise PurgeError("verify-origin requires completed origin force-update evidence")
+    try:
+        pre_manifest = _normalize_public_ref_entries(
+            evidence["pre_rewrite_public_ref_manifest"]
+        )
+        post_manifest = _normalize_public_ref_entries(
+            evidence["post_rewrite_public_ref_manifest"]
+        )
+        pre_snapshot = _snapshot_from_payload(evidence["pre_rewrite_snapshot"])
+        backup_dir = _ensure_external_path(repository, evidence["backup_dir"], "backup destination")
+        backup_mirror = _repository_root(backup_dir / "mirror")
+    except (KeyError, TypeError, ValueError) as exc:
+        raise PurgeError("apply evidence lacks exact verification inputs") from exc
+    if tuple(name for name, _ in pre_manifest) != tuple(name for name, _ in post_manifest):
+        raise PurgeError("apply evidence public ref names changed")
+    candidate_verification = evidence.get("verification")
+    if not isinstance(candidate_verification, dict):
+        raise PurgeError("apply evidence lacks candidate verification")
+    candidate_path = candidate_verification.get("verification_repo")
+    if not isinstance(candidate_path, str) or not candidate_path.strip():
+        raise PurgeError("apply evidence lacks candidate verification mirror")
+    candidate_root = _ensure_external_path(
+        repository,
+        candidate_path,
+        "candidate verification repository",
+    )
+    _assert_full_mirror(candidate_root)
+    if public_ref_manifest(candidate_root) != post_manifest:
+        raise PurgeError("apply candidate verification mirror ref OIDs changed")
+    recorded_candidate_path = evidence.get("verification_repo")
+    if not isinstance(recorded_candidate_path, str) or _resolve_path(recorded_candidate_path) != candidate_root:
+        raise PurgeError("apply evidence candidate verification mirror is inconsistent")
+    if snapshot_repository(backup_mirror) != pre_snapshot:
+        raise PurgeError("backup mirror does not match the apply evidence")
+    canonical_checker = Path(__file__).with_name("check_pii.py").resolve()
+    try:
+        checker_digest = hashlib.sha256(canonical_checker.read_bytes()).hexdigest()
+    except OSError as exc:
+        raise PurgeError("history guard script is unavailable") from exc
+    if (
+        evidence.get("check_pii_path") != str(canonical_checker)
+        or evidence.get("check_pii_sha256") != checker_digest
+    ):
+        raise PurgeError("apply evidence check_pii.py identity is stale")
+    authorization_file = (
+        _ensure_external_path(repository, args.authorization_file, "authorization record")
+        if args.authorization_file is not None
+        else None
+    )
+    locator = _authorization_locator(
+        authorization_file=authorization_file,
+        authorization_comment_id=args.authorization_comment_id,
+        authorization_comment_url=args.authorization_comment_url,
+    )
+    if locator is None or not authorization_matches(
+        path=authorization_file,
+        comment_id=args.authorization_comment_id,
+        comment_url=args.authorization_comment_url,
+    ):
+        raise PurgeError("verified owner issue-comment authorization is required before origin verification")
+    verification_root, origin_url = create_origin_verification_mirror(
+        repository,
+        args.verification_repo,
+    )
+    verification = verify_post_rewrite(
+        verification_root,
+        backup_mirror,
+        pre_snapshot.commit_ids,
+        check_pii_path=canonical_checker,
+        expected_public_refs=pre_manifest,
+        expected_post_public_refs=post_manifest,
+    )
+    actual_manifest = public_ref_manifest(verification_root)
+    post_push = {
+        "computed": True,
+        "computed_by": "history_purge.verify_origin",
+        "provenance": "canonical-origin-fresh-mirror",
+        "fresh_clone": True,
+        "verification_repo_kind": "full-mirror",
+        "verification_repo": str(verification_root),
+        "origin_url": origin_url,
+        "history_guard_passed": verification.history_guard_passed,
+        "original_commits_reachable": list(verification.original_commits_reachable),
+        "fixture_projection_equal": verification.fixture_projection_equal,
+        "public_refs_manifest_equal": verification.public_refs_manifest_equal,
+        "public_ref_manifest": [list(item) for item in actual_manifest],
+        "check_pii_sha256": checker_digest,
+    }
+    updated = dict(evidence)
+    updated["post_push_verification"] = post_push
+    write_evidence_record(evidence_path, updated, root=repository)
+    print(
+        json.dumps(
+            {
+                "mode": "verify-origin",
+                "verification_repo": str(verification_root),
+                "origin_url": origin_url,
+                "public_refs_manifest_equal": verification.public_refs_manifest_equal,
+                "remote_contacted": True,
+                "evidence_path": str(evidence_path),
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+
+
+def _finalize(args: argparse.Namespace, repository: Path) -> int:
+    if args.map_path is None:
+        raise PurgeError("map finalization requires --map-path")
+    if args.evidence_path is None:
+        raise PurgeError("map finalization requires --evidence-path")
+    evidence_path = finalize_map_deletion(
+        repository,
+        args.map_path,
+        args.evidence_path,
+    )
+    print(
+        json.dumps(
+            {
+                "mode": "finalize-map-deletion",
+                "remote_contacted": False,
+                "external_map_deleted": True,
+                "evidence_path": str(evidence_path),
             },
             sort_keys=True,
         )
@@ -1521,18 +2231,55 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         repository = _repository_root(args.root)
+        authorization_inputs = (
+            args.authorization is not None
+            or args.authorization_file is not None
+            or args.authorization_comment_id is not None
+            or args.authorization_comment_url is not None
+        )
+        authorization_locator_inputs = (
+            args.authorization_file is not None
+            or args.authorization_comment_id is not None
+            or args.authorization_comment_url is not None
+        )
         if args.dry_run:
-            if (
-                args.authorization is not None
-                or args.authorization_file is not None
-                or args.authorization_comment_id is not None
-                or args.authorization_comment_url is not None
-            ):
+            if authorization_inputs:
                 raise PurgeError("authorization input is valid only for apply mode")
-            if args.backup_reviewed or args.evidence_path or args.verification_repo or args.secure_delete_map:
+            if (
+                args.backup_reviewed
+                or args.evidence_path
+                or args.verification_repo
+                or args.check_pii
+            ):
                 raise PurgeError("apply-only options cannot be used with dry-run")
             return _dry_run(args, repository)
-        return _apply(args, repository)
+        if args.apply:
+            return _apply(args, repository)
+        if args.verify_origin:
+            if (
+                args.authorization is not None
+                or not authorization_locator_inputs
+                or args.map_path is not None
+                or args.backup_reviewed
+                or args.backup_dir
+                or args.expected_inventory_count is not None
+                or args.check_pii
+            ):
+                raise PurgeError(
+                    "verify-origin requires one owner authorization comment locator "
+                    "and rejects apply-only options"
+                )
+            return _verify_origin(args, repository)
+        if (
+            authorization_inputs
+            or args.backup_reviewed
+            or args.backup_dir
+            or args.expected_inventory_count is not None
+            or args.verification_repo
+            or args.check_pii
+        ):
+            raise PurgeError("apply-only options cannot be used with map finalization")
+        return _finalize(args, repository)
     except PurgeError as exc:
         print(f"history purge refused: {exc}", file=sys.stderr)
         return 2

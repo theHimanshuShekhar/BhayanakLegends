@@ -279,21 +279,26 @@ The guarded history purge is a local, owner-authorized procedure. First run
 the dry-run inventory against a reviewed mirror and an external identity map:
 
 ```sh
-python backend/tools/history_purge.py --dry-run \
+uv run --project backend --locked python backend/tools/history_purge.py --dry-run \
   --root <mirror> --map-path <external/map> \
   --expected-inventory-count <reviewed> \
   [--backup-dir <external/backup>]
 ```
 
 The dry run reports paths, fields, and SHA-256 values only, and proves that
-refs, objects, and archive snapshots are unchanged. An apply run requires an
-external authorization locator:
+refs, objects, and archive snapshots are unchanged. Apply requires all of the
+fresh-verification destinations up front; the verification mirror and evidence
+record must not exist yet and must be outside the candidate repository:
 
 ```sh
-python backend/tools/history_purge.py --apply \
-  --root <mirror> --map-path <external/map> \
+uv run --project backend --locked python backend/tools/history_purge.py --apply \
+  --root <local-candidate-mirror> --map-path <external/map> \
   --backup-dir <external/backup> --backup-reviewed \
-  --authorization-comment-id <owner-comment-id>
+  --expected-inventory-count <reviewed> \
+  --verification-repo <new-external-verification-mirror> \
+  --check-pii backend/tools/check_pii.py \
+  --evidence-path <new-external/evidence.json> \
+  --authorization-comment-id 5625546905
 ```
 
 The referenced GitHub comment must be authored by `theHimanshuShekhar` with
@@ -301,17 +306,115 @@ owner association and its body must exactly equal:
 
 `AUTHORIZED: rewrite all public BhayanakLegends branches and tags to purge Riot identities and force-push replacements.`
 
-The tool rewrites only the local mirror; it performs at most the documented
-bounded authorization-comment read and never contacts origin, force-pushes,
-notifies collaborators, publishes releases, or removes caches. Never run apply
-or force-push in CI.
+The tool performs the local rewrite only after local map, backup, count, and
+authorization preflight. It then creates a new external **full mirror** from
+the rewritten candidate and will not return success until all four gates pass:
 
-After human review, the owner updates origin branch/tag refs, regenerates source
-archives/releases, requests GitHub Support cache removal, and notifies
-collaborators and fork owners without claiming independent-fork erasure. Make a
-fresh clone, run `python tools/check_pii.py --history`, verify original commit
-IDs are unreachable and the fixture's non-identity projection is equal, record
-evidence, then securely delete the external map.
+1. the canonical `backend/tools/check_pii.py --history` guard passes (the
+   caller cannot substitute another script; its path and checksum are recorded);
+2. every pre-rewrite commit is unreachable from the selected origin/public refs;
+3. the non-identity fixture projection equals the reviewed backup; and
+4. the nonempty public `refs/heads/*` and `refs/tags/*` ref-to-OID manifest is
+   exact. Ref names are bound to the pre-rewrite manifest, and rewritten OIDs
+   are compared exactly between the candidate and the fresh mirror.
+
+Apply never contacts origin, pushes, changes releases, notifies anyone, or
+deletes the map. Its only network operation is the bounded read-only
+authorization-comment GET. Never run apply or force-push in CI. Retain the
+owner-only map, backup, and evidence record until every external action is
+complete.
+
+After the owner completes the atomic public-ref update **and all immutable
+release recovery steps below**, mark `force_push_performed` true and run the
+separate origin-verification mode. It creates a new external full mirror from
+the pinned canonical origin URL, revalidates the exact owner authorization
+comment locator, computes the four gates itself, compares the exact
+post-rewrite ref-to-OID tips recorded by apply, and atomically adds the
+tool-produced `canonical-origin-fresh-mirror` section to the owner-only
+evidence record:
+
+```sh
+uv run --project backend --locked python backend/tools/history_purge.py \
+  --verify-origin --root <rewritten-candidate> \
+  --verification-repo <new-external-canonical-origin-mirror> \
+  --evidence-path <external/evidence.json> \
+  --authorization-comment-id 5625546905
+```
+
+The root identifies the rewritten candidate only so the tool can locate the
+evidence and backup; the apply-generated external candidate verification
+mirror recorded in that evidence is the candidate-ref/OID binding. This root
+need not retain a Git origin after filter-repo. The verification destination
+must be new and external.
+
+This mode is the only release-time origin read performed by the utility. It
+pins `git@github.com:theHimanshuShekhar/BhayanakLegends.git`, validates the
+clone's canonical origin URL and full-mirror refspec, uses the canonical
+`backend/tools/check_pii.py` checksum, and never accepts caller-supplied gate
+booleans. The local candidate mirror is not evidence of the pushed origin.
+
+After `--verify-origin` succeeds, every checklist item must be `completed`
+with evidence, or `not-applicable` with an explicit reason. Origin update,
+release replacement, GitHub Support cache removal, fresh-clone guard,
+original-commit unreachability, and projection equality are never allowed to
+be not-applicable. A repository with no collaborators or no independently
+controlled forks may record explicit no-collaborator/no-fork N/A reasons; do
+not claim that independent forks or old local clones were erased.
+
+Only then run the separate finalization mode:
+
+```sh
+uv run --project backend --locked python backend/tools/history_purge.py \
+  --finalize-map-deletion --root <rewritten-candidate> \
+  --map-path <external/map> --evidence-path <external/evidence.json>
+```
+
+Finalization rechecks the owner-only evidence, exact manifests, successful
+canonical-origin verification, checklist evidence, map checksum, and
+owner-only external paths. It writes a deletion-pending evidence transition,
+securely overwrites and unlinks the map, then marks
+`securely_delete_external_map` completed. Keep the backup and all release
+backup/checksum material until GitHub cache cleanup has been confirmed.
+
+### Immutable release recovery after the ref rewrite
+
+`release.yml` refuses an existing release for an immutable tag, requires the
+tag to resolve to the checked-out SHA, uploads exact immutable assets through
+the captured release ID, verifies asset IDs and bytes before promotion, and
+does not address post-creation mutation by tag. The recovery sequence must
+therefore be followed exactly:
+
+1. Read the pre-rewrite release manifest and externally back up **every
+   existing release named by it**. The current manifest includes `v0.1.14`
+   and `v0.1.15`; do not hard-code that list for a later run. For each release,
+   retain the release ID, asset IDs/names, exact asset bytes and SHA-256
+   checksums, detached signatures, and the captured `latest` endpoint
+   responses.
+2. Stop on any backup mismatch. Disable the `Release` workflow before the
+   repository ref update, and atomically force-update every recorded public
+   branch and tag ref. No unrelated ref may be changed.
+3. Regenerate and re-sign the source archives and release assets for every
+   recorded release, preserving the exact expected asset/checksum inventory.
+4. Delete each old release only after its external backup is verified. Do not
+   delete a release whose backup is incomplete or ambiguous.
+5. Re-enable the `Release` workflow. For each recorded release tag, one at a
+   time, delete and recreate only that tag at its rewritten commit to trigger
+   the immutable publisher. Do not retrigger unrelated tags.
+6. Wait for a fresh signed workflow success for each tag. Verify every fresh
+   asset ID and exact byte/checksum against the regenerated inventory, then
+   verify the anonymous `latest` updater and Findings Pack endpoints and their
+   signatures/hashes.
+7. Only after all recorded tag delete/recreate operations, fresh signed
+   releases, exact asset checks, and latest-endpoint checks succeed, run the
+   `--verify-origin` command above. Its fresh canonical mirror must therefore
+   capture the final public ref state, not an intermediate tag state.
+
+If any disable/enable, ref update, release deletion, tag recreation, workflow
+run, signature, asset-ID/byte, or `latest` endpoint step fails or returns an
+ambiguous result, stop immediately. Quarantine the incomplete outputs and
+restore from the external release backup (or leave the old release safely
+intact when deletion has not occurred); never claim completion or silently
+retry a mutation. The purge utility performs none of these GitHub actions.
 
 ## Dependency advisory policy
 
