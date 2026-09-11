@@ -1286,6 +1286,8 @@ def _run_filter_repo(plan: ApplyPlan) -> None:
             "--sensitive-data-removal",
             "--replace-text",
             str(plan.map_path),
+            "--commit-callback",
+            "commit.message += b'\\n'",
             "--force",
         ]
     )

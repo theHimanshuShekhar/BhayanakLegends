@@ -160,6 +160,40 @@ def test_dry_run_inventory_is_external_deterministic_and_non_mutating(tmp_path: 
     assert {source for source, _ in parsed.entries} == {first, second}
 
 
+def test_filter_repo_changes_every_reachable_commit_oid(tmp_path: Path) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    git(repository, "init", "-q", "-b", "main")
+    git(repository, "config", "user.name", "Purge Test")
+    git(repository, "config", "user.email", "purge-test@example.invalid")
+    (repository / "README").write_text("identity-free history\n", encoding="utf-8")
+    commit(repository, "identity-free root")
+    fixture(repository / "backend/tests/fixtures/base.json", "leaked-puuid-alpha", 7)
+    commit(repository, "add fixture")
+    before = PURGE.snapshot_repository(repository)
+    inventory = PURGE.inventory_repository(repository)
+    map_path = tmp_path / "replacement-map.txt"
+    replacement = PURGE.write_replacement_map(
+        map_path,
+        inventory,
+        before,
+        repository_root=repository,
+    )
+    plan = PURGE.ApplyPlan(
+        repository,
+        map_path,
+        tmp_path / "backup",
+        before,
+        replacement,
+        True,
+        PURGE.public_ref_manifest(repository),
+    )
+
+    PURGE._run_filter_repo(plan)
+
+    assert PURGE.reachable_origin_commits(repository).isdisjoint(before.commit_ids)
+
+
 def test_replacement_ordinals_reserve_participant_linked_targets() -> None:
     puuid = "source-puuid-value"
     linked_name = "related-player-name"
