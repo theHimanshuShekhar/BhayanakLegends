@@ -103,6 +103,51 @@ def test_pseudonymization_is_deterministic_and_preserves_projection(tmp_path: Pa
 
 
 
+def test_guard_uses_structured_fields_for_json_and_text_scan_for_plain_files():
+    guard = load_tool(TOOL, "check_pii_context")
+    collision = "collision-value"
+    guard.DENYLIST = {guard.fingerprint(collision)}
+
+    assert guard.scan_blob("package.json", json.dumps({"integrity": collision}).encode()) == []
+    assert guard.scan_blob("fixture.json", json.dumps({"puuid": collision}).encode())
+    assert guard.scan_blob("notes.txt", collision.encode())
+    assert guard.scan_blob(
+        "fixture.json",
+        json.dumps({"metadata": {"participants": [collision]}}).encode(),
+    )
+    assert guard.scan_blob("mixed.bin", collision.encode() + b"\xff")
+
+    unicode_identity = "ИгрокТест"
+    guard.DENYLIST = {guard.fingerprint(unicode_identity)}
+    assert guard.scan_blob("notes.txt", unicode_identity.encode())
+    for identity in ("Alpha Beta Gamma", "Jose\u0301"):
+        guard.DENYLIST = {guard.fingerprint(identity)}
+        assert guard.scan_blob("notes.txt", f"prefix {identity} suffix".encode())
+
+
+def test_guard_accepts_non_identity_riot_constants_in_structured_fields():
+    guard = load_tool(TOOL, "check_pii_sentinels")
+    payload = {
+        "riotIdTagline": "SG2",
+        "KillerName": "ORDER",
+        "VictimName": "Chaos",
+    }
+
+    assert guard.scan_blob("fixture.json", json.dumps(payload).encode()) == []
+
+
+def test_tracked_guard_fails_closed_when_indexed_path_is_unreadable(tmp_path: Path, capsys):
+    tracked = tmp_path / "tracked.json"
+    tracked.write_text("{}", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "tracked.json"], check=True)
+    tracked.unlink()
+    guard = load_tool(TOOL, "check_pii_missing_tracked")
+
+    assert guard.run(tmp_path, history=False) == 2
+    assert "could not inspect Git content" in capsys.readouterr().err
+
+
 def test_guard_rejects_injected_identity_without_echoing_value(tmp_path: Path, capsys):
     raw = json.loads(_synthetic_fixture_bytes("SG2_170114893.json"))
     raw_value = raw["info"]["participants"][0]["puuid"]

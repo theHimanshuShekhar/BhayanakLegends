@@ -160,7 +160,10 @@ def test_dry_run_inventory_is_external_deterministic_and_non_mutating(tmp_path: 
     assert {source for source, _ in parsed.entries} == {first, second}
 
 
-def test_filter_repo_changes_every_reachable_commit_oid(tmp_path: Path) -> None:
+def test_filter_repo_changes_every_reachable_commit_oid(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     repository = tmp_path / "repository"
     repository.mkdir()
     git(repository, "init", "-q", "-b", "main")
@@ -169,6 +172,30 @@ def test_filter_repo_changes_every_reachable_commit_oid(tmp_path: Path) -> None:
     (repository / "README").write_text("identity-free history\n", encoding="utf-8")
     commit(repository, "identity-free root")
     fixture(repository / "backend/tests/fixtures/base.json", "leaked-puuid-alpha", 7)
+    embedded = "sha512-xxleaked-puuid-alphayy"
+    (repository / "pnpm-lock.yaml").write_text(
+        f"integrity: {embedded}\n",
+        encoding="utf-8",
+    )
+    unicode_identity = "ИгрокТест"
+    fixture(repository / "backend/tests/fixtures/unicode.json", unicode_identity, 8)
+    unicode_embedding = f"я{unicode_identity}я"
+    (repository / "unicode-notes.txt").write_text(unicode_embedding, encoding="utf-8")
+    multiword_identity = "Alpha Beta Gamma"
+    decomposed_identity = "Jose\u0301"
+    (repository / "multiword.txt").write_text(
+        f"prefix {multiword_identity} suffix",
+        encoding="utf-8",
+    )
+    (repository / "decomposed.txt").write_text(
+        f"prefix {decomposed_identity} suffix",
+        encoding="utf-8",
+    )
+    denylist = PURGE._load_denylist() | {
+        PURGE.fingerprint(multiword_identity),
+        PURGE.fingerprint(decomposed_identity),
+    }
+    monkeypatch.setattr(PURGE, "_load_denylist", lambda: denylist)
     commit(repository, "add fixture")
     before = PURGE.snapshot_repository(repository)
     inventory = PURGE.inventory_repository(repository)
@@ -179,6 +206,7 @@ def test_filter_repo_changes_every_reachable_commit_oid(tmp_path: Path) -> None:
         before,
         repository_root=repository,
     )
+    assert unicode_identity in dict(replacement.entries)
     plan = PURGE.ApplyPlan(
         repository,
         map_path,
@@ -192,9 +220,22 @@ def test_filter_repo_changes_every_reachable_commit_oid(tmp_path: Path) -> None:
     PURGE._run_filter_repo(plan)
 
     assert PURGE.reachable_origin_commits(repository).isdisjoint(before.commit_ids)
+    rewritten = json.loads(
+        (repository / "backend/tests/fixtures/base.json").read_text(encoding="utf-8")
+    )
+    assert rewritten["metadata"]["participants"] == ["fixture-puuid-01"]
+    assert (repository / "pnpm-lock.yaml").read_text(encoding="utf-8") == f"integrity: {embedded}\n"
+    unicode_rewritten = json.loads(
+        (repository / "backend/tests/fixtures/unicode.json").read_text(encoding="utf-8")
+    )
+    assert unicode_rewritten["metadata"]["participants"] == ["fixture-puuid-02"]
+    assert (repository / "unicode-notes.txt").read_text(encoding="utf-8") == unicode_embedding
+    assert multiword_identity not in (repository / "multiword.txt").read_text(encoding="utf-8")
+    assert decomposed_identity not in (repository / "decomposed.txt").read_text(encoding="utf-8")
+    assert not any(tmp_path.glob(".history-purge-filter-*"))
 
 
-def test_fixture_projection_permits_only_reviewed_identity_replacements(tmp_path: Path) -> None:
+def test_fixture_projection_permits_only_identity_field_replacements(tmp_path: Path) -> None:
     before = tmp_path / "before"
     after = tmp_path / "after"
     for repository in (before, after):
@@ -206,27 +247,36 @@ def test_fixture_projection_permits_only_reviewed_identity_replacements(tmp_path
     (before / fixture_path).parent.mkdir(parents=True)
     (after / fixture_path).parent.mkdir(parents=True)
     (before / fixture_path).write_text(
-        json.dumps({"summonerName": "LeakedPlayer", "team": "LeakedPlayer", "score": 7}),
+        json.dumps(
+            {"summonerName": "LeakedPlayer", "KillerName": "Order", "team": "Order", "score": 7}
+        ),
         encoding="utf-8",
     )
     (after / fixture_path).write_text(
-        json.dumps({"summonerName": "FixturePlayer01", "team": "FixturePlayer01", "score": 7}),
+        json.dumps(
+            {"summonerName": "FixturePlayer01", "KillerName": "Order", "team": "Order", "score": 7}
+        ),
         encoding="utf-8",
     )
     commit(before, "before")
     commit(after, "after")
 
-    replacements = (("LeakedPlayer", "FixturePlayer01"),)
-    assert not PURGE.compare_fixture_projections(before, after)
-    assert PURGE.compare_fixture_projections(before, after, replacements=replacements)
+    assert PURGE.compare_fixture_projections(before, after)
 
     (after / fixture_path).write_text(
-        json.dumps({"summonerName": "FixturePlayer01", "team": "FixturePlayer01", "score": 8}),
+        json.dumps(
+            {
+                "summonerName": "FixturePlayer01",
+                "KillerName": "FixturePlayer02",
+                "team": "Order",
+                "score": 7,
+            }
+        ),
         encoding="utf-8",
     )
     git(after, "add", ".")
     git(after, "commit", "--amend", "-qm", "after")
-    assert not PURGE.compare_fixture_projections(before, after, replacements=replacements)
+    assert not PURGE.compare_fixture_projections(before, after)
 
 
 def test_replacement_ordinals_reserve_participant_linked_targets() -> None:

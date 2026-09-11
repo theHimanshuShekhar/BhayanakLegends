@@ -7,6 +7,7 @@ import json
 import re
 import subprocess
 import sys
+import unicodedata
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -62,6 +63,8 @@ DENYLIST = {
 
 IDENTITY_FIELDS = {
     "puuid": re.compile(r"(?:fixture|parity)-puuid-[0-9]{2,}"),
+    "local_puuid": re.compile(r"(?:fixture|parity)-puuid-[0-9]{2,}"),
+    "participants": re.compile(r"(?:fixture|parity)-puuid-[0-9]{2,}"),
     "summonerId": re.compile(r"fixture-summoner-[0-9]{2,}"),
     "riotIdGameName": re.compile(r"FixturePlayer[0-9]{2,}"),
     "riotIdTagline": re.compile(r"BL[0-9]{2,}"),
@@ -72,10 +75,16 @@ IDENTITY_FIELDS = {
     "riot_id": re.compile(r"FixturePlayer[0-9]{2,}#BL[0-9]{2,}"),
     "riotId": re.compile(r"FixturePlayer[0-9]{2,}#BL[0-9]{2,}"),
 }
+NON_IDENTITY_SENTINELS = {
+    "riotIdTagline": frozenset({"SG2"}),
+    "KillerName": frozenset({"Order", "Chaos", "ORDER", "CHAOS"}),
+    "VictimName": frozenset({"Order", "Chaos", "ORDER", "CHAOS"}),
+    "Assisting": frozenset({"Order", "Chaos", "ORDER", "CHAOS"}),
+}
 
 
 def fingerprint(value: str) -> str:
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+    return hashlib.sha256(value.encode("utf-8", "surrogateescape")).hexdigest()
 
 
 def _finding(path: str, field: str, value: str) -> tuple[str, str, str]:
@@ -94,16 +103,47 @@ def _walk_json(value: Any, field: str = "") -> Iterable[tuple[str, str]]:
             yield from _walk_json(child, child_field)
     elif isinstance(value, list):
         for index, child in enumerate(value):
-            yield from _walk_json(child, f"{field}[{index}]")
+            child_field = f"{field}[{index}]"
+            if isinstance(child, str):
+                yield child_field, child
+            yield from _walk_json(child, child_field)
+
+
+def _plain_candidates(text: str) -> list[str]:
+    segments: list[list[str]] = []
+    words: list[str] = []
+    current: list[str] = []
+    for character in text + "\n":
+        category = unicodedata.category(character)
+        if character in "_#-" or category[:1] in {"L", "M", "N"}:
+            current.append(character)
+            continue
+        if current:
+            words.append("".join(current))
+            current = []
+        if character != " " and words:
+            segments.append(words)
+            words = []
+    candidates: list[str] = []
+    for segment in segments:
+        for start in range(len(segment)):
+            for end in range(start + 1, min(len(segment), start + 8) + 1):
+                candidate = " ".join(segment[start:end])
+                if len(candidate) > 128:
+                    break
+                candidates.append(candidate)
+    return candidates
 
 
 def _scan_text(path: str, text: str) -> list[tuple[str, str, str]]:
     findings: list[tuple[str, str, str]] = []
     seen: set[tuple[str, str, str]] = set()
-    candidates = re.findall(r"[A-Za-z0-9_#-]{4,}(?: [A-Za-z0-9_#-]+)?", text)
-    candidates += [match.group(2) for match in re.finditer(r'''([\"'])(.*?)\1''', text, re.DOTALL)]
+    candidates = _plain_candidates(text)
+    candidates += [
+        match.group(2) for match in re.finditer(r'''([\"'])(.*?)\1''', text, re.DOTALL)
+    ]
     for candidate in candidates:
-        if len(candidate) < 7:
+        if len(candidate) < 4:
             continue
         digest = fingerprint(candidate)
         if digest in DENYLIST:
@@ -113,23 +153,21 @@ def _scan_text(path: str, text: str) -> list[tuple[str, str, str]]:
                 findings.append(item)
     return findings
 
-
 def scan_blob(path: str, data: bytes) -> list[tuple[str, str, str]]:
-    try:
-        text = data.decode("utf-8")
-    except UnicodeDecodeError:
-        return []
-    findings = _scan_text(path, text)
+    text = data.decode("utf-8", "surrogateescape")
     try:
         document = json.loads(text)
     except json.JSONDecodeError:
-        return findings
+        return _scan_text(path, text)
+    findings: list[tuple[str, str, str]] = []
     for field, value in _walk_json(document):
         key = field.rsplit(".", 1)[-1].split("[", 1)[0]
         rule = IDENTITY_FIELDS.get(key)
         if rule is None:
             continue
         if not value:
+            continue
+        if value in NON_IDENTITY_SENTINELS.get(key, ()):
             continue
         if fingerprint(value) in DENYLIST or not rule.fullmatch(value):
             findings.append(_finding(path, field, value))
@@ -158,8 +196,8 @@ def tracked_blobs(root: Path) -> Iterable[tuple[str, bytes]]:
         path = root / name
         try:
             yield name, path.read_bytes()
-        except OSError:
-            continue
+        except OSError as exc:
+            raise RuntimeError("could not inspect tracked content") from exc
 
 
 def history_blobs(root: Path) -> Iterable[tuple[str, bytes]]:

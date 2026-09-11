@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import importlib.util
+import unicodedata
 import json
 import os
 import re
@@ -71,6 +72,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # the tracked-tree guard so this procedure remains usable from a fresh mirror.
 FIELD_CATEGORIES: Mapping[str, str] = {
     "puuid": "puuid",
+    "local_puuid": "puuid",
     "summonerId": "summoner_id",
     "riotIdGameName": "riot_name",
     "riotIdTagline": "riot_tag",
@@ -82,6 +84,12 @@ FIELD_CATEGORIES: Mapping[str, str] = {
     "riotId": "riot_id",
 }
 IDENTITY_FIELDS = frozenset(FIELD_CATEGORIES)
+NON_IDENTITY_SENTINELS: Mapping[str, frozenset[str]] = {
+    "riotIdTagline": frozenset({"SG2"}),
+    "KillerName": frozenset({"Order", "Chaos", "ORDER", "CHAOS"}),
+    "VictimName": frozenset({"Order", "Chaos", "ORDER", "CHAOS"}),
+    "Assisting": frozenset({"Order", "Chaos", "ORDER", "CHAOS"}),
+}
 
 _SYNTHETIC_PATTERNS = (
     re.compile(r"(?:fixture|parity)-puuid-[0-9]{2,}\Z"),
@@ -91,7 +99,6 @@ _SYNTHETIC_PATTERNS = (
     re.compile(r"FixturePlayer[0-9]{2,}#BL[0-9]{2,}\Z"),
     re.compile(r"fixture-identity-[0-9]{2,}\Z"),
 )
-_TEXT_CANDIDATE = re.compile(r"[A-Za-z0-9_#-]{4,}(?: [A-Za-z0-9_#-]+)?")
 _QUOTED_CANDIDATE = re.compile(r'''([\"'])(.*?)\1''', re.DOTALL)
 
 
@@ -220,7 +227,7 @@ _NON_OPTIONAL_CHECKLIST_IDS = frozenset(
 
 def fingerprint(value: str) -> str:
     """Return the non-reversible digest used by reports."""
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+    return hashlib.sha256(value.encode("utf-8", "surrogateescape")).hexdigest()
 
 
 def _canonical_json(value: Any) -> bytes:
@@ -465,12 +472,18 @@ def _is_synthetic(value: str) -> bool:
     return any(pattern.fullmatch(value) for pattern in _SYNTHETIC_PATTERNS)
 
 
-def _is_identity_candidate(value: Any, category: str | None, denylist: frozenset[str]) -> bool:
+def _is_identity_candidate(
+    value: Any,
+    category: str | None,
+    denylist: frozenset[str],
+    *,
+    field_name: str | None = None,
+) -> bool:
     if not isinstance(value, str) or not value or _is_synthetic(value):
         return False
-    if value in {"Order", "Chaos"}:
+    if value in NON_IDENTITY_SENTINELS.get(field_name or "", ()):
         return False
-    return category is not None or fingerprint(value) in denylist
+    return category is not None
 
 
 def _field_path(parent: str, key: str | int) -> str:
@@ -492,12 +505,22 @@ def _scan_json(
     local_puuid = parent_puuid
     if isinstance(value, dict):
         candidate_puuid = value.get("puuid")
-        if _is_identity_candidate(candidate_puuid, "puuid", denylist):
+        if _is_identity_candidate(
+            candidate_puuid,
+            "puuid",
+            denylist,
+            field_name="puuid",
+        ):
             local_puuid = candidate_puuid
         for key, child in value.items():
             child_field = _field_path(field, key)
             category = FIELD_CATEGORIES.get(key)
-            if _is_identity_candidate(child, category, denylist):
+            if _is_identity_candidate(
+                child,
+                category,
+                denylist,
+                field_name=key,
+            ):
                 assert isinstance(child, str)
                 occurrences.append(
                     IdentityOccurrence(
@@ -516,6 +539,33 @@ def _scan_json(
                         # A reused source value cannot safely inherit one
                         # participant ordinal; it falls back to its category.
                         relations.pop(child, None)
+            list_category = category or ("puuid" if key == "participants" else None)
+            if list_category is not None and isinstance(child, list) and all(
+                isinstance(item, str) for item in child
+            ):
+                for index, item in enumerate(child):
+                    if not _is_identity_candidate(
+                        item,
+                        list_category,
+                        denylist,
+                        field_name=key,
+                    ):
+                        continue
+                    occurrences.append(
+                        IdentityOccurrence(
+                            object_path,
+                            _field_path(child_field, index),
+                            fingerprint(item),
+                            item,
+                            list_category,
+                        )
+                    )
+                    if local_puuid is not None and list_category != "puuid":
+                        previous = relations.get(item)
+                        if previous is None:
+                            relations[item] = local_puuid
+                        elif previous != local_puuid:
+                            relations.pop(item, None)
             child_occurrences, child_relations = _scan_json(
                 child,
                 object_path=object_path,
@@ -549,13 +599,39 @@ def _scan_json(
     return occurrences, relations
 
 
+def _plain_candidates(text: str) -> list[str]:
+    segments: list[list[str]] = []
+    words: list[str] = []
+    current: list[str] = []
+    for character in text + "\n":
+        category = unicodedata.category(character)
+        if character in "_#-" or category[:1] in {"L", "M", "N"}:
+            current.append(character)
+            continue
+        if current:
+            words.append("".join(current))
+            current = []
+        if character != " " and words:
+            segments.append(words)
+            words = []
+    candidates: list[str] = []
+    for segment in segments:
+        for start in range(len(segment)):
+            for end in range(start + 1, min(len(segment), start + 8) + 1):
+                candidate = " ".join(segment[start:end])
+                if len(candidate) > 128:
+                    break
+                candidates.append(candidate)
+    return candidates
+
+
 def _scan_text(blob: Blob, text: str, denylist: frozenset[str]) -> list[IdentityOccurrence]:
-    candidates = _TEXT_CANDIDATE.findall(text)
+    candidates = _plain_candidates(text)
     candidates.extend(match.group(2) for match in _QUOTED_CANDIDATE.finditer(text))
     occurrences: list[IdentityOccurrence] = []
     seen: set[str] = set()
     for candidate in candidates:
-        if len(candidate) < 7 or candidate in seen or _is_synthetic(candidate):
+        if len(candidate) < 4 or candidate in seen or _is_synthetic(candidate):
             continue
         if fingerprint(candidate) not in denylist:
             continue
@@ -575,24 +651,19 @@ def _scan_text(blob: Blob, text: str, denylist: frozenset[str]) -> list[Identity
 def scan_blob(blob: Blob, denylist: frozenset[str] | None = None) -> tuple[list[IdentityOccurrence], dict[str, str]]:
     """Scan one reachable blob without ever returning its value in output."""
     denylist = denylist or _load_denylist()
-    try:
-        text = blob.data.decode("utf-8")
-    except UnicodeDecodeError:
-        return [], {}
-    occurrences = _scan_text(blob, text, denylist)
+    text = blob.data.decode("utf-8", "surrogateescape")
     relations: dict[str, str] = {}
     try:
         document = json.loads(text)
     except json.JSONDecodeError:
-        return occurrences, relations
+        return _scan_text(blob, text, denylist), relations
     json_occurrences, json_relations = _scan_json(
         document,
         object_path=f"{blob.path}@{blob.object_id[:12]}",
         denylist=denylist,
     )
-    occurrences.extend(json_occurrences)
     relations.update(json_relations)
-    return occurrences, relations
+    return json_occurrences, relations
 
 
 def inventory_repository(root: Path | str) -> Inventory:
@@ -1274,23 +1345,66 @@ def preflight_apply(
     )
 
 
+def _filter_expression_payload(entries: Iterable[tuple[str, str]]) -> bytes:
+    ordered = sorted(
+        entries,
+        key=lambda item: (-len(item[0].encode("utf-8")), item[0].encode("utf-8")),
+    )
+    token = r"A-Za-z0-9_#\x80-\xff-"
+    expressions: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    for source, replacement in ordered:
+        variants = {
+            source,
+            json.dumps(source, ensure_ascii=True)[1:-1],
+            json.dumps(source, ensure_ascii=False)[1:-1],
+        }
+        for variant in sorted(variants, key=lambda item: (-len(item), item)):
+            pair = (variant, replacement)
+            if pair in seen:
+                continue
+            seen.add(pair)
+            expressions.append(
+                f"regex:(?<![{token}]){re.escape(variant)}"
+                f"(?![{token}])==>{replacement}\n"
+            )
+    return "".join(expressions).encode("utf-8")
+
+
 def _run_filter_repo(plan: ApplyPlan) -> None:
     # This is intentionally a local command.  No `git push`, `ls-remote`, or
     # other remote operation exists in this module.
-    _run_command(
-        [
-            "git",
-            "-C",
-            str(plan.root),
-            "filter-repo",
-            "--sensitive-data-removal",
-            "--replace-text",
-            str(plan.map_path),
-            "--commit-callback",
-            "commit.message += b'\\n'",
-            "--force",
-        ]
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=".history-purge-filter-",
+        dir=plan.map_path.parent,
     )
+    expressions = Path(temporary_name)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "wb") as stream:
+            descriptor = -1
+            stream.write(_filter_expression_payload(plan.replacement_map.entries))
+            stream.flush()
+            os.fsync(stream.fileno())
+        _run_command(
+            [
+                "git",
+                "-C",
+                str(plan.root),
+                "filter-repo",
+                "--sensitive-data-removal",
+                "--replace-text",
+                str(expressions),
+                "--commit-callback",
+                "commit.message += b'\\n'",
+                "--force",
+            ]
+        )
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        if expressions.exists():
+            secure_delete(expressions)
 
 
 def _selected_origin_refs(root: Path) -> tuple[str, ...]:
@@ -1322,6 +1436,11 @@ _DROP = object()
 
 def _project(value: Any, key: str | None = None) -> Any:
     if key in IDENTITY_FIELDS:
+        sentinels = NON_IDENTITY_SENTINELS.get(key, ())
+        if isinstance(value, str) and value in sentinels:
+            return value
+        if isinstance(value, list):
+            return [child if child in sentinels else None for child in value]
         return _DROP
     if key == "participants" and isinstance(value, list) and all(
         isinstance(item, str) for item in value
@@ -1349,27 +1468,16 @@ def non_identity_projection(value: Any) -> Any:
     return {} if projected is _DROP else projected
 
 
-def fixture_projections(
-    root: Path | str,
-    *,
-    replacements: Iterable[tuple[str, str]] = (),
-) -> dict[str, frozenset[str]]:
-    """Hash fixture semantics after applying the reviewed identity replacements."""
-    ordered_replacements = sorted(
-        replacements,
-        key=lambda item: (-len(item[0].encode("utf-8")), item[0].encode("utf-8")),
-    )
+def fixture_projections(root: Path | str) -> dict[str, frozenset[str]]:
+    """Hash fixture semantics after removing identity-bearing fields."""
     projections: dict[str, set[str]] = {}
     for blob in reachable_blobs(root):
         if "tests/fixtures/" not in blob.path.replace("\\", "/"):
             continue
-        data = blob.data
-        for source, replacement in ordered_replacements:
-            data = data.replace(source.encode("utf-8"), replacement.encode("utf-8"))
         try:
-            document = json.loads(data.decode("utf-8"))
+            document = json.loads(blob.data.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
-            digest = hashlib.sha256(data).hexdigest()
+            digest = hashlib.sha256(blob.data).hexdigest()
         else:
             digest = hashlib.sha256(_canonical_json(non_identity_projection(document))).hexdigest()
         projections.setdefault(blob.path, set()).add(digest)
@@ -1379,14 +1487,9 @@ def fixture_projections(
 def compare_fixture_projections(
     before_root: Path | str,
     after_root: Path | str,
-    *,
-    replacements: Iterable[tuple[str, str]] = (),
 ) -> bool:
-    """Compare fixture semantics while permitting only reviewed replacements."""
-    return fixture_projections(
-        before_root,
-        replacements=replacements,
-    ) == fixture_projections(after_root)
+    """Compare fixture semantics after excluding identity-bearing fields."""
+    return fixture_projections(before_root) == fixture_projections(after_root)
 
 
 def run_history_guard(
@@ -1516,7 +1619,6 @@ def verify_post_rewrite(
     check_pii_path: Path | str | None = None,
     expected_public_refs: Iterable[str | tuple[str, str] | list[str]] | None = None,
     expected_post_public_refs: Iterable[tuple[str, str] | list[str]] | None = None,
-    replacement_entries: Iterable[tuple[str, str]] = (),
 ) -> VerificationResult:
     """Verify a fresh rewrite against all four non-vacuous gates."""
     rewritten = _repository_root(rewritten_root)
@@ -1539,11 +1641,7 @@ def verify_post_rewrite(
     reachable = reachable_origin_commits(rewritten)
     original = frozenset(str(item) for item in original_commit_ids)
     still_reachable = tuple(sorted(reachable & original))
-    projection_equal = compare_fixture_projections(
-        backup_root,
-        rewritten,
-        replacements=replacement_entries,
-    )
+    projection_equal = compare_fixture_projections(backup_root, rewritten)
     result = VerificationResult(
         guard_passed,
         still_reachable,
@@ -1789,7 +1887,6 @@ def _verify_computed_post_push(
         check_pii_path=checker,
         expected_public_refs=pre_manifest,
         expected_post_public_refs=post_manifest,
-        replacement_entries=replacement_map.entries,
     )
     actual_manifest = public_ref_manifest(verification_root)
     expected_values = {
@@ -2072,7 +2169,6 @@ def _apply(args: argparse.Namespace, repository: Path) -> int:
         check_pii_path=checker,
         expected_public_refs=plan.public_ref_manifest,
         expected_post_public_refs=post_candidate_public_refs,
-        replacement_entries=plan.replacement_map.entries,
     )
     post_public_refs = public_ref_manifest(verification_root)
     evidence: dict[str, Any] = {
@@ -2215,7 +2311,6 @@ def _verify_origin(args: argparse.Namespace, repository: Path) -> int:
         check_pii_path=canonical_checker,
         expected_public_refs=pre_manifest,
         expected_post_public_refs=post_manifest,
-        replacement_entries=replacement_map.entries,
     )
     actual_manifest = public_ref_manifest(verification_root)
     post_push = {
