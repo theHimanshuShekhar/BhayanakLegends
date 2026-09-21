@@ -31,6 +31,7 @@ import secrets
 import stat
 import subprocess
 import sys
+import sysconfig
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -1371,9 +1372,24 @@ def _filter_expression_payload(entries: Iterable[tuple[str, str]]) -> bytes:
     return "".join(expressions).encode("utf-8")
 
 
+def _git_filter_repo_executable() -> Path:
+    scripts = sysconfig.get_path("scripts")
+    name = "git-filter-repo.exe" if os.name == "nt" else "git-filter-repo"
+    candidate = Path(scripts) / name if scripts else None
+    if candidate is None or not candidate.is_file():
+        raise PurgeError(
+            "git-filter-repo is unavailable in the active Python environment; "
+            "run 'uv sync --locked' in backend and invoke this tool through "
+            "'uv run python tools/history_purge.py'"
+        )
+    return candidate
+
+
 def _run_filter_repo(plan: ApplyPlan) -> None:
-    # This is intentionally a local command.  No `git push`, `ls-remote`, or
-    # other remote operation exists in this module.
+    # Resolve the locked console script from the active Python environment,
+    # never from an ambient PATH.  The command remains Git-local and cannot
+    # contact or update a remote.
+    executable = _git_filter_repo_executable()
     descriptor, temporary_name = tempfile.mkstemp(
         prefix=".history-purge-filter-",
         dir=plan.map_path.parent,
@@ -1388,17 +1404,15 @@ def _run_filter_repo(plan: ApplyPlan) -> None:
             os.fsync(stream.fileno())
         _run_command(
             [
-                "git",
-                "-C",
-                str(plan.root),
-                "filter-repo",
+                str(executable),
                 "--sensitive-data-removal",
                 "--replace-text",
                 str(expressions),
                 "--commit-callback",
                 "commit.message += b'\\n'",
                 "--force",
-            ]
+            ],
+            cwd=plan.root,
         )
     finally:
         if descriptor >= 0:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -37,6 +38,16 @@ def git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProce
         capture_output=True,
         text=True,
     )
+
+
+def git_only_path(tmp_path: Path) -> Path:
+    actual_git = shutil.which("git")
+    assert actual_git is not None
+    directory = tmp_path / "git-only-path"
+    directory.mkdir()
+    executable = directory / ("git.exe" if os.name == "nt" else "git")
+    executable.symlink_to(actual_git)
+    return directory
 
 
 def commit(root: Path, message: str) -> None:
@@ -217,6 +228,10 @@ def test_filter_repo_changes_every_reachable_commit_oid(
         PURGE.public_ref_manifest(repository),
     )
 
+    clean_path = git_only_path(tmp_path)
+    monkeypatch.setenv("PATH", str(clean_path))
+    assert shutil.which("git-filter-repo") is None
+
     PURGE._run_filter_repo(plan)
 
     assert PURGE.reachable_origin_commits(repository).isdisjoint(before.commit_ids)
@@ -232,6 +247,33 @@ def test_filter_repo_changes_every_reachable_commit_oid(
     assert (repository / "unicode-notes.txt").read_text(encoding="utf-8") == unicode_embedding
     assert multiword_identity not in (repository / "multiword.txt").read_text(encoding="utf-8")
     assert decomposed_identity not in (repository / "decomposed.txt").read_text(encoding="utf-8")
+    assert not any(tmp_path.glob(".history-purge-filter-*"))
+
+
+def test_filter_repo_missing_locked_tool_fails_safely(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    empty_scripts = tmp_path / "empty-scripts"
+    empty_scripts.mkdir()
+    monkeypatch.setattr(PURGE.sysconfig, "get_path", lambda name: str(empty_scripts))
+    marker = "private-identity-must-not-be-displayed"
+    plan = SimpleNamespace(
+        root=tmp_path / marker,
+        map_path=tmp_path / "replacement-map.txt",
+        replacement_map=SimpleNamespace(entries=((marker, "fixture-puuid-01"),)),
+    )
+
+    with pytest.raises(PURGE.PurgeError) as caught:
+        PURGE._run_filter_repo(plan)
+
+    message = str(caught.value)
+    assert message == (
+        "git-filter-repo is unavailable in the active Python environment; "
+        "run 'uv sync --locked' in backend and invoke this tool through "
+        "'uv run python tools/history_purge.py'"
+    )
+    assert marker not in message
     assert not any(tmp_path.glob(".history-purge-filter-*"))
 
 

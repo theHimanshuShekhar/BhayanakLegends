@@ -23,6 +23,7 @@ dev = [
     "pyinstaller>=6.10",
     "basedpyright>=1.39.10",
     "onnx>=1.16",
+    "git-filter-repo>=2.47.0",
 ]
 
 [build-system]
