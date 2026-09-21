@@ -13,21 +13,32 @@ training/live parity boundary consumed later by the model runtime.
 """
 
 from __future__ import annotations
-
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+import hashlib
 import inspect
+import json
 import math
+import time
 from typing import Any, Final
 
 
 LIVE_WP_CONTRACT_VERSION: Final[str] = "live-wp-v2"
 LIVE_POLL_INTERVAL_S: Final[float] = 2.0
-MAX_CAPTURE_AGE_S: Final[float] = 5.0
+# The official Live Client Data API does not expose a source wall-clock
+# capture timestamp.  This bound is therefore only for detecting a locally
+# frozen observation stream; it is never reported as source age.
+MAX_FROZEN_STREAM_S: Final[float] = 5.0
+# Kept as the registry field name used by existing pack metadata.  Its
+# semantics are local frozen-stream detection, not source capture age.
+MAX_CAPTURE_AGE_S: Final[float] = MAX_FROZEN_STREAM_S
 TIMELINE_FRAME_INTERVAL_S: Final[float] = 60.0
 SUPPORTED_MODE: Final[str] = "CLASSIC"
 TEAM_IDS: Final[tuple[int, int]] = (100, 200)
+LIVE_FEATURE_SOURCE: Final[str] = "loltrends.etl.live_features exact LiveParity adapter"
+LIVE_FEATURE_PREPROCESSING: Final[str] = "standardize"
+
 
 
 @dataclass(frozen=True)
@@ -38,6 +49,10 @@ class LiveFeatureDefinition:
     unit: str
     formula: str
     source_fields: tuple[str, ...]
+    bounds: tuple[float, float]
+    source: str = LIVE_FEATURE_SOURCE
+    adjustable: bool = False
+    preprocessing: str = LIVE_FEATURE_PREPROCESSING
     side_orientation: str = "focal team minus opposing team"
     cadence_s: float = LIVE_POLL_INTERVAL_S
     max_staleness_s: float = MAX_CAPTURE_AGE_S
@@ -50,6 +65,7 @@ FEATURE_REGISTRY: tuple[LiveFeatureDefinition, ...] = (
         "seconds",
         "game clock at the observation (Timeline frame timestamp / 1000)",
         ("info.frames[].timestamp", "gameData.gameTime"),
+        (0.0, 3600.0),
         side_orientation="side invariant",
     ),
     LiveFeatureDefinition(
@@ -57,60 +73,70 @@ FEATURE_REGISTRY: tuple[LiveFeatureDefinition, ...] = (
         "kills",
         "focal-side CHAMPION_KILL killer count through t minus opposing-side count",
         ("CHAMPION_KILL.killerId", "scores.kills"),
+        (-100.0, 100.0),
     ),
     LiveFeatureDefinition(
         "team_deaths_diff",
         "deaths",
         "focal-side CHAMPION_KILL victim count through t minus opposing-side count",
         ("CHAMPION_KILL.victimId", "scores.deaths"),
+        (-100.0, 100.0),
     ),
     LiveFeatureDefinition(
         "team_assists_diff",
         "assists",
         "focal-side assistingParticipantIds count through t minus opposing-side count",
         ("CHAMPION_KILL.assistingParticipantIds", "scores.assists"),
+        (-200.0, 200.0),
     ),
     LiveFeatureDefinition(
         "team_cs_diff",
         "minion kills",
         "sum(minionsKilled + jungleMinionsKilled) on focal side minus opposing side",
         ("participantFrames[].minionsKilled", "participantFrames[].jungleMinionsKilled", "scores.creepScore"),
+        (-1000.0, 1000.0),
     ),
     LiveFeatureDefinition(
         "team_levels_diff",
         "champion levels",
         "sum(level) on focal side minus opposing side",
         ("participantFrames[].level", "allPlayers[].level"),
+        (-18.0, 18.0),
     ),
     LiveFeatureDefinition(
         "team_inventory_value_diff",
         "gold",
         "sum(item count * version-matched Data Dragon items.data[item].gold.total) on focal side minus opposing side",
         ("participantFrames item events", "allPlayers[].items[]", "items.data[].gold.total"),
+        (-100000.0, 100000.0),
     ),
     LiveFeatureDefinition(
         "team_turrets_diff",
         "turrets",
         "count BUILDING_KILL tower events by killer side through t, signed by focal side",
         ("BUILDING_KILL.buildingType", "BUILDING_KILL.killerId", "TurretKilled.KillerName"),
+        (-11.0, 11.0),
     ),
     LiveFeatureDefinition(
         "team_dragons_diff",
         "dragons",
         "count DRAGON elite kills by killer side through t, signed by focal side",
         ("ELITE_MONSTER_KILL.monsterType", "ELITE_MONSTER_KILL.killerTeamId", "DragonKill.KillerName"),
+        (-7.0, 7.0),
     ),
     LiveFeatureDefinition(
         "team_heralds_diff",
         "Heralds",
         "count RIFTHERALD elite kills by killer side through t, signed by focal side",
         ("ELITE_MONSTER_KILL.monsterType", "ELITE_MONSTER_KILL.killerTeamId", "HeraldKill.KillerName"),
+        (-2.0, 2.0),
     ),
     LiveFeatureDefinition(
         "team_barons_diff",
         "Barons",
         "count BARON_NASHOR elite kills by killer side through t, signed by focal side",
         ("ELITE_MONSTER_KILL.monsterType", "ELITE_MONSTER_KILL.killerTeamId", "BaronKill.KillerName"),
+        (-2.0, 2.0),
     ),
 )
 
@@ -171,12 +197,13 @@ LIVE_FEATURE_REGISTRY = LiveFeatureRegistry(
     missing_data_policy=(
         "Suppress the complete vector for missing/non-finite required fields, unknown team mapping, "
         "unmatched patch/Data Dragon versions, unsupported item IDs, ambiguous event actors, or stale captures. "
+        "Official gameTime is observation time; local monotonic fingerprint continuity detects a frozen stream. "
         "Future events are ignored rather than read ahead."
     ),
     patch_semantics=(
         "Match gameVersion and Data Dragon version by numeric major.minor; retain the full Data Dragon version "
         "in the vector metadata. Official allgamedata normally omits gameVersion, so the live adapter requires "
-        "an explicit patch (or an equivalent gameData.gameVersion supplied by its caller)."
+        "an explicit configured patch or an official LCU client-version seam; it never guesses latest."
     ),
 )
 
@@ -261,10 +288,9 @@ class LiveFeatureVector:
 class LiveWpFeatureProvider:
     """Prepare one exact, version-matched Live WP adapter for a snapshot.
 
-    Data Dragon retrieval happens before the inference call and is cached by
-    the injected provider.  The returned callable is pure for the captured
-    snapshot context, so model prediction never performs network or catalog
-    lookup work.
+    Official Live Client Data has no source wall-clock capture timestamp. A
+    local monotonic continuity check therefore detects a frozen observation
+    stream without claiming receipt time is source time or observation age.
     """
 
     def __init__(
@@ -272,10 +298,20 @@ class LiveWpFeatureProvider:
         catalog_provider,
         *,
         patch_provider: Callable[[Mapping[str, Any]], str | None] | None = None,
+        monotonic_clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._catalog_provider = catalog_provider
         self._patch_provider = patch_provider or self._snapshot_patch
+        self._monotonic_clock = monotonic_clock
+        self._stream_fingerprint: str | None = None
+        self._stream_started_monotonic: float | None = None
         self.last_reason: str | None = None
+    def reset_stream(self) -> None:
+        """Start a fresh local frozen-stream window after a lifecycle break."""
+        self._stream_fingerprint = None
+        self._stream_started_monotonic = None
+        self.last_reason = None
+
 
     @staticmethod
     def _snapshot_patch(snapshot: Mapping[str, Any]) -> str | None:
@@ -289,18 +325,69 @@ class LiveWpFeatureProvider:
                 return candidate.strip()
         return None
 
+    @staticmethod
+    def _observation_fingerprint(snapshot: Mapping[str, Any]) -> str:
+        def strip_metadata(value: object) -> object:
+            if isinstance(value, Mapping):
+                return {
+                    str(key): strip_metadata(item)
+                    for key, item in value.items()
+                    if key not in {"observed_at_s", "observedAtS", "captured_at_s"}
+                }
+            if isinstance(value, list):
+                return [strip_metadata(item) for item in value]
+            return value
+
+        encoded = json.dumps(
+            strip_metadata(snapshot),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            allow_nan=False,
+            default=str,
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    def _observation_is_frozen(
+        self,
+        snapshot: Mapping[str, Any],
+        monotonic_s: float | None,
+    ) -> bool:
+        fingerprint = self._observation_fingerprint(snapshot)
+        current = _finite_number(monotonic_s)
+        if current is None:
+            current = _finite_number(self._monotonic_clock())
+        if current is None or current < 0:
+            self.last_reason = "live monotonic receipt clock unavailable"
+            return True
+        if fingerprint != self._stream_fingerprint:
+            self._stream_fingerprint = fingerprint
+            self._stream_started_monotonic = current
+            return False
+        started = self._stream_started_monotonic
+        if started is None or current < started:
+            self._stream_started_monotonic = current
+            return False
+        if current - started > MAX_FROZEN_STREAM_S:
+            self.last_reason = "live observation stream is stale"
+            return True
+        return False
+
     async def prepare(
         self,
         snapshot: Mapping[str, Any] | None,
         *,
         observed_at_s: float | None = None,
         now_s: float | None = None,
+        monotonic_s: float | None = None,
+        patch: str | None = None,
     ) -> Callable[[Mapping[str, Any]], LiveFeatureVector | None] | None:
-        self.last_reason = None
         if not isinstance(snapshot, Mapping):
             self.last_reason = "live snapshot unavailable"
             return None
-        patch = self._patch_provider(snapshot)
+        if self._observation_is_frozen(snapshot, monotonic_s):
+            return None
+        patch = patch or self._patch_provider(snapshot)
         if not isinstance(patch, str) or _patch_key(patch) is None:
             self.last_reason = "live patch unavailable"
             return None
@@ -315,19 +402,12 @@ class LiveWpFeatureProvider:
             self.last_reason = "version-matched Data Dragon item catalog unavailable"
             return None
 
-        capture_override = observed_at_s
-        if any(
-            key in snapshot
-            for key in ("observed_at_s", "observedAtS", "captured_at_s")
-        ):
-            capture_override = None
-
         def adapt(candidate: Mapping[str, Any]) -> LiveFeatureVector | None:
             return adapt_live_client_state(
                 candidate,
                 patch,
                 catalog,
-                observed_at_s=capture_override,
+                observed_at_s=observed_at_s,
                 now_s=now_s,
             )
 
@@ -694,6 +774,7 @@ def adapt_timeline_state(
     rows = _timeline_event_rows(frames, target_ms)
     if rows is None:
         return None
+
     event_values = _timeline_event_features(rows, participant_team)
     if event_values is None:
         return None
@@ -741,11 +822,9 @@ def adapt_live_client_state(
 ) -> LiveFeatureVector | None:
     """Extract the local-side vector from one official Live Client snapshot.
 
-    ``patch`` is an explicit caller-supplied version because the official
-    allgamedata response does not consistently include gameVersion.  When a
-    wall-clock ``now_s`` is supplied, a capture timestamp must also be
-    supplied (explicitly or in one of the private observation metadata keys),
-    and captures older than :data:`MAX_CAPTURE_AGE_S` are suppressed.
+    ``gameTime`` remains the official observation time. ``now_s`` is retained
+    only for compatibility with deterministic callers and is never treated as
+    a source capture clock; frozen-stream detection belongs to the provider.
     """
     if not isinstance(snapshot, Mapping):
         return None
@@ -763,11 +842,10 @@ def adapt_live_client_state(
     elapsed_s = _finite_number(game_data.get("gameTime"))
     if elapsed_s is None or elapsed_s < 0:
         return None
+    # ``observed_at_s`` is optional source metadata and is not required for
+    # official Live Client payloads. ``now_s`` is accepted for old callers but
+    # deliberately does not turn local receipt time into source capture time.
     capture_s = _capture_time(snapshot, observed_at_s)
-    if now_s is not None:
-        now = _finite_number(now_s)
-        if now is None or capture_s is None or capture_s < 0 or now < capture_s or now - capture_s > MAX_CAPTURE_AGE_S:
-            return None
     if capture_s is not None and capture_s < 0:
         return None
 

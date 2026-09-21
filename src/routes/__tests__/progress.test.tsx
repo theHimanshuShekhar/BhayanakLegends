@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import { ProgressPage } from "../progress";
@@ -19,8 +19,9 @@ vi.mock("../../api/client", () => ({
     historySummary: vi.fn(),
     trajectories: vi.fn(),
     patchAggregates: vi.fn(),
-    postgameLatest: vi.fn(),
     benchmarks: vi.fn(),
+    postgameLatest: vi.fn(),
+    whatIf: vi.fn(),
     liveStatus: vi.fn(),
   },
   actionableErrorMessage: () => "Findings Pack unavailable",
@@ -124,6 +125,7 @@ beforeEach(() => {
   vi.mocked(api.postgameLatest).mockResolvedValue(null);
   vi.mocked(api.pack).mockResolvedValue(makePack());
 });
+
 
 describe("ProgressPage", () => {
   it("names trajectory panels and repeated benchmark records", async () => {
@@ -309,6 +311,7 @@ describe("ProgressPage", () => {
     expect(lever).not.toHaveTextContent("×2.32 effect per SD");
   });
 
+
   it("shows the unavailable Findings Pack badge when no pack is supplied", async () => {
     vi.mocked(api.pack).mockRejectedValueOnce(new Error("pack unavailable"));
     renderPage(<ProgressPage />);
@@ -321,36 +324,6 @@ describe("ProgressPage", () => {
   });
 
 
-  it("shows the unavailable what-if state without fabricated personal estimates", async () => {
-    const pack = makePack();
-    vi.mocked(api.pack).mockResolvedValue({
-      ...pack,
-      models: {
-        ...(pack.models ?? {}),
-        personal_what_if: {
-          model_id: "personal-what-if-v2",
-          release_status: "withheld",
-          artifact: null,
-          model_card: null,
-          release_reason: "ONNX artifact and complete grouped/temporal validation are not present in this build",
-        },
-      },
-    });
-    renderPage(<ProgressPage />);
-
-    const panel = await screen.findByTestId("what-if-panel");
-    await waitFor(() =>
-      expect(screen.getByTestId("what-if-caption")).toHaveTextContent(
-        /personal what-if estimates are unavailable because onnx artifact.*not present/i,
-      ),
-    );
-    expect(panel).toHaveTextContent("Unavailable");
-    expect(panel).not.toHaveTextContent(/ships/);
-    expect(panel).not.toHaveTextContent("−280g");
-    expect(panel).not.toHaveTextContent("1 of 6");
-    expect(panel).not.toHaveTextContent("62%");
-    expect(screen.getByTestId("what-if-prediction")).toHaveTextContent("Unavailable");
-  });
 
   it("renders the patch win-rate sparkline from true patch aggregates", async () => {
     renderPage(<ProgressPage />);

@@ -11,6 +11,7 @@ import type {
   LiveEventName,
   LiveInferenceStatus,
   PlayerLive,
+  WhatIfResponse,
 } from "./types";
 
 export const PHASES: readonly GameflowPhase[] = [
@@ -187,24 +188,42 @@ function isLiveEvent(value: unknown): boolean {
   );
 }
 
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
 function isLiveInference(value: unknown): boolean {
-  return (
-    isRecord(value) &&
-    hasExactKeys(value, ["status", "probability", "observed_game_time_s", "model_version", "pack_version", "reason"]) &&
-    isEnum(LIVE_INFERENCE_STATUSES, value.status) &&
-    isNullableProbability(value.probability) &&
-    (value.observed_game_time_s === null ||
-      (isFiniteNumber(value.observed_game_time_s) && value.observed_game_time_s >= 0)) &&
-    isNullableString(value.model_version) &&
-    isNullableString(value.pack_version) &&
-    isNullableString(value.reason)
-  );
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ["status", "probability", "observed_game_time_s", "model_version", "pack_version", "reason"]) ||
+    !isEnum(LIVE_INFERENCE_STATUSES, value.status) ||
+    !isNullableProbability(value.probability) ||
+    !(
+      value.observed_game_time_s === null ||
+      (isFiniteNumber(value.observed_game_time_s) && value.observed_game_time_s >= 0)
+    ) ||
+    !isNullableString(value.model_version) ||
+    !isNullableString(value.pack_version) ||
+    !isNullableString(value.reason)
+  ) {
+    return false;
+  }
+  if (value.status === "available") {
+    return (
+      value.probability !== null &&
+      value.observed_game_time_s !== null &&
+      isNonEmptyString(value.model_version) &&
+      isNonEmptyString(value.pack_version) &&
+      value.reason === null
+    );
+  }
+  return value.probability === null;
 }
 
 function isLiveEventDelta(value: unknown): boolean {
-  return (
-    isRecord(value) &&
-    hasExactKeys(value, [
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
       "event_id",
       "source_order",
       "name",
@@ -218,25 +237,97 @@ function isLiveEventDelta(value: unknown): boolean {
       "pack_version",
       "suppression_status",
       "reason",
-    ]) &&
-    typeof value.event_id === "string" &&
-    isFiniteNumber(value.source_order) &&
-    Number.isInteger(value.source_order) &&
-    value.source_order >= 0 &&
-    isEnum(LIVE_EVENT_NAMES, value.name) &&
-    isFiniteNumber(value.t_s) &&
-    isNullableProbability(value.baseline_probability) &&
-    isNullableProbability(value.event_probability) &&
-    (value.delta_probability === null ||
-      (isFiniteNumber(value.delta_probability) && value.delta_probability >= -1 && value.delta_probability <= 1)) &&
-    (value.pre_observed_game_time_s === null ||
-      (isFiniteNumber(value.pre_observed_game_time_s) && value.pre_observed_game_time_s >= 0)) &&
-    (value.post_observed_game_time_s === null ||
-      (isFiniteNumber(value.post_observed_game_time_s) && value.post_observed_game_time_s >= 0)) &&
-    isNullableString(value.model_version) &&
-    isNullableString(value.pack_version) &&
-    isEnum(LIVE_INFERENCE_STATUSES, value.suppression_status) &&
-    isNullableString(value.reason)
+    ]) ||
+    typeof value.event_id !== "string" ||
+    isNonEmptyString(value.event_id) === false ||
+    !isFiniteNumber(value.source_order) ||
+    !Number.isInteger(value.source_order) ||
+    value.source_order < 0 ||
+    !isEnum(LIVE_EVENT_NAMES, value.name) ||
+    !isFiniteNumber(value.t_s) ||
+    !isNullableProbability(value.baseline_probability) ||
+    !isNullableProbability(value.event_probability) ||
+    !(
+      value.delta_probability === null ||
+      (isFiniteNumber(value.delta_probability) && value.delta_probability >= -1 && value.delta_probability <= 1)
+    ) ||
+    !(
+      value.pre_observed_game_time_s === null ||
+      (isFiniteNumber(value.pre_observed_game_time_s) && value.pre_observed_game_time_s >= 0)
+    ) ||
+    !(
+      value.post_observed_game_time_s === null ||
+      (isFiniteNumber(value.post_observed_game_time_s) && value.post_observed_game_time_s >= 0)
+    ) ||
+    !isNullableString(value.model_version) ||
+    !isNullableString(value.pack_version) ||
+    !isEnum(LIVE_INFERENCE_STATUSES, value.suppression_status) ||
+    !isNullableString(value.reason)
+  ) {
+    return false;
+  }
+  if (value.suppression_status === "available") {
+    return (
+      value.baseline_probability !== null &&
+      value.event_probability !== null &&
+      value.delta_probability !== null &&
+      value.pre_observed_game_time_s !== null &&
+      value.post_observed_game_time_s !== null &&
+      value.pre_observed_game_time_s < value.post_observed_game_time_s &&
+      isNonEmptyString(value.model_version) &&
+      isNonEmptyString(value.pack_version) &&
+      Math.abs(value.delta_probability - (value.event_probability - value.baseline_probability)) <= 1e-12 &&
+      value.reason === null
+    );
+  }
+  return value.baseline_probability === null && value.event_probability === null && value.delta_probability === null;
+}
+
+export function isWhatIfResponse(value: unknown): value is WhatIfResponse {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      "status",
+      "probability",
+      "baseline_probability",
+      "adjusted_features",
+      "model_version",
+      "pack_version",
+      "rejected_fields",
+      "reason",
+    ]) ||
+    !isEnum(["available", "suppressed", "rejected", "unsupported-patch", "out-of-domain", "error"] as const, value.status) ||
+    !isNullableProbability(value.probability) ||
+    !isNullableProbability(value.baseline_probability) ||
+    !(
+      value.adjusted_features === null ||
+      (isRecord(value.adjusted_features) &&
+        Object.values(value.adjusted_features).every(isFiniteNumber))
+    ) ||
+    !isNullableString(value.model_version) ||
+    !isNullableString(value.pack_version) ||
+    !Array.isArray(value.rejected_fields) ||
+    !value.rejected_fields.every((field) => typeof field === "string" && field.length > 0) ||
+    !isNullableString(value.reason)
+  ) {
+    return false;
+  }
+  if (value.status === "available") {
+    return (
+      value.probability !== null &&
+      value.baseline_probability !== null &&
+      value.adjusted_features !== null &&
+      isNonEmptyString(value.model_version) &&
+      isNonEmptyString(value.pack_version) &&
+      value.rejected_fields.length === 0 &&
+      value.reason === null
+    );
+  }
+  return (
+    value.probability === null &&
+    value.baseline_probability === null &&
+    value.adjusted_features === null &&
+    (value.status === "rejected" || value.status === "out-of-domain" || value.rejected_fields.length === 0)
   );
 }
 

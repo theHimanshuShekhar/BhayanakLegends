@@ -336,6 +336,75 @@ async def test_request_logs_redact_query_and_token(client, caplog):
     assert "?token=" not in caplog.text
     assert secret not in caplog.text
 
+@pytest.mark.parametrize("path", ["/live/status", "/live/session", "/live/ingame"])
+@pytest.mark.parametrize("token", [None, "wrong-token"])
+def test_live_rest_endpoints_require_exact_token(client, path: str, token: str | None) -> None:
+    headers = {"Host": "127.0.0.1:23110"}
+    if token is not None:
+        headers["X-BL-Token"] = token
+    response = client.get(path, headers=headers)
+    assert response.status_code == 401
+
+
+def test_authenticated_http_sse_delivers_live_state(client) -> None:
+    async def exercise() -> list[dict]:
+        started = asyncio.Event()
+        delivered = asyncio.Event()
+        messages: list[dict] = []
+
+        async def receive() -> dict:
+            await started.wait()
+            await delivered.wait()
+            return {"type": "http.disconnect"}
+
+        async def send(message: dict) -> None:
+            messages.append(message)
+            if message["type"] == "http.response.start":
+                started.set()
+                await client.app.state.hub.publish(
+                    "live.state",
+                    {
+                        "active": False,
+                        "clock_s": 0,
+                        "mode": None,
+                        "local_summoner": None,
+                        "local_champion": None,
+                        "teams": {"order": [], "chaos": []},
+                        "events": [],
+                        "inference": {
+                            "status": "suppressed",
+                            "probability": None,
+                            "observed_game_time_s": 0,
+                            "model_version": None,
+                            "pack_version": None,
+                            "reason": "fixture",
+                        },
+                        "event_deltas": [],
+                    },
+                )
+            if message["type"] == "http.response.body" and b"live.state" in message.get("body", b""):
+                delivered.set()
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/events",
+            "raw_path": b"/events",
+            "query_string": b"",
+            "headers": [(b"host", b"127.0.0.1:23110"), (b"x-bl-token", AUTH["X-BL-Token"].encode())],
+            "scheme": "http",
+            "server": ("127.0.0.1", 23110),
+            "client": ("127.0.0.1", 12345),
+            "root_path": "",
+            "http_version": "1.1",
+        }
+        await asyncio.wait_for(client.app(scope, receive, send), timeout=1)
+        return messages
+
+    messages = asyncio.run(exercise())
+    assert messages[0]["status"] == 200
+    assert any(b"live.state" in message.get("body", b"") for message in messages)
+
 
 @pytest.mark.parametrize("origin", ["http://localhost:1420", "tauri://localhost"])
 def test_desktop_cors_origins_remain_allowed(client, origin):

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from copy import deepcopy
 from pathlib import Path
-
+import shutil
 import pytest
 from bhayanak_legends.app import create_app
 from bhayanak_legends.config import SidecarConfig
@@ -38,6 +38,15 @@ def build_client(tmp_path: Path, pack: dict | None = None) -> TestClient:
         (pack_dir / "findings-pack.v2.json").write_text(
             json.dumps(pack), encoding="utf-8"
         )
+        for declaration in (pack.get("models") or {}).values():
+            if declaration.get("release_status") != "available":
+                continue
+            artifact = declaration["artifact"]
+            for field in ("path", "model_card_path"):
+                source = REPO / "pack" / artifact[field]
+                target = pack_dir / artifact[field]
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
         source_schema = REPO / "pack" / "pack.schema.json"
         (pack_dir / "pack.schema.json").write_bytes(source_schema.read_bytes())
     config = SidecarConfig(
@@ -237,6 +246,148 @@ def _v2_features(**values: object) -> dict:
         },
     }
     return features
+
+def _personal_features(**overrides: object) -> dict:
+    values: dict[str, object] = {
+        "cs10": 150.0,
+        "level10": 9.5,
+        "gold_diff_10": 0.0,
+        "team_gold_diff_15m": 0.0,
+        "recalls_before_15m": 2.0,
+        "avg_banked_gold_at_recall_by_15m": 650.0,
+        "avg_banked_gold_at_recall_by_20m": 700.0,
+        "unseen_recall_share_by_15m": 0.5,
+        "unseen_recall_share_by_20m": 0.5,
+        "first_dragon_by_20m_s": 600.0,
+        "first_riftherald_by_20m_s": 800.0,
+        "first_baron_by_20m_s": 0.0,
+        "early_fight_participation_rate": 0.5,
+        "plates_taken_by_14m": 7.5,
+    }
+    values.update(overrides)
+    return _v2_features(**values)
+
+
+def test_what_if_authorized_success_uses_exact_personal_history_seed(tmp_path: Path):
+    client = build_client(tmp_path, pack=SHIPPED_PACK)
+    seed(
+        client.app.state.store,
+        "eligible-seed",
+        patch="16.7",
+        played_at="2026-03-01T00:00:00Z",
+        features=_personal_features(),
+    )
+
+    with client:
+        response = client.post(
+            "/history/what-if",
+            json={"adjustments": {"unseen_recall_share_by_20m": 0.75}},
+            headers=AUTH,
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "available"
+    assert body["probability"] is not None
+    assert body["baseline_probability"] is not None
+    assert body["model_version"] == "personal-what-if-v2"
+    assert body["pack_version"] == "v4"
+    assert body["adjusted_features"]["unseen_recall_share_by_20m"] == 0.75
+    assert set(body["adjusted_features"]) == {
+        "cs10",
+        "level10",
+        "gold_diff_10",
+        "team_gold_diff_15m",
+        "recalls_before_15m",
+        "avg_banked_gold_at_recall_by_15m",
+        "avg_banked_gold_at_recall_by_20m",
+        "unseen_recall_share_by_15m",
+        "unseen_recall_share_by_20m",
+        "first_dragon_by_20m_s",
+        "first_riftherald_by_20m_s",
+        "first_baron_by_20m_s",
+        "early_fight_participation_rate",
+        "plates_taken_by_14m",
+    }
+
+
+@pytest.mark.parametrize(
+    ("adjustments", "status"),
+    [
+        ({"cs10": 5.0}, "rejected"),
+        ({"unseen_recall_share_by_20m": 1.1}, "out-of-domain"),
+        ({"unseen_recall_share_by_20m": 10**400}, "rejected"),
+    ],
+)
+def test_what_if_rejects_non_adjustable_nonfinite_and_out_of_domain(
+    tmp_path: Path, adjustments: dict[str, object], status: str
+):
+    client = build_client(tmp_path, pack=SHIPPED_PACK)
+    seed(client.app.state.store, "eligible-seed", features=_personal_features())
+
+    with client:
+        response = client.post(
+            "/history/what-if",
+            json={"adjustments": adjustments},
+            headers=AUTH,
+        )
+
+    assert response.status_code in {200, 422}
+    if response.status_code == 200:
+        assert response.json()["status"] == status
+
+
+def test_what_if_out_of_domain_baseline_returns_contract_valid_response(tmp_path: Path):
+    client = build_client(tmp_path, pack=SHIPPED_PACK)
+    seed(
+        client.app.state.store,
+        "out-of-domain-seed",
+        features=_personal_features(unseen_recall_share_by_20m=1.5),
+    )
+
+    with client:
+        response = client.post(
+            "/history/what-if",
+            json={"adjustments": {"unseen_recall_share_by_20m": 0.75}},
+            headers=AUTH,
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "out-of-domain"
+    assert body["probability"] is None
+    assert body["baseline_probability"] is None
+    assert body["adjusted_features"] is None
+    assert body["rejected_fields"] == ["unseen_recall_share_by_20m"]
+    assert body["reason"] == "Personal History baseline is outside its declared model domains"
+
+
+def test_what_if_never_falls_back_from_newer_ineligible_personal_history_seed(tmp_path: Path):
+    client = build_client(tmp_path, pack=SHIPPED_PACK)
+    store = client.app.state.store
+    seed(
+        store,
+        "older-eligible",
+        played_at="2026-03-01T00:00:00Z",
+        features=_personal_features(),
+    )
+    seed(
+        store,
+        "newer-ineligible",
+        played_at="2026-03-02T00:00:00Z",
+        features={**_personal_features(), "personal_history_eligibility": "ineligible"},
+    )
+
+    with client:
+        response = client.post(
+            "/history/what-if",
+            json={"adjustments": {"unseen_recall_share_by_20m": 0.75}},
+            headers=AUTH,
+        )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "suppressed"
+    assert "seed is not eligible" in response.json()["reason"]
 
 
 def test_postgame_latest_reads_only_nested_v2_features(tmp_path: Path):

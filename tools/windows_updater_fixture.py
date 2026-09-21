@@ -7,17 +7,22 @@ until the file exists, then advertise a second higher version whose supplied
 artifact/signature pair is known to be mismatched. Without ``--flip-file``,
 the second and later responses enter the mismatched-signature phase
 immediately. The fixture also serves a canonical Findings Pack asset with an
-ephemeral detached Ed25519 manifest signature. The server binds only to the
-literal loopback address and writes path-only request diagnostics.
+ephemeral detached Ed25519 manifest signature and a separate corrupt ZIP
+candidate for the pack rollback phase. The server binds only to the literal
+loopback address and writes path-only request diagnostics.
 """
+
+from __future__ import annotations
 
 import argparse
 import base64
 import hashlib
+import io
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import quote, urlparse
+import zipfile
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -29,6 +34,9 @@ MANIFEST_SIGNING_SEED = bytes.fromhex(
 )
 VALID_ARTIFACT_PREFIX = "/artifacts/valid/"
 INVALID_ARTIFACT_PREFIX = "/artifacts/invalid/"
+CORRUPT_PACK_ROUTE = "/findings-pack-corrupt.zip"
+CORRUPT_PACK_MANIFEST_ROUTE = "/findings-pack-corrupt-manifest.json"
+CORRUPT_PACK_SIGNATURE_ROUTE = f"{CORRUPT_PACK_MANIFEST_ROUTE}.sig"
 
 
 def write_json(path: Path, value: object) -> None:
@@ -39,6 +47,26 @@ def write_json(path: Path, value: object) -> None:
 def pack_asset(pack_dir: Path) -> bytes:
     """Return the exact deterministic archive used by the release builder."""
     return archive_pack_directory(pack_dir)
+
+
+def corrupt_pack_asset(pack_dir: Path) -> bytes:
+    """Return a readable ZIP whose Findings Pack JSON is deliberately unloadable."""
+    source = pack_asset(pack_dir)
+    output = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(source)) as source_archive:
+        with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_STORED) as archive:
+            for info in source_archive.infolist():
+                data = source_archive.read(info.filename)
+                if info.filename == "findings-pack.v2.json":
+                    data = b"{\"corrupt_candidate\":"
+                replacement = zipfile.ZipInfo(
+                    info.filename, date_time=(1980, 1, 1, 0, 0, 0)
+                )
+                replacement.compress_type = zipfile.ZIP_STORED
+                replacement.create_system = 3
+                replacement.external_attr = 0o100644 << 16
+                archive.writestr(replacement, data)
+    return output.getvalue()
 
 
 def _read_artifact(path: Path, label: str) -> bytes:
@@ -94,7 +122,7 @@ def _send_bytes(handler: BaseHTTPRequestHandler, body: bytes, content_type: str)
     handler.wfile.write(body)
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state-file", required=True, type=Path)
     parser.add_argument("--port", type=int, default=0)
@@ -120,23 +148,42 @@ def main() -> None:
     invalid_signature = _read_signature(args.invalid_signature, "invalid")
     if valid_artifact == invalid_artifact and valid_signature == invalid_signature:
         raise SystemExit("invalid updater inputs must not repeat the valid artifact/signature pair")
+
     requests_file = args.state_file.with_suffix(".requests.jsonl")
     pack_dir = args.pack_dir or Path(__file__).resolve().parents[1] / "pack"
     pack_bytes = pack_asset(pack_dir)
+    corrupt_pack_bytes = corrupt_pack_asset(pack_dir)
     manifest_payload = build_manifest(
         pack_dir,
         pack_bytes,
         download_url="findings-pack.zip",
         min_app_version="0.1.0",
     )
+    corrupt_manifest_payload = build_manifest(
+        pack_dir,
+        corrupt_pack_bytes,
+        download_url=CORRUPT_PACK_ROUTE.removeprefix("/"),
+        min_app_version="0.1.0",
+    )
+    # This version exists only in the invalid smoke manifest. The corrupt ZIP
+    # still carries malformed JSON and can never activate; the canonical pack
+    # payload and its v4 manifest remain byte-for-byte untouched.
+    corrupt_manifest_payload["pack_version"] = "v5-smoke-invalid-129"
+    corrupt_manifest_payload["smoke_only_invalid_candidate"] = True
+    corrupt_manifest_payload["notes"] = "smoke-only manifest version; payload is intentionally unloadable"
     pack_version = str(manifest_payload["pack_version"])
+    corrupt_manifest_pack_version = str(corrupt_manifest_payload["pack_version"])
+    if corrupt_manifest_pack_version == pack_version:
+        raise SystemExit("corrupt smoke manifest must declare a distinct newer pack version")
     pack_sha256 = hashlib.sha256(pack_bytes).hexdigest()
+    corrupt_pack_sha256 = hashlib.sha256(corrupt_pack_bytes).hexdigest()
     valid_route = _artifact_route(VALID_ARTIFACT_PREFIX, args.valid_artifact.name)
     invalid_route = _artifact_route(INVALID_ARTIFACT_PREFIX, args.invalid_artifact.name)
 
     class FixtureHandler(BaseHTTPRequestHandler):
         latest_requests = 0
         valid_artifact_served = False
+
         def log_message(self, _format: str, *_args: object) -> None:
             return
 
@@ -177,13 +224,24 @@ def main() -> None:
             if path == "/findings-pack-manifest.json":
                 _send_bytes(self, raw_manifest, "application/json")
                 return
-
             if path == "/findings-pack-manifest.json.sig":
                 _send_bytes(self, manifest_signature, "text/plain; charset=utf-8")
                 return
-
+            if path == CORRUPT_PACK_MANIFEST_ROUTE:
+                _send_bytes(self, raw_corrupt_manifest, "application/json")
+                return
+            if path == CORRUPT_PACK_SIGNATURE_ROUTE:
+                _send_bytes(
+                    self,
+                    corrupt_manifest_signature,
+                    "text/plain; charset=utf-8",
+                )
+                return
             if path == "/findings-pack.zip":
                 _send_bytes(self, pack_bytes, "application/zip")
+                return
+            if path == CORRUPT_PACK_ROUTE:
+                _send_bytes(self, corrupt_pack_bytes, "application/zip")
                 return
 
             if path == "/latest.json":
@@ -210,11 +268,7 @@ def main() -> None:
                             else "Windows smoke up-to-date fixture"
                         ),
                     )
-                _send_bytes(
-                    self,
-                    json.dumps(payload).encode("utf-8"),
-                    "application/json",
-                )
+                _send_bytes(self, json.dumps(payload).encode("utf-8"), "application/json")
                 return
 
             if path == valid_route:
@@ -225,11 +279,14 @@ def main() -> None:
                 _send_bytes(self, invalid_artifact, "application/octet-stream")
                 return
             self.send_error(404)
+
     server = ThreadingHTTPServer(("127.0.0.1", args.port), FixtureHandler)
     raw_manifest = manifest_bytes(manifest_payload)
+    raw_corrupt_manifest = manifest_bytes(corrupt_manifest_payload)
     manifest_private_key = Ed25519PrivateKey.from_private_bytes(MANIFEST_SIGNING_SEED)
-    manifest_signature = base64.b64encode(
-        manifest_private_key.sign(raw_manifest)
+    manifest_signature = base64.b64encode(manifest_private_key.sign(raw_manifest)) + b"\n"
+    corrupt_manifest_signature = base64.b64encode(
+        manifest_private_key.sign(raw_corrupt_manifest)
     ) + b"\n"
     manifest_public_key = base64.b64encode(
         manifest_private_key.public_key().public_bytes_raw()
@@ -241,11 +298,24 @@ def main() -> None:
             "port": server.server_port,
             "requests_file": str(requests_file),
             "pack_version": pack_version,
+            "corrupt_manifest_pack_version": corrupt_manifest_pack_version,
             "pack_sha256": pack_sha256,
             "pack_size": len(pack_bytes),
             "required_model_artifacts": manifest_payload["required_model_artifacts"],
             "manifest_public_key": manifest_public_key,
             "manifest_signature_sha256": hashlib.sha256(manifest_signature).hexdigest(),
+            "findings_pack": {
+                "valid_manifest_route": "/findings-pack-manifest.json",
+                "corrupt_manifest_route": CORRUPT_PACK_MANIFEST_ROUTE,
+                "valid_route": "/findings-pack.zip",
+                "corrupt_route": CORRUPT_PACK_ROUTE,
+                "valid_sha256": pack_sha256,
+                "corrupt_sha256": corrupt_pack_sha256,
+                "corrupt_size": len(corrupt_pack_bytes),
+                "corrupt_manifest_signature_sha256": hashlib.sha256(
+                    corrupt_manifest_signature
+                ).hexdigest(),
+            },
             "valid": {
                 "version": args.valid_version,
                 "artifact_name": args.valid_artifact.name,
@@ -267,7 +337,8 @@ def main() -> None:
         server.serve_forever()
     finally:
         server.server_close()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

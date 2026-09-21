@@ -145,7 +145,7 @@ function ensureSyncOwner(
   queryClient.removeQueries({ queryKey: ["sync-status"] });
 }
 
-function useSyncObserver(arbiter: SyncStatusArbiter, queryClient: QueryClient): number {
+function useSyncObserver(arbiter: SyncStatusArbiter): number {
   const idRef = useRef<number | null>(null);
   if (idRef.current == null) idRef.current = arbiter.nextObserverId++;
   const id = idRef.current;
@@ -154,17 +154,11 @@ function useSyncObserver(arbiter: SyncStatusArbiter, queryClient: QueryClient): 
     () => () => {
       arbiter.observers.delete(id);
       if (arbiter.observers.size === 0) {
-        arbiter.ownerEpoch += 1;
         arbiter.latest = undefined;
         arbiter.latestSerial = arbiter.serial;
-        void queryClient.cancelQueries(
-          { queryKey: ["sync-status"] },
-          { revert: false, silent: true },
-        );
-        queryClient.removeQueries({ queryKey: ["sync-status"] });
       }
     },
-    [arbiter, id, queryClient],
+    [arbiter, id],
   );
   return id;
 }
@@ -551,7 +545,7 @@ export function useStartSync() {
   const owner = useOwnerContext();
   const arbiter = syncStatusArbiterFor(qc);
   ensureSyncOwner(qc, arbiter, owner.ownerKey, owner.generation);
-  const observerId = useSyncObserver(arbiter, qc);
+  const observerId = useSyncObserver(arbiter);
   const ownerEpochAtRender = arbiter.ownerEpoch;
   return useMutation({
     mutationFn: async () => {
@@ -584,7 +578,7 @@ export function useCancelSync() {
   const owner = useOwnerContext();
   const arbiter = syncStatusArbiterFor(qc);
   ensureSyncOwner(qc, arbiter, owner.ownerKey, owner.generation);
-  const observerId = useSyncObserver(arbiter, qc);
+  const observerId = useSyncObserver(arbiter);
   const ownerEpochAtRender = arbiter.ownerEpoch;
   return useMutation({
     mutationFn: async () => {
@@ -619,7 +613,7 @@ export function useSyncStatus() {
   const nextOwnerKey = ownerKey(settings.data);
   const nextGeneration = ownerGeneration(settings.data);
   ensureSyncOwner(qc, arbiter, nextOwnerKey, nextGeneration);
-  const observerId = useSyncObserver(arbiter, qc);
+  const observerId = useSyncObserver(arbiter);
   const ownerEpochAtRender = arbiter.ownerEpoch;
   const key = ["sync-status", nextOwnerKey, nextGeneration] as const;
   useEvents((message) => {

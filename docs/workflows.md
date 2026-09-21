@@ -7,7 +7,9 @@ uses the explicit non-production token
 `BHAYANAK_TOKEN=local-sidecar-development-token-32chars`, `BHAYANAK_ALLOW_IMPORT=true`,
 and a JSON-array `BHAYANAK_IMPORT_ROOTS` rooted at `data/dev-import`;
 `backend/tools/ci_seed.py` creates deterministic Personal History only when
-`data/dev-import` is absent.
+`data/dev-import/` is absent. Web-only development must set `VITE_BL_TOKEN`
+explicitly to that same token; only `VITE_BL_PORT` may default.
+
 
 ## Packaged Windows smoke
 
@@ -35,59 +37,85 @@ The bridge validates the artifact against the canonical companion schema and
 fails closed on a cross-repo shape mismatch; it never translates an upstream
 catalog or Feature Store export. The fixture signs a deterministic manifest
 key over the exact canonical pack bytes and serves the manifest, detached
-signature, and payload. It records path-only requests, advertises the valid
-higher version first, then advertises a second higher version whose artifact
-bytes were changed without changing the detached signature.
+signature, and payload. It also serves a separately signed manifest for a ZIP
+whose `findings-pack.v2.json` is deliberately unloadable. That invalid
+manifest declares `v5-smoke-invalid-129` only so the follow-up is newer than
+the retained canonical `v4`; the ZIP itself still contains the malformed JSON,
+can never activate, and does not rewrite the canonical pack or its v4
+manifest. The smoke-only `tools/windows_pack_corrupt_smoke.py` uses a new
+isolated `PackStore`, activates the exact canonical signed payload through the
+real `ReleaseChannel`, executes every available model declaration against its
+model-card smoke vector/expected value/tolerance (including `live_wp` and
+`personal_what_if`), and then offers the signed corrupt candidate through
+`check_and_activate(retained_version)`. Independent verifier subprocesses
+rebuild `PackStore` before and after rejection and require the generation
+pointer, canonical `pack_version`, archive hash, and all-model smoke proof to
+remain intact. This manifest-only invalid version does not change or invent a
+production Pack version and is separate from the Tauri updater
+signature-rejection phase. The fixture records path-only requests,
+advertises the valid updater first, then advertises a second higher version
+whose artifact bytes were changed without changing the updater signature.
 `tools/findings_pack_payload.py` is shared by the release builder and this
 fixture so local tests cannot silently drift from the signed payload.
 `tools/patch_updater_endpoint.py` temporarily replaces the endpoint, paired
 public key, app version, and smoke-only
-`dangerousInsecureTransportProtocol` setting; the workflow restores the
-production endpoint, public key, version, and transport flag in an
-unconditional cleanup step.
+`dangerousInsecureTransportProtocol` setting; unconditional cleanup restores
+the production configuration, stops the fixture, removes the isolated
+PackStore, updater keypair, signed/corrupt smoke artifacts, flip marker, and
+backup, and clears the smoke manifest environment.
+
 
 `tools/windows_packaged_smoke.mjs` connects to the packaged WebView2 through
 the runner-local CDP port and asserts an authenticated ephemeral sidecar,
 using the token returned by the `sidecar_info` handshake rather than a
-hard-coded development token. It fetches `/pack`, checks the exact canonical
-pack version/schema, inventories every declared available model/card, and
-relies on startup's strict ONNX smoke validation (with a What-If request when
-Personal History is available) rather than accepting a declaration-only model
-fixture. It then asserts the existing user-facing `Install update` action.
-The valid phase proves signed download/verification and waits for
-`ready-to-restart`. The PowerShell harness closes and relaunches the installed
-executable, proves its file version changed to the higher version, then runs
-the mismatched-signature phase. That phase requires explicit signature
-rejection, unchanged installed files/version, and a healthy sidecar after the
-rejection. Startup failures are written to structured `smoke-state.json`
-without leaving owned sidecars behind.
+hard-coded development token. It rejects literal `dev`, requires a token of
+at least 32 characters, and exercises the packaged HTTP security matrix:
+valid token/loopback Host succeeds, invalid token with valid Host is `401`,
+invalid Host is `400` before token evaluation, and frozen `/dev/import` stays
+`403` even when import environment variables are present. It opens
+`/events?token=...` long enough to receive the hello frame, then records only
+status/path evidence and checks the captured packaged app/diagnostic artifacts
+for neither the discovered token nor the raw SSE query. The Tauri supervisor
+drains sidecar stdout after readiness and discards stderr, so this packaged
+scan does not claim to capture the sidecar logger stream; backend request-log
+tests are the direct path-only logging proof. Failure diagnostics are redacted
+before upload; raw secrets are never printed.
 
 `tools/check_windows_smoke_fixture.py` requires valid metadata and artifact
-requests, mismatched metadata and rejected-artifact requests, Findings Pack
-requests, path-only diagnostics, and routes matching the fixture state. On
-failure, `tools/redact_diagnostics.py` removes private-key, password,
+requests, mismatched metadata and rejected-artifact requests, both signed
+Findings Pack manifests/signatures/payloads in order, path-only diagnostics,
+and routes matching the fixture state. On failure,
+`tools/redact_diagnostics.py` removes private-key, password,
 production/public-key, Riot-key, bearer-token, and token-shaped values before
 upload; key-material files become a fixed marker. The key files and production
 configuration backup are outside the diagnostics tree and are removed during
 cleanup. `release.yml` has `publish.needs: [verify, packaged-smoke]`, so a tag
 cannot publish unless this packaged gate succeeds.
 
-The Windows runner is required to prove the remaining acceptance criteria:
-Linux cannot execute the NSIS installer, WebView2 CDP session, Tauri shell
-command, or Windows child-process cleanup. Local verification is limited to
-YAML parsing, immutable action-pin checks, Python/Node helper syntax, the
-reversible endpoint patch, and the fixture request-state checker. A successful
-authorized Windows run is still required as operational evidence for signed
-install/relaunch, dynamic WebView rendering, mismatched-signature rejection,
-and owned-sidecar cleanup; this repository does not dispatch that run
-automatically.
+The combined gate has two intentionally distinct proofs: the packaged
+Tauri/WebView/sidecar path proves the installed app, canonical pack/model
+loading, What-If behavior, signed updater relaunch, updater-signature rejection,
+and sidecar health; the isolated Windows release-channel path proves canonical
+signed Pack activation plus corrupt-candidate rejection and durable generation
+retention across subprocess restarts. The Windows runner remains required for
+channel/PackStore rollback path, YAML contracts, Python/Node syntax, reversible
+endpoint patch, and fixture request-state checker. A successful authorized
+`windows-latest` run of the workflow, including `--require-security`, is still
+required as operational evidence for the full combined gate; source wiring and
+focused helper tests are not substitutes, and this repository does not dispatch
+that run automatically.
+
 
 ## Findings Pack release publisher
 
 On a `v*` tag, `release.yml` consumes the checked-in companion
 `pack/` directory and runs
-`tools/build_findings_pack_release.py`. That consumer-side builder validates
-schema, semantics, and all declared ONNX/card bytes, then writes a deterministic
+`tools/build_findings_pack_release.py`. The workflow derives `VERSION` from
+`${GITHUB_REF_NAME#v}`, passes it as `--min-app-version "$VERSION"`, and
+immediately fails closed unless the generated manifest contains that exact
+minimum application version. The builder's low default remains only for
+explicit local/smoke fixtures. The consumer-side builder validates schema,
+semantics, and all declared ONNX/card bytes, then writes a deterministic
 `findings-pack.v2.zip` and a manifest containing the Pack v2 version, minimum
 app version, flattened feature-contract versions, payload size/hash, and every
 available model/card pin. The manifest is always generated; it is never
@@ -354,12 +382,15 @@ clone's canonical origin URL and full-mirror refspec, uses the canonical
 booleans. The local candidate mirror is not evidence of the pushed origin.
 
 After `--verify-origin` succeeds, every checklist item must be `completed`
-with evidence, or `not-applicable` with an explicit reason. Origin update,
-release replacement, GitHub Support cache removal, fresh-clone guard,
-original-commit unreachability, and projection equality are never allowed to
-be not-applicable. A repository with no collaborators or no independently
-controlled forks may record explicit no-collaborator/no-fork N/A reasons; do
-not claim that independent forks or old local clones were erased.
+with evidence, or `not-applicable` with an explicit reason. The owner-approved
+#59 scope override is an exception to the generic checklist language: the
+owner-amended evidence may record that current/history PII was rewritten and
+the external identity map was securely deleted while GitHub Support cache
+removal and erasure of third-party forks/old local clones were not performed
+and cannot be claimed. This is a documented no-cache-erasure limitation, not
+an assertion that those caches were cleaned. Origin update, release
+replacement, fresh-clone guard, original-commit unreachability, and projection
+equality remain required; collaborator/fork N/A reasons must be explicit.
 
 Only then run the separate finalization mode:
 
@@ -373,8 +404,10 @@ Finalization rechecks the owner-only evidence, exact manifests, successful
 canonical-origin verification, checklist evidence, map checksum, and
 owner-only external paths. It writes a deletion-pending evidence transition,
 securely overwrites and unlinks the map, then marks
-`securely_delete_external_map` completed. Keep the backup and all release
-backup/checksum material until GitHub cache cleanup has been confirmed.
+`securely_delete_external_map` completed. Under the #59 owner-approved scope,
+the backup may be retained only as an owner-controlled recovery artifact; its
+retention does not imply GitHub cache erasure, and closure evidence must state
+that no cache-erasure operation was performed.
 
 ### Immutable release recovery after the ref rewrite
 

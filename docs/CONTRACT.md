@@ -19,9 +19,11 @@ The sidecar preserves CORS origins `http://localhost:1420` and
 only method and path and never query strings, headers, or credentials.
 
 Frontend obtains `{port, token}` via Tauri command `sidecar_info`. In web-only
-dev (`pnpm dev` without Tauri), defaults: port from `VITE_BL_PORT` (default
-23110), token from `VITE_BL_TOKEN` (default
-`local-sidecar-development-token-32chars`).
+dev (`pnpm dev` without Tauri), only the port may default from `VITE_BL_PORT`
+(default `23110`). `VITE_BL_TOKEN` is required explicitly and must be the same
+non-`dev`, non-whitespace-padded token of at least 32 characters supplied as
+`BHAYANAK_TOKEN` to the development sidecar. Missing, blank, short, literal
+`dev`, or whitespace-padded browser tokens fail closed before any request.
 
 ## REST API (v2)
 
@@ -295,6 +297,10 @@ interface WhatIfResponse {
   rejected_fields: string[];
   reason: string|null;
 }
+// `available` requires probability, baseline_probability, adjusted_features,
+// model_version, and pack_version, with no rejected fields or reason. Every
+// non-available status carries null probability, baseline_probability, and
+// adjusted_features; rejected/out-of-domain may carry rejected_fields.
 ```
 
 ### SSE events (envelope `{type, ts, data}`)
@@ -379,6 +385,38 @@ The v2 Personal History feature order is:
 `first_riftherald_by_20m_s`, `first_baron_by_20m_s`,
 `smite_contests_before_15m`, `smite_contests_before_20m`,
 `early_fight_participation_rate`, and `plates_taken_by_14m`.
+
+The released `personal_what_if` model projection is a strict subset of that
+extractor contract. Its ordered `float32` inputs are:
+`cs10`, `level10`, `gold_diff_10`, `team_gold_diff_15m`,
+`recalls_before_15m`, `avg_banked_gold_at_recall_by_15m`,
+`avg_banked_gold_at_recall_by_20m`, `unseen_recall_share_by_15m`,
+`unseen_recall_share_by_20m`, `first_dragon_by_20m_s`,
+`first_riftherald_by_20m_s`, `first_baron_by_20m_s`,
+`early_fight_participation_rate`, and `plates_taken_by_14m`.
+The extractor's `smite_contests_before_15m` and
+`smite_contests_before_20m` fields remain available for parity-v2 Personal
+History, but are not released model inputs.
+
+Each released projection feature card declares these units and sources:
+
+| feature family | unit | source |
+|---|---|---|
+| `cs10`, `level10` | `minions`, `levels` | parity-v2 participant timeline at 600s |
+| `gold_diff_10`, `team_gold_diff_15m` | `gold` | parity-v2 median-relative participant gold at 600s; exact ten-player team gold at 900s |
+| `recalls_before_15m` | `recalls` | parity-v2 bounded recalls through 900s |
+| `avg_banked_gold_at_recall_by_15m`, `avg_banked_gold_at_recall_by_20m` | `gold` | parity-v2 bounded recall observations |
+| `unseen_recall_share_by_15m`, `unseen_recall_share_by_20m`, `early_fight_participation_rate` | `share` | parity-v2 bounded visibility/fight observations |
+| `first_dragon_by_20m_s`, `first_riftherald_by_20m_s`, `first_baron_by_20m_s` | `seconds` | parity-v2 objective events through 1200s |
+| `plates_taken_by_14m` | `plates` | parity-v2 turret-plate observations through 840s |
+
+Only `unseen_recall_share_by_20m`, `avg_banked_gold_at_recall_by_20m`, and
+`plates_taken_by_14m` are adjustable controls. Training-only median
+imputation values are recorded per feature in the model card; runtime never
+imputes, clips, proxies, or falls back, and rejects missing/non-finite values.
+Calibration evidence must identify grouped holdout predictions excluded from
+fit, include a positive sample count, and the card's complete validation gate
+set and multi-vector ONNX parity evidence must pass before activation.
 `team_gold_diff_15m` is the latest populated frame at or before 900 seconds
 after a populated frame at or after 900 seconds proves reachability. It is
 the own-team total gold minus enemy-team total gold, requires ten finite
@@ -409,7 +447,11 @@ reason and no executable fields. Model cards contain an explicit
 `feature_contract_version` (predictive personal cards must declare
 `loltrends-cutoff-v2`), exact ordered `float32` inputs, units, sources,
 adjustable flags, bounds, preprocessing, patch scope, validation gates,
-caveats, and a smoke-test vector. Runtime inference accepts only finite values
+caveats, and a smoke-test vector. The shipped `live_wp` card is validated for
+patches `14.18` through `15.18`; the v4 pack may contain newer evidence, but
+live inference outside that card scope (including v4's `16.17` upper bound) is
+truthfully returned as `unsupported-patch` until a card with matching evidence
+is shipped. Runtime inference accepts only finite values
 matching the card exactly, rejects unknown or missing fields and out-of-domain
 values, and never loads pickle artifacts. Available artifact paths, hashes,
 sizes, and card files are verified before activation; model directories cannot
@@ -418,15 +460,32 @@ contain undeclared artifacts. The personal what-if model key is
 
 `InGameSnapshot.inference.status` is one of `available`, `suppressed`,
 `stale`, `incompatible`, `unsupported-patch`, `out-of-domain`, or `error`.
-Probability, model version, pack version, and observed time are nullable and
-omitted unless the status supports them. `event_deltas` contain one correlated
-entry for each supported live event kind (`DragonKill`, `HeraldKill`,
-`BaronKill`, and `TurretKilled`) once observed. Each entry carries stable
-`event_id`/`source_order`, causal pre/post observation times, model/pack
-provenance, and a nullable `delta_probability`; `suppression_status` and
-`reason` distinguish an unavailable delta from an exact zero movement.
-Unsupported event kinds stay in `events` but do not create delta entries.
-No live probability is inferred from clock time alone.
+The wire shape always includes `probability`, `observed_game_time_s`,
+`model_version`, `pack_version`, and `reason`; unavailable fields are explicit
+`null`, never omitted. `available` requires a bounded probability, observed
+game time, and matching non-null model/pack provenance. Every other status carries a
+null probability and may carry only truthful diagnostic metadata.
+`allgamedata` may omit `gameVersion`; production must provide a trusted current
+patch through the configured LCU/config seam. A configured override remains
+stable; otherwise the LCU-discovered client version is refreshed for each new
+game ID and cleared when the in-game lifecycle ends. Data Dragon must match the
+selected patch by numeric major.minor. `gameData.gameTime` is the official observation
+time. The client has no source wall-clock capture field, so frozen-stream stale
+detection uses only a local monotonic receipt continuity/fingerprint bound; that
+bound is never serialized as source time or observation age. A changed official
+observation resets the continuity window; an identical observation persisting
+beyond the bound is `stale`. No latest-patch or receipt-time inference is used.
+`event_deltas` contain one correlated entry for each supported live event kind
+(`DragonKill`, `HeraldKill`, `BaronKill`, and `TurretKilled`) once observed. Each
+entry carries stable `event_id`/`source_order`, causal pre/post observation
+times, model/pack provenance, and a nullable `delta_probability`.
+`suppression_status: "available"` requires both probabilities, strictly ordered
+causal times, identical provenance, and `delta_probability ===
+event_probability - baseline_probability`; every other status carries null
+baseline/event/delta probabilities. `suppression_status` and `reason`
+distinguish an unavailable delta from an exact zero movement. Unsupported event
+kinds stay in `events` but do not create delta entries. No live probability is
+inferred from clock time alone.
 
 `POST /history/what-if` accepts only local JSON
 `{"adjustments": Record<string, number>}`. The backend accepts exactly the

@@ -5,6 +5,7 @@ unvalidated ``dict`` from a route makes a contract drift invisible until a
 frontend crashes, so response models reject unknown states and shapes.
 """
 
+import math
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, model_validator
@@ -281,6 +282,24 @@ class LiveInference(ContractModel):
     pack_version: str | None = None
     reason: str | None = None
 
+    @model_validator(mode="after")
+    def status_fields_are_consistent(self) -> "LiveInference":
+        if self.status == "available":
+            if (
+                self.probability is None
+                or self.observed_game_time_s is None
+                or not self.model_version
+                or not self.pack_version
+            ):
+                raise ValueError(
+                    "available live inference requires probability, observed time, model version, and pack version"
+                )
+            if self.reason is not None:
+                raise ValueError("available live inference must not carry a suppression reason")
+        elif self.probability is not None:
+            raise ValueError("non-available live inference must not carry probability")
+        return self
+
 
 class LiveEventDelta(ContractModel):
     event_id: str
@@ -297,6 +316,37 @@ class LiveEventDelta(ContractModel):
     suppression_status: LiveInferenceStatus = "suppressed"
     reason: str | None = None
 
+    @model_validator(mode="after")
+    def status_fields_are_consistent(self) -> "LiveEventDelta":
+        if self.name not in {"DragonKill", "HeraldKill", "BaronKill", "TurretKilled"}:
+            raise ValueError("live event delta name is not supported for causal deltas")
+        if self.suppression_status == "available":
+            if (
+                self.baseline_probability is None
+                or self.event_probability is None
+                or self.delta_probability is None
+                or self.pre_observed_game_time_s is None
+                or self.post_observed_game_time_s is None
+                or self.pre_observed_game_time_s >= self.post_observed_game_time_s
+                or not self.model_version
+                or not self.pack_version
+            ):
+                raise ValueError(
+                    "available live event delta requires exact probabilities, causal times, and provenance"
+                )
+            expected = self.event_probability - self.baseline_probability
+            if not math.isclose(self.delta_probability, expected, rel_tol=0.0, abs_tol=1e-12):
+                raise ValueError("live event delta must equal event probability minus baseline probability")
+            if self.reason is not None:
+                raise ValueError("available live event delta must not carry a suppression reason")
+        elif (
+            self.baseline_probability is not None
+            or self.event_probability is not None
+            or self.delta_probability is not None
+        ):
+            raise ValueError("non-available live event delta must not carry probability or delta")
+        return self
+
 
 WhatIfStatus = Literal[
     "available",
@@ -306,19 +356,65 @@ WhatIfStatus = Literal[
     "out-of-domain",
     "error",
 ]
+
 class WhatIfRequest(ContractModel):
-    adjustments: dict[str, float] = Field(default_factory=dict)
+    adjustments: dict[str, float]
+
+    @model_validator(mode="before")
+    @classmethod
+    def require_finite_json_numbers(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            raise ValueError("What-If request must be an object")
+        adjustments = value.get("adjustments")
+        if not isinstance(adjustments, dict):
+            raise ValueError("What-If request adjustments must be an object")
+        for name, adjustment in adjustments.items():
+            try:
+                finite = math.isfinite(float(adjustment))
+            except (TypeError, ValueError, OverflowError):
+                finite = False
+            if (
+                not isinstance(name, str)
+                or isinstance(adjustment, bool)
+                or not isinstance(adjustment, (int, float))
+                or not finite
+            ):
+                raise ValueError("What-If adjustments must be finite JSON numbers")
+        return value
 
 
 class WhatIfResponse(ContractModel):
     status: WhatIfStatus = "suppressed"
     probability: float | None = Field(default=None, ge=0, le=1)
     baseline_probability: float | None = Field(default=None, ge=0, le=1)
-    adjusted_features: dict[str, float] | None = None
+    adjusted_features: dict[str, FiniteFloat] | None = None
     model_version: str | None = None
     pack_version: str | None = None
     rejected_fields: list[str] = Field(default_factory=list)
     reason: str | None = None
+
+    @model_validator(mode="after")
+    def status_fields_are_consistent(self) -> "WhatIfResponse":
+        if self.status == "available":
+            if (
+                self.probability is None
+                or self.baseline_probability is None
+                or self.adjusted_features is None
+                or not self.model_version
+                or not self.pack_version
+                or self.rejected_fields
+                or self.reason is not None
+            ):
+                raise ValueError("available What-If response requires probabilities, adjusted features, and provenance")
+        elif self.probability is not None:
+            raise ValueError("non-available What-If response must not carry probability")
+        if self.status != "available" and self.baseline_probability is not None:
+            raise ValueError("non-available What-If response must not carry baseline probability")
+        if self.status != "available" and self.adjusted_features is not None:
+            raise ValueError("non-available What-If response must not carry adjusted features")
+        if self.status not in {"rejected", "out-of-domain"} and self.rejected_fields:
+            raise ValueError("rejected fields are only valid for rejected or out-of-domain responses")
+        return self
 
 
 

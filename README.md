@@ -22,10 +22,13 @@ pnpm install
 cd backend && uv sync
 
 # sidecar (dev import enabled only for this non-frozen debug process)
-BHAYANAK_PORT=23110 BHAYANAK_TOKEN=local-sidecar-development-token-32chars BHAYANAK_ALLOW_IMPORT=true BHAYANAK_IMPORT_ROOTS='["../data/dev-import"]' uv run python -m bhayanak_legends.sidecar &
+# Use one explicit local token (at least 32 characters, not `dev`) in both
+# variables; the frontend has no committed browser-token fallback.
+export BHAYANAK_TOKEN='replace-with-the-same-local-token-at-least-32-chars'
+BHAYANAK_PORT=23110 BHAYANAK_TOKEN="$BHAYANAK_TOKEN" BHAYANAK_ALLOW_IMPORT=true BHAYANAK_IMPORT_ROOTS='["../data/dev-import"]' uv run python -m bhayanak_legends.sidecar &
 
-# frontend against the sidecar
-cd .. && VITE_BL_PORT=23110 VITE_BL_TOKEN=local-sidecar-development-token-32chars pnpm dev
+# frontend against the sidecar; VITE_BL_TOKEN is required and must match
+cd .. && VITE_BL_PORT=23110 VITE_BL_TOKEN="$BHAYANAK_TOKEN" pnpm dev
 
 # or the full desktop shell (spawns the sidecar itself)
 pnpm tauri dev

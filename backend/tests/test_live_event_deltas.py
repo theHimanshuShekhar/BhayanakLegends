@@ -9,7 +9,7 @@ import pytest
 
 from bhayanak_legends.live import LiveEvent, LiveService, _LiveEventDeltaTracker
 from bhayanak_legends.live_features import LiveFeatureVector
-from bhayanak_legends.models import LiveInference
+from bhayanak_legends.models import LiveEventDelta, LiveInference
 from bhayanak_legends.sse import Hub
 
 
@@ -32,6 +32,40 @@ def inference(clock_s: float, probability: float | None, *, status: str = "avail
         model_version="fixture-live-v1",
         pack_version="fixture-pack-v1",
     )
+
+
+def test_live_wire_status_invariants_reject_numeric_suppressed_fields() -> None:
+    with pytest.raises(ValueError):
+        LiveInference(status="suppressed", probability=0.5)
+    with pytest.raises(ValueError):
+        LiveEventDelta(
+            event_id="0:DragonKill:20.0",
+            source_order=0,
+            name="DragonKill",
+            t_s=20.0,
+            baseline_probability=0.5,
+            event_probability=0.5,
+            delta_probability=0.0,
+            suppression_status="suppressed",
+        )
+
+def test_live_event_delta_rejects_unsupported_constructed_event() -> None:
+    with pytest.raises(ValueError):
+        LiveEventDelta(
+            event_id="0:ChampionKill:20.0",
+            source_order=0,
+            name="ChampionKill",
+            t_s=20.0,
+        )
+
+
+def test_what_if_response_requires_exact_status_payload_shape() -> None:
+    from bhayanak_legends.models import WhatIfResponse
+
+    with pytest.raises(ValueError):
+        WhatIfResponse(status="available", probability=0.5)
+    with pytest.raises(ValueError):
+        WhatIfResponse(status="suppressed", baseline_probability=0.5)
 
 
 def test_supported_event_delta_uses_two_exact_predictions_and_preserves_source_order() -> None:

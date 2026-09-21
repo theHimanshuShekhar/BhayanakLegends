@@ -41,7 +41,7 @@ def _read_rows(path: Path) -> list[dict[str, object]]:
     return rows
 
 
-def _state_routes(path: Path) -> set[str]:
+def _state_routes(path: Path) -> tuple[set[str], dict[str, str]]:
     try:
         state = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -54,13 +54,77 @@ def _state_routes(path: Path) -> set[str]:
         if not isinstance(value, dict) or not isinstance(value.get("artifact_route"), str):
             raise SystemExit(f"fixture state is missing the {phase} artifact route")
         routes.add(value["artifact_route"])
-    return routes
+    if state.get("pack_version") != "v4":
+        raise SystemExit("fixture canonical pack version must remain v4")
+    corrupt_version = state.get("corrupt_manifest_pack_version")
+    if corrupt_version != "v5-smoke-invalid-129":
+        raise SystemExit("fixture corrupt manifest must use the smoke-only newer version")
+    findings_pack = state.get("findings_pack")
+    required = (
+        "valid_manifest_route",
+        "corrupt_manifest_route",
+        "valid_route",
+        "corrupt_route",
+    )
+    if not isinstance(findings_pack, dict) or any(
+        not isinstance(findings_pack.get(key), str) for key in required
+    ):
+        raise SystemExit("fixture state is missing Findings Pack rollback routes")
+    return routes, {key: str(findings_pack[key]) for key in required}
+
+
+def _check_security_proofs(path: Path) -> None:
+    required_phases = {"update-available", "updated", "invalid"}
+    found_phases: set[str] = set()
+    for phase in sorted(required_phases):
+        proof_path = path / f"sidecar-security-{phase}.json"
+        try:
+            text = proof_path.read_text(encoding="utf-8")
+            proof = json.loads(text)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise SystemExit(f"sidecar security proof cannot be read: {proof_path}") from exc
+        if not isinstance(proof, dict) or set(proof) != {"phase", "token", "http", "sse", "dev_import"}:
+            raise SystemExit("sidecar security proof shape is invalid")
+        if proof.get("phase") != phase:
+            raise SystemExit("sidecar security proof phase does not match its filename")
+        token = proof.get("token")
+        if not isinstance(token, dict) or set(token) != {"length", "not_dev", "explicit"}:
+            raise SystemExit("sidecar security proof must not contain raw token material")
+        if not isinstance(token.get("length"), int) or token["length"] < 32:
+            raise SystemExit("sidecar security proof token length is invalid")
+        if token.get("not_dev") is not True or token.get("explicit") is not True:
+            raise SystemExit("sidecar security proof token policy failed")
+        http_rows = proof.get("http")
+        expected_http = {
+            "valid-token-valid-host": 200,
+            "invalid-token-valid-host": 401,
+            "valid-token-invalid-host": 400,
+            "invalid-token-invalid-host": 400,
+        }
+        if not isinstance(http_rows, list) or {
+            row.get("case"): row.get("status")
+            for row in http_rows
+            if isinstance(row, dict)
+        } != expected_http:
+            raise SystemExit("sidecar security HTTP matrix is incomplete or incorrect")
+        sse = proof.get("sse")
+        if sse != {"status": 200, "hello": True, "query_token": True}:
+            raise SystemExit("sidecar security SSE query-token proof is missing")
+        dev_import = proof.get("dev_import")
+        if dev_import != {"status": 403, "fixture_reads": False}:
+            raise SystemExit("sidecar frozen import proof is missing")
+        if "/events?" in text or "token=" in text:
+            raise SystemExit("sidecar security proof contains a raw query")
+        found_phases.add(phase)
+    if found_phases != required_phases:
+        raise SystemExit("sidecar security proof is missing one or more phases")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("requests_file", type=Path)
     parser.add_argument("--state-file", type=Path)
+    parser.add_argument("--require-security", action="store_true")
     args = parser.parse_args()
 
     rows = _read_rows(args.requests_file)
@@ -86,13 +150,62 @@ def main() -> None:
         raise SystemExit("rejected updater artifact was not requested after invalid metadata")
 
     if args.state_file:
-        expected_routes = _state_routes(args.state_file)
+        expected_routes, pack_routes = _state_routes(args.state_file)
         if set(valid_routes + invalid_routes) - expected_routes:
             raise SystemExit("fixture request log contains an artifact route outside its state")
+        if args.require_security:
+            _check_security_proofs(args.state_file.parent)
+    expected_pack_paths = {
+        "valid_manifest": (
+            pack_routes["valid_manifest_route"]
+            if pack_routes is not None
+            else "/findings-pack-manifest.json"
+        ),
+        "valid_signature": (
+            pack_routes["valid_manifest_route"] + ".sig"
+            if pack_routes is not None
+            else "/findings-pack-manifest.json.sig"
+        ),
+        "valid_asset": (
+            pack_routes["valid_route"] if pack_routes is not None else "/findings-pack.zip"
+        ),
+        "corrupt_manifest": (
+            pack_routes["corrupt_manifest_route"]
+            if pack_routes is not None
+            else "/findings-pack-corrupt-manifest.json"
+        ),
+        "corrupt_signature": (
+            pack_routes["corrupt_manifest_route"] + ".sig"
+            if pack_routes is not None
+            else "/findings-pack-corrupt-manifest.json.sig"
+        ),
+        "corrupt_asset": (
+            pack_routes["corrupt_route"]
+            if pack_routes is not None
+            else "/findings-pack-corrupt.zip"
+        ),
+    }
+    try:
+        pack_indices = {
+            name: paths.index(path) for name, path in expected_pack_paths.items()
+        }
+    except ValueError as exc:
+        raise SystemExit("packaged smoke did not request every Findings Pack rollback asset") from exc
+    pack_order = [
+        pack_indices["valid_manifest"],
+        pack_indices["valid_signature"],
+        pack_indices["valid_asset"],
+        pack_indices["corrupt_manifest"],
+        pack_indices["corrupt_signature"],
+        pack_indices["corrupt_asset"],
+    ]
+    if pack_order != sorted(pack_order) or len(set(pack_order)) != len(pack_order):
+        raise SystemExit("Findings Pack valid and corrupt candidates were not requested in order")
 
     print(
         f"loopback updater fixture verified "
-        f"({len(rows)} requests; valid and rejected artifacts; no external endpoint)"
+        f"({len(rows)} requests; valid and rejected updater artifacts; "
+        "valid and corrupt Findings Pack candidates; no external endpoint)"
     )
 
 

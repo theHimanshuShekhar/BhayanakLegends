@@ -38,6 +38,7 @@ vi.mock("../../api/hooks", () => {
     useStartSync: emptyMutation,
     useSyncStatus: emptyQuery,
     useWhatIf: emptyMutation,
+    useOwnerContext: () => ({ ownerKey: null, generation: 0, active: false }),
     useTrajectories: emptyQuery,
   };
 });

@@ -1637,7 +1637,14 @@
       "properties": {
         "calibration": {
           "additionalProperties": {
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ]
           },
           "title": "Calibration",
           "type": "object"
@@ -1928,6 +1935,17 @@
           "title": "Feature",
           "type": "string"
         },
+        "imputation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PackV2TrainingImputation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "name": {
           "minLength": 1,
           "title": "Name",
@@ -1952,6 +1970,19 @@
           ],
           "default": null,
           "title": "Parameters"
+        },
+        "runtime_missing_policy": {
+          "anyOf": [
+            {
+              "const": "reject",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Runtime Missing Policy"
         }
       },
       "required": [
@@ -2328,6 +2359,32 @@
         "release_status"
       ],
       "title": "PackV2TierEntry",
+      "type": "object"
+    },
+    "PackV2TrainingImputation": {
+      "additionalProperties": false,
+      "properties": {
+        "fit_scope": {
+          "const": "training_only",
+          "title": "Fit Scope",
+          "type": "string"
+        },
+        "strategy": {
+          "const": "median",
+          "title": "Strategy",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "strategy",
+        "value",
+        "fit_scope"
+      ],
+      "title": "PackV2TrainingImputation",
       "type": "object"
     }
   },

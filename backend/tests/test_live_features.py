@@ -97,12 +97,12 @@ def test_future_objectives_and_kills_never_leak_into_earlier_state() -> None:
     assert vector.values[FEATURE_ORDER.index("team_kills_diff")] == 0
 
 
-def test_missing_stale_unsupported_and_ambiguous_inputs_suppress() -> None:
+def test_official_live_observation_does_not_require_source_wall_clock() -> None:
     fixture = load_fixture()
     items = catalog(fixture)
     live = deepcopy(fixture["observations"][0]["live"])
-    assert adapt_live_client_state(live, fixture["patch"], items, observed_at_s=10, now_s=10 + MAX_CAPTURE_AGE_S) is not None
-    assert adapt_live_client_state(live, fixture["patch"], items, observed_at_s=10, now_s=10 + MAX_CAPTURE_AGE_S + 0.001) is None
+    vector = adapt_live_client_state(live, fixture["patch"], items)
+    assert_values(vector, fixture["observations"][0]["expected"]["100"])
 
     missing = deepcopy(live)
     del missing["allPlayers"][0]["scores"]["creepScore"]

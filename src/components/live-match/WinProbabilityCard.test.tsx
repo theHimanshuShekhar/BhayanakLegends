@@ -4,17 +4,6 @@ import type { FindingsPackV2 } from "../../api/pack-v2";
 import type { InGameSnapshot } from "../../api/types";
 import { WinProbabilityCard } from "./WinProbabilityCard";
 
-const readyPack = {
-  feature_contracts: { models: { live_wp: "live-wp-v2" } },
-  models: {
-    live_wp: {
-      release_status: "available",
-      artifact: {},
-      model_card: {},
-    },
-  },
-} as unknown as FindingsPackV2;
-
 const inference: InGameSnapshot["inference"] = {
   status: "available",
   probability: 0.5,
@@ -24,6 +13,18 @@ const inference: InGameSnapshot["inference"] = {
   reason: null,
 };
 
+const readyPack = {
+  pack_version: "fixture-pack-v1",
+  feature_contracts: { models: { live_wp: "live-wp-v2" } },
+  models: {
+    live_wp: {
+      model_id: "live-wp-v2",
+      release_status: "available",
+      artifact: {},
+      model_card: { model_id: "live-wp-v2", feature_contract_version: "live-wp-v2", model_version: "fixture-live-v1" },
+    },
+  },
+} as unknown as FindingsPackV2;
 describe("WinProbabilityCard event deltas", () => {
   it("renders an exact zero movement instead of an unavailable label", () => {
     render(

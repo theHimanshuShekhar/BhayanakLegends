@@ -19,13 +19,20 @@ def _write_fixture_state(path: Path) -> None:
     path.write_text(
         json.dumps(
             {
+                "pack_version": "v4",
+                "corrupt_manifest_pack_version": "v5-smoke-invalid-129",
+                "findings_pack": {
+                    "valid_manifest_route": "/findings-pack-manifest.json",
+                    "corrupt_manifest_route": "/findings-pack-corrupt-manifest.json",
+                    "valid_route": "/findings-pack.zip",
+                    "corrupt_route": "/findings-pack-corrupt.zip",
+                },
                 "valid": {"artifact_route": "/artifacts/valid/valid.nsis.zip"},
                 "invalid": {"artifact_route": "/artifacts/invalid/invalid.nsis.zip"},
             }
         ),
         encoding="utf-8",
     )
-
 
 def _write_requests(path: Path, rows: list[dict[str, object]]) -> None:
     path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
@@ -43,14 +50,14 @@ def test_fixture_checker_requires_both_updater_phases_and_path_only_logs(
             {"method": "GET", "path": "/latest.json"},
             {"method": "GET", "path": "/findings-pack-manifest.json"},
             {"method": "GET", "path": "/findings-pack-manifest.json.sig"},
+            {"method": "GET", "path": "/findings-pack.zip"},
+            {"method": "GET", "path": "/findings-pack-corrupt-manifest.json"},
+            {"method": "GET", "path": "/findings-pack-corrupt-manifest.json.sig"},
+            {"method": "GET", "path": "/findings-pack-corrupt.zip"},
             {"method": "GET", "path": "/latest.json"},
-            {"method": "GET", "path": "/findings-pack-manifest.json"},
-            {"method": "GET", "path": "/findings-pack-manifest.json.sig"},
             {"method": "GET", "path": "/artifacts/valid/valid.nsis.zip"},
             {"method": "GET", "path": "/latest.json"},
             {"method": "GET", "path": "/latest.json"},
-            {"method": "GET", "path": "/findings-pack-manifest.json"},
-            {"method": "GET", "path": "/findings-pack-manifest.json.sig"},
             {"method": "GET", "path": "/artifacts/invalid/invalid.nsis.zip"},
         ],
     )
@@ -61,8 +68,9 @@ def test_fixture_checker_requires_both_updater_phases_and_path_only_logs(
         text=True,
         check=False,
     )
-    assert result.returncode == 0, result.stderr
-    assert "valid and rejected artifacts" in result.stdout
+    assert "valid and corrupt Findings Pack candidates" in result.stdout
+    requests_logged = requests.read_text(encoding="utf-8")
+    assert "/findings-pack-corrupt.zip" in requests_logged
 
 
 @pytest.mark.parametrize(
@@ -142,7 +150,8 @@ def test_redactor_removes_ephemeral_and_production_credentials(tmp_path: Path) -
         "TAURI_SIGNING_PRIVATE_KEY=ephemeral-private\n"
         "TAURI_SIGNING_PRIVATE_KEY_PASSWORD='ephemeral-password'\n"
         "production_public_key: production-public\n"
-        "token=process-token Bearer bearer-token ghp_github-shaped RGAPI-riot-key\n",
+        "token=process-token Bearer bearer-token ghp_github-shaped RGAPI-riot-key\n"
+        "raw-long-token-012345678901234567890123456789\n",
         encoding="utf-8",
     )
     (source / "production-key-backup.txt").write_text(
@@ -164,6 +173,7 @@ def test_redactor_removes_ephemeral_and_production_credentials(tmp_path: Path) -
     assert "bearer-token" not in output
     assert "ghp_github-shaped" not in output
     assert "RGAPI-riot-key" not in output
+    assert "raw-long-token-012345678901234567890123456789" not in output
     assert (destination / "production-key-backup.txt").read_text(encoding="utf-8") == "[REDACTED KEY MATERIAL]\n"
 
 

@@ -9,6 +9,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, StrictInt, model_validator
 
+from .live_features import FEATURE_ORDER, FEATURE_REGISTRY, LIVE_FEATURE_PREPROCESSING
 FindingTierV2 = Literal["actionable", "diagnostic", "a-lite"]
 ReleaseStatusV2 = Literal["available", "approximate", "withheld", "superseded"]
 EraStabilityV2 = Literal["stable", "sensitive", "insufficient", "not_evaluated"]
@@ -333,6 +334,113 @@ WITHHELD_MODEL_KEYS = frozenset({"surrender_advisor"})
 SUPPORTED_PREPROCESSING_OPERATIONS = frozenset(
     {"identity", "standardize", "z_score", "minmax", "min_max"}
 )
+
+PERSONAL_MODEL_ID = "personal-what-if-v2"
+PERSONAL_MODEL_CONTRACT_VERSION = "loltrends-cutoff-v2"
+PERSONAL_MODEL_FEATURE_ORDER = (
+    "cs10",
+    "level10",
+    "gold_diff_10",
+    "team_gold_diff_15m",
+    "recalls_before_15m",
+    "avg_banked_gold_at_recall_by_15m",
+    "avg_banked_gold_at_recall_by_20m",
+    "unseen_recall_share_by_15m",
+    "unseen_recall_share_by_20m",
+    "first_dragon_by_20m_s",
+    "first_riftherald_by_20m_s",
+    "first_baron_by_20m_s",
+    "early_fight_participation_rate",
+    "plates_taken_by_14m",
+)
+PERSONAL_MODEL_ADJUSTABLE_FEATURES = frozenset(
+    {
+        "unseen_recall_share_by_20m",
+        "avg_banked_gold_at_recall_by_20m",
+        "plates_taken_by_14m",
+    }
+)
+PERSONAL_MODEL_FEATURE_UNITS = {
+    "cs10": "minions",
+    "level10": "levels",
+    "gold_diff_10": "gold",
+    "team_gold_diff_15m": "gold",
+    "recalls_before_15m": "recalls",
+    "avg_banked_gold_at_recall_by_15m": "gold",
+    "avg_banked_gold_at_recall_by_20m": "gold",
+    "unseen_recall_share_by_15m": "share",
+    "unseen_recall_share_by_20m": "share",
+    "first_dragon_by_20m_s": "seconds",
+    "first_riftherald_by_20m_s": "seconds",
+    "first_baron_by_20m_s": "seconds",
+    "early_fight_participation_rate": "share",
+    "plates_taken_by_14m": "plates",
+}
+PERSONAL_MODEL_FEATURE_SOURCES = {
+    "cs10": "loltrends-parity-v2 extractor: participant timeline at 600s",
+    "level10": "loltrends-parity-v2 extractor: participant timeline at 600s",
+    "gold_diff_10": "loltrends-parity-v2 extractor: participant median-relative gold at 600s",
+    "team_gold_diff_15m": "loltrends-parity-v2 extractor: exact ten-player team gold at 900s",
+    "recalls_before_15m": "loltrends-parity-v2 extractor: bounded recall observations through 900s",
+    "avg_banked_gold_at_recall_by_15m": "loltrends-parity-v2 extractor: bounded recall observations through 900s",
+    "avg_banked_gold_at_recall_by_20m": "loltrends-parity-v2 extractor: bounded recall observations through 1200s",
+    "unseen_recall_share_by_15m": "loltrends-parity-v2 extractor: bounded recall visibility through 900s",
+    "unseen_recall_share_by_20m": "loltrends-parity-v2 extractor: bounded recall visibility through 1200s",
+    "first_dragon_by_20m_s": "loltrends-parity-v2 extractor: objective events through 1200s",
+    "first_riftherald_by_20m_s": "loltrends-parity-v2 extractor: objective events through 1200s",
+    "first_baron_by_20m_s": "loltrends-parity-v2 extractor: objective events through 1200s",
+    "early_fight_participation_rate": "loltrends-parity-v2 extractor: fights before 840s",
+    "plates_taken_by_14m": "loltrends-parity-v2 extractor: turret plates through 840s",
+}
+
+LIVE_MODEL_FEATURE_UNITS = {
+    "elapsed_time_s": "seconds",
+    "team_kills_diff": "count",
+    "team_deaths_diff": "count",
+    "team_assists_diff": "count",
+    "team_cs_diff": "minion kills",
+    "team_levels_diff": "champion levels",
+    "team_inventory_value_diff": "gold",
+    "team_turrets_diff": "count",
+    "team_dragons_diff": "count",
+    "team_heralds_diff": "count",
+    "team_barons_diff": "count",
+}
+LIVE_MODEL_FEATURE_SOURCE = "loltrends.etl.live_features exact LiveParity adapter"
+LIVE_MODEL_FEATURE_BOUNDS = {
+    "elapsed_time_s": (0.0, 3600.0),
+    "team_kills_diff": (-100.0, 100.0),
+    "team_deaths_diff": (-100.0, 100.0),
+    "team_assists_diff": (-200.0, 200.0),
+    "team_cs_diff": (-1000.0, 1000.0),
+    "team_levels_diff": (-18.0, 18.0),
+    "team_inventory_value_diff": (-100000.0, 100000.0),
+    "team_turrets_diff": (-11.0, 11.0),
+    "team_dragons_diff": (-7.0, 7.0),
+    "team_heralds_diff": (-2.0, 2.0),
+    "team_barons_diff": (-2.0, 2.0),
+}
+_MODEL_GATE_NAMES = frozenset(
+    {
+        "minimum_matches",
+        "minimum_grouped_holdout",
+        "grouped_auc",
+        "temporal_auc",
+        "grouped_log_loss",
+        "temporal_log_loss",
+        "grouped_brier",
+        "temporal_brier",
+        "calibration",
+        "leakage",
+        "symmetry",
+        "sanity",
+        "era",
+        "deterministic_export",
+        "onnx_parity",
+    }
+)
+PERSONAL_MODEL_GATE_NAMES = _MODEL_GATE_NAMES
+_LIVE_MODEL_GATE_NAMES = _MODEL_GATE_NAMES | {"onnx_side_symmetry"}
 
 
 class PackV2Model(BaseModel):
@@ -823,11 +931,19 @@ class PackV2ModelFeature(PackV2Model):
     bounds: PackV2ModelInterval
 
 
+class PackV2TrainingImputation(PackV2Model):
+    strategy: Literal["median"]
+    value: FiniteFloat
+    fit_scope: Literal["training_only"]
+
+
 class PackV2PreprocessingStep(PackV2Model):
     name: str = Field(min_length=1)
     feature: str = Field(min_length=1)
     operation: str = Field(min_length=1)
     parameters: list[FiniteFloat] | None = None
+    imputation: PackV2TrainingImputation | None = None
+    runtime_missing_policy: Literal["reject"] | None = None
 
     @model_validator(mode="after")
     def supported_and_bounded(self) -> "PackV2PreprocessingStep":
@@ -844,8 +960,9 @@ class PackV2PreprocessingStep(PackV2Model):
                 raise ValueError("standardize preprocessing scale must be nonzero")
             if operation in {"minmax", "min_max"} and parameters[1] <= parameters[0]:
                 raise ValueError("minmax preprocessing bounds must be ordered")
+        if self.runtime_missing_policy is not None and self.imputation is None:
+            raise ValueError("runtime missing policy requires training imputation metadata")
         return self
-
 
 class PackV2SmokeTest(PackV2Model):
     features: list[FiniteFloat] = Field(min_length=1)
@@ -856,9 +973,10 @@ class PackV2SmokeTest(PackV2Model):
 class PackV2ModelValidation(PackV2Model):
     grouped_holdout: dict[str, FiniteFloat]
     temporal_holdout: dict[str, FiniteFloat]
-    calibration: dict[str, FiniteFloat]
+    calibration: dict[str, str | FiniteFloat]
     parity: dict[str, str | int | float | bool]
     gates: dict[str, bool] | None = None
+
 
 
 class PackV2ModelCard(PackV2Model):
@@ -891,11 +1009,12 @@ class PackV2ModelCard(PackV2Model):
             raise ValueError("model input/output names must be unique")
         if set(self.input_names) & set(self.output_names):
             raise ValueError("model input/output names must be disjoint")
-        if set(self.bounds) != set(names):
-            raise ValueError("model bounds must exactly cover ordered features")
         for feature in self.features:
             if self.bounds[feature.name] != feature.bounds:
                 raise ValueError("model feature bounds disagree with the bounds map")
+        preprocessing_features = [step.feature for step in self.preprocessing]
+        if preprocessing_features != names:
+            raise ValueError("model preprocessing must cover features in exact order")
         if len(self.smoke_test.features) != len(names):
             raise ValueError("model smoke test must contain one value per feature")
         for value, feature in zip(self.smoke_test.features, self.features, strict=True):
@@ -1279,8 +1398,111 @@ def _validate_lists(pack: FindingsPackV2) -> None:
         raise ValueError("unsupported Baron comeback lift must be absent from v2")
 
 
+def _validate_strict_model_card(model_key: str, card: PackV2ModelCard) -> None:
+    canonical_ids = {
+        "personal_what_if": PERSONAL_MODEL_ID,
+        "live_wp": "live-wp-v2",
+    }
+    canonical_contracts = {
+        "personal_what_if": PERSONAL_MODEL_CONTRACT_VERSION,
+        "live_wp": "live-wp-v2",
+    }
+    if model_key not in canonical_ids:
+        return
+    if card.model_id != canonical_ids[model_key]:
+        raise ValueError(f"model {model_key!r} has a noncanonical model ID")
+    if card.feature_contract_version != canonical_contracts[model_key]:
+        raise ValueError(f"model {model_key!r} has a noncanonical feature contract")
+    strict_personal = model_key == "personal_what_if"
+    strict_live = model_key == "live_wp"
+    expected_gates = PERSONAL_MODEL_GATE_NAMES if strict_personal else _LIVE_MODEL_GATE_NAMES
+    gates = card.validation.gates
+    if gates is None or set(gates) != expected_gates or not all(gates.values()):
+        raise ValueError(f"model {model_key!r} validation gates are not exact and satisfied")
+    if strict_personal:
+        expected_order = PERSONAL_MODEL_FEATURE_ORDER
+        expected_adjustable = PERSONAL_MODEL_ADJUSTABLE_FEATURES
+        expected_units = PERSONAL_MODEL_FEATURE_UNITS
+        expected_sources = PERSONAL_MODEL_FEATURE_SOURCES
+        expected_bounds = None
+    else:
+        expected_order = FEATURE_ORDER
+        expected_adjustable = frozenset()
+        expected_units = LIVE_MODEL_FEATURE_UNITS
+        expected_sources = {name: LIVE_MODEL_FEATURE_SOURCE for name in FEATURE_ORDER}
+        expected_bounds = LIVE_MODEL_FEATURE_BOUNDS
+        registry_order = tuple(feature.name for feature in FEATURE_REGISTRY)
+        if registry_order != tuple(expected_order):
+            raise ValueError("live model registry order is not canonical")
+        if any(feature.adjustable for feature in FEATURE_REGISTRY):
+            raise ValueError("live model registry features must not be adjustable")
+    if card.feature_order != list(expected_order):
+        raise ValueError(f"model {model_key!r} feature projection is not exact")
+    if [feature.name for feature in card.features] != list(expected_order):
+        raise ValueError(f"model {model_key!r} feature declarations are not in registry order")
+    if set(card.bounds) != set(expected_order):
+        raise ValueError(f"model {model_key!r} bounds do not cover the canonical feature registry")
+    for feature in card.features:
+        if feature.unit != expected_units.get(feature.name):
+            raise ValueError(f"model {model_key!r} unit is malformed for {feature.name!r}")
+        if feature.source != expected_sources.get(feature.name):
+            raise ValueError(f"model {model_key!r} source is malformed for {feature.name!r}")
+        if feature.adjustable != (feature.name in expected_adjustable):
+            raise ValueError(f"model {model_key!r} adjustable flag is malformed for {feature.name!r}")
+        if expected_bounds is not None:
+            expected_min, expected_max = expected_bounds[feature.name]
+            if feature.bounds.min != expected_min or feature.bounds.max != expected_max:
+                raise ValueError(f"model {model_key!r} bounds are malformed for {feature.name!r}")
+    if strict_personal and {
+        feature.name for feature in card.features if feature.adjustable
+    } != expected_adjustable:
+        raise ValueError("Personal model adjustable controls are not exact")
+    for step, expected_name in zip(card.preprocessing, expected_order, strict=True):
+        if step.feature != expected_name:
+            raise ValueError("strict model preprocessing feature order is not exact")
+        if strict_live and step.operation != LIVE_FEATURE_PREPROCESSING:
+            raise ValueError("live model preprocessing operation is not the registry operation")
+    for step in card.preprocessing:
+        if step.imputation is None or step.imputation.strategy != "median":
+            raise ValueError("strict model preprocessing must record training median imputation")
+        if step.imputation.fit_scope != "training_only":
+            raise ValueError("strict model imputation must be training-only")
+        if step.runtime_missing_policy != "reject":
+            raise ValueError("strict model runtime missing policy must reject")
+    for label, metrics in (
+        ("grouped_holdout", card.validation.grouped_holdout),
+        ("temporal_holdout", card.validation.temporal_holdout),
+    ):
+        required = {"auc", "log_loss", "brier", "rows"}
+        if not required <= set(metrics):
+            raise ValueError(f"strict model {label} metrics are incomplete")
+    calibration = card.validation.calibration
+    if calibration.get("protocol") != "grouped_holdout_predictions_excluded_from_fit":
+        raise ValueError("strict model calibration must use held-out predictions")
+    sample_count = calibration.get("sample_count")
+    if not _finite_number(sample_count) or float(sample_count) <= 0:
+        raise ValueError("strict model calibration sample count is invalid")
+    parity = card.validation.parity
+    for key in ("deterministic_export", "runtime_available", "passed"):
+        if parity.get(key) is not True:
+            raise ValueError(f"strict model parity gate {key!r} did not pass")
+    for key in ("max_abs_error", "tolerance", "vector_count"):
+        if not _finite_number(parity.get(key)):
+            raise ValueError(f"strict model parity evidence {key!r} is invalid")
+    if float(parity["vector_count"]) <= 1:
+        raise ValueError("strict model parity evidence must contain multiple vectors")
+
+
 def _validate_model_declarations(pack: FindingsPackV2) -> None:
     contracts = pack.feature_contracts.models or {}
+    canonical_ids = {
+        "personal_what_if": PERSONAL_MODEL_ID,
+        "live_wp": "live-wp-v2",
+    }
+    canonical_contracts = {
+        "personal_what_if": PERSONAL_MODEL_CONTRACT_VERSION,
+        "live_wp": "live-wp-v2",
+    }
     for key, model in (pack.models or {}).items():
         if key in WITHHELD_MODEL_KEYS and model.release_status == "available":
             raise ValueError("Surrender Advisor cannot be activated before its validation gate passes")
@@ -1292,6 +1514,11 @@ def _validate_model_declarations(pack: FindingsPackV2) -> None:
         artifact = model.artifact
         if card is None or artifact is None:
             raise ValueError(f"available model {key!r} has no executable declaration")
+        if key in canonical_ids:
+            if model.model_id != canonical_ids[key] or card.model_id != canonical_ids[key]:
+                raise ValueError(f"model {key!r} has a noncanonical model ID")
+            if card.feature_contract_version != canonical_contracts[key]:
+                raise ValueError(f"model {key!r} has a noncanonical feature contract")
         if card.validation.gates is not None and not all(card.validation.gates.values()):
             raise ValueError(f"model {key!r} validation gates are not satisfied")
         expected_contract = contracts.get(key)
@@ -1299,7 +1526,7 @@ def _validate_model_declarations(pack: FindingsPackV2) -> None:
             raise ValueError(f"model {key!r} feature contract does not match the pack")
         if not _within_patch_range(card.patch_scope, pack.patch_range):
             raise ValueError(f"model {key!r} patch scope lies outside the pack range")
-
+        _validate_strict_model_card(key, card)
 def validate_pack_v2_semantics(pack: FindingsPackV2) -> None:
     """Validate cross-row v2 semantics after Pydantic shape validation."""
 
@@ -1317,6 +1544,11 @@ def validate_pack_v2_semantics(pack: FindingsPackV2) -> None:
 
 __all__ = [
     "EXECUTABLE_MODEL_KEYS",
+    "PERSONAL_MODEL_CONTRACT_VERSION",
+    "PERSONAL_MODEL_FEATURE_ORDER",
+    "PERSONAL_MODEL_GATE_NAMES",
+    "PERSONAL_MODEL_ID",
+    "PackV2TrainingImputation",
     "FindingsPackV2",
     "normalize_served_pack_v2",
     "PackV2Artifact",

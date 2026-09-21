@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { PostGameDigest } from "../../api/types";
 import type { FindingsPackV2 } from "../../api/pack-v2";
-import { useWhatIf } from "../../api/hooks";
+import { useOwnerContext, useWhatIf } from "../../api/hooks";
 import { isFindingsPackV2 } from "../../api/pack-v2";
 import { formatRate } from "../format";
 import { SectionHead } from "../ui";
@@ -16,8 +16,10 @@ function featureValues(value: unknown): Record<string, number | null> | null {
 }
 
 export function WhatIfPanel({ pack, digest = null }: WhatIfPanelProps) {
+  const owner = useOwnerContext();
   const whatIf = useWhatIf();
   const [adjustments, setAdjustments] = useState<Record<string, number>>({});
+  const [submittedSnapshot, setSubmittedSnapshot] = useState<string | null>(null);
   const packV2 = isFindingsPackV2(pack) ? pack : null;
   const modelContractReady =
     packV2?.feature_contracts.models?.personal_what_if === "loltrends-cutoff-v2";
@@ -46,6 +48,15 @@ export function WhatIfPanel({ pack, digest = null }: WhatIfPanelProps) {
       const value = baselineFeatures[feature.name];
       return typeof value === "number" && Number.isFinite(value);
     });
+  const inputSnapshot = JSON.stringify({
+    owner: owner.ownerKey,
+    generation: owner.generation,
+    match: digest?.match_id ?? null,
+    pack: packV2?.pack_version ?? null,
+    model: modelCard?.model_version ?? null,
+    baseline: baselineFeatures,
+    adjustments,
+  });
   const unavailableReason =
     !packV2
       ? "Findings Pack v2 is unavailable."
@@ -62,16 +73,49 @@ export function WhatIfPanel({ pack, digest = null }: WhatIfPanelProps) {
                 : controls.length === 0
                   ? "No adjustable features are declared by the model card."
                   : null;
+
+  useEffect(() => {
+    setAdjustments({});
+    setSubmittedSnapshot(null);
+  }, [
+    owner.ownerKey,
+    owner.generation,
+    digest?.match_id,
+    digest?.feature_contract_version,
+    digest?.personal_history_eligibility,
+    packV2?.pack_version,
+    modelCard?.model_version,
+  ]);
+
   const canRun = unavailableReason === null && !whatIf.isPending;
   const response = whatIf.data;
-  const prediction =
-    response?.status === "available" && response.probability != null
-      ? formatRate(response.probability)
-      : "Unavailable";
+  const availableResponse =
+    unavailableReason === null &&
+    submittedSnapshot === inputSnapshot &&
+    response?.status === "available" &&
+    typeof response.probability === "number" &&
+    Number.isFinite(response.probability) &&
+    typeof response.baseline_probability === "number" &&
+    Number.isFinite(response.baseline_probability) &&
+    response.model_version === modelCard?.model_version &&
+    response.pack_version === packV2?.pack_version
+      ? response
+      : null;
+  const responseAvailable = availableResponse !== null;
+  const currentProbability = availableResponse
+    ? formatRate(availableResponse.baseline_probability)
+    : "Unavailable";
+  const simulatedProbability = availableResponse
+    ? formatRate(availableResponse.probability)
+    : "Unavailable";
   const responseReason =
     response && response.status !== "available"
       ? response.reason ?? `What-If status: ${response.status}.`
-      : null;
+      : whatIf.error
+        ? "Local model request failed."
+        : response && !responseAvailable
+          ? "Model provenance is unavailable or stale."
+          : null;
 
   return (
     <div
@@ -129,7 +173,10 @@ export function WhatIfPanel({ pack, digest = null }: WhatIfPanelProps) {
         type="button"
         disabled={!canRun}
         data-testid="what-if-run"
-        onClick={() => whatIf.mutate(adjustments)}
+        onClick={() => {
+          setSubmittedSnapshot(inputSnapshot);
+          whatIf.mutate(adjustments);
+        }}
         style={{
           alignSelf: "flex-start",
           border: "1px solid var(--color-line)",
@@ -152,15 +199,29 @@ export function WhatIfPanel({ pack, digest = null }: WhatIfPanelProps) {
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-          <span style={{ fontSize: 9.5, color: "var(--color-chip-text)" }}>Predicted win rate</span>
+          <span style={{ fontSize: 9.5, color: "var(--color-chip-text)" }}>Current probability</span>
+          <span className="mono-n" data-testid="what-if-current" style={{ font: "700 16px var(--font-mono)", color: "var(--color-chip-text)" }}>
+            {currentProbability}
+          </span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 4 }}>
+          <span style={{ fontSize: 9.5, color: "var(--color-chip-text)" }}>Simulated probability</span>
           <span
             className="mono-n"
             data-testid="what-if-prediction"
             style={{ font: "700 16px var(--font-mono)", color: "var(--color-chip-text)" }}
           >
-            {prediction}
+            {simulatedProbability}
           </span>
         </div>
+        {availableResponse ? (
+          <div
+            data-testid="what-if-provenance"
+            style={{ marginTop: 4, fontSize: 8.5, color: "var(--color-chip-text)" }}
+          >
+            Model {availableResponse.model_version} · Pack {availableResponse.pack_version}
+          </div>
+        ) : null}
       </div>
       <p
         style={{ margin: 0, fontSize: 8.5, lineHeight: 1.4, color: "var(--color-dimmer)" }}
@@ -168,7 +229,8 @@ export function WhatIfPanel({ pack, digest = null }: WhatIfPanelProps) {
       >
         {unavailableReason
           ? `Personal what-if estimates are unavailable because ${unavailableReason.toLowerCase()}`
-          : responseReason ?? "Local ONNX model; this result is scoped to the declared Personal History feature contract."}
+          : responseReason ?? "Local ONNX model; this result is scoped to the declared Personal History feature contract."}{" "}
+        Association only; not causal.
       </p>
     </div>
   );

@@ -1,4 +1,4 @@
-import { useBenchmarks, useHistorySummary, usePack, usePatchAggregates, usePostgameLatest } from "../api/hooks";
+import { useBenchmarks, useHistorySummary, usePack, usePatchAggregates } from "../api/hooks";
 import { actionableErrorMessage } from "../api/client";
 import { isFindingsPack, isFindingsPackV2 } from "../api/pack-v2";
 import { findingEvidence, legacyBenchmarkEvidence } from "../components/populationEvidence";
@@ -7,7 +7,6 @@ import { ProgressSummaryCard } from "../components/progress/ProgressSummaryCard"
 import { RollingWrChart } from "../components/progress/RollingWrChart";
 import { BenchmarkCards } from "../components/progress/BenchmarkCards";
 import { LeakPanel } from "../components/progress/LeakPanel";
-import { WhatIfPanel } from "../components/progress/WhatIfPanel";
 import { LeverAdoption } from "../components/progress/LeverAdoption";
 import { LaneConversion } from "../components/progress/LaneConversion";
 import { PageHeader } from "../components/Layout";
@@ -28,10 +27,7 @@ export function ProgressPage() {
   const aggregates = usePatchAggregates();
   const benchmarks = useBenchmarks();
   const summary = useHistorySummary();
-
-  const postgame = usePostgameLatest();
   const packEvidence = isFindingsPack(pack.data) ? pack.data : undefined;
-  const packV2 = isFindingsPackV2(packEvidence) ? packEvidence : undefined;
   const perPatch = aggregates.data ?? [];
   const laneFinding = findingEvidence(packEvidence).find(
     (finding) => LANE_CONVERSION_RE.test(finding.key),
@@ -91,20 +87,12 @@ export function ProgressPage() {
             )}
           </section>
 
-          <div className="progress-pair">
-            <section aria-labelledby="deaths-heading">
-              <h2 id="deaths-heading" className="route-panel-heading">
-                Deaths by game minute
-              </h2>
-              <LeakPanel />
-            </section>
-            <section aria-labelledby="what-if-heading">
-              <h2 id="what-if-heading" className="route-panel-heading">
-                What-if simulator
-              </h2>
-              <WhatIfPanel pack={packV2 ?? undefined} digest={postgame.data ?? null} />
-            </section>
-          </div>
+          <section aria-labelledby="deaths-heading">
+            <h2 id="deaths-heading" className="route-panel-heading">
+              Deaths by game minute
+            </h2>
+            <LeakPanel />
+          </section>
 
           {aggregates.isError && (
             <div role="alert" style={{ fontSize: 10.5, color: "var(--color-danger)" }}>
@@ -118,7 +106,7 @@ export function ProgressPage() {
             <h2 id="lever-adoption-heading" className="route-panel-heading">
               Lever adoption
             </h2>
-            <LeverAdoption pack={packV2 ?? undefined} />
+            <LeverAdoption pack={isFindingsPackV2(packEvidence) ? packEvidence : undefined} />
             {pack.isLoading && (
               <>
                 <ProgressSkeleton />

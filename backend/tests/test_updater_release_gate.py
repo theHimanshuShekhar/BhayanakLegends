@@ -7,6 +7,8 @@ import hashlib
 import json
 import re
 import tomllib
+import subprocess
+import sys
 from pathlib import Path
 
 from cryptography.exceptions import InvalidSignature
@@ -146,7 +148,7 @@ def test_updater_artifacts_enabled_in_tauri_config():
 
 
 def test_all_release_version_sources_are_aligned():
-    expected = "0.1.15"
+    expected = "1.0.0"
     package = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))
     tauri = json.loads(CONFIG.read_text(encoding="utf-8"))
     backend = tomllib.loads(
@@ -258,6 +260,43 @@ def test_release_tag_gate_and_immutable_slot_precede_build():
     assert order.index("Verify immutable release tag and empty release slot") < order.index(
         "Build Python sidecar binary"
     )
+
+def test_release_tag_version_flows_into_findings_pack_manifest(tmp_path: Path):
+    build = _workflow_step("Build canonical Findings Pack release payload")
+    assert 'VERSION="${GITHUB_REF_NAME#v}"' in build
+    assert '--min-app-version "$VERSION"' in build
+
+    verify = _workflow_step("Verify generated Findings Pack payload")
+    assert 'VERSION="${GITHUB_REF_NAME#v}"' in verify
+    assert 'PACK_EXPECTED_APP_VERSION="$VERSION"' in verify
+    assert 'manifest["min_app_version"] != os.environ["PACK_EXPECTED_APP_VERSION"]' in verify
+
+    asset = tmp_path / "findings-pack.v2.zip"
+    manifest = tmp_path / "findings-pack-manifest.json"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(REPO_ROOT / "tools" / "build_findings_pack_release.py"),
+            "--pack-dir",
+            str(REPO_ROOT / "pack"),
+            "--asset",
+            str(asset),
+            "--manifest",
+            str(manifest),
+            "--download-url",
+            "findings-pack.v2.zip",
+            "--min-app-version",
+            "1.0.0",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    assert payload["min_app_version"] == "1.0.0"
+    assert payload["pack_version"] == "v4"
 
 
 def test_release_draft_is_verified_before_promotion():

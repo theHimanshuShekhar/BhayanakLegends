@@ -229,7 +229,13 @@ def create_app(
 
         champions = ChampionDirectory(data_dir / "ddragon")
         item_catalogs = DataDragonCatalogProvider()
-        resolved_feature_provider = live_feature_provider or LiveWpFeatureProvider(item_catalogs)
+        configured_patch = config.live_patch.strip() if isinstance(config.live_patch, str) and config.live_patch.strip() else None
+        def resolve_live_patch(snapshot):
+            return LiveWpFeatureProvider._snapshot_patch(snapshot) or configured_patch
+        resolved_feature_provider = live_feature_provider or LiveWpFeatureProvider(
+            item_catalogs,
+            patch_provider=resolve_live_patch,
+        )
         app.state.live_feature_provider = resolved_feature_provider
         app.state.live_service = LiveService(
             HttpxLcuConnection(config.lcu_lockfile),
@@ -238,6 +244,7 @@ def create_app(
             champion_names=champions.get,
             inference=app.state.inference_runtime,
             feature_provider=resolved_feature_provider,
+            trusted_patch=configured_patch,
         )
 
     app.add_middleware(TokenAuthMiddleware, token=config.token)

@@ -26,6 +26,10 @@ class SidecarConfig(BaseSettings):
     pack_dir: Path | None = None
     # Optional local replay seams; production defaults retain normal discovery.
     lcu_lockfile: Path | None = None
+    # Official allgamedata omits gameVersion on some client builds. When that
+    # happens, production must supply a trusted current patch rather than
+    # guessing from the latest Data Dragon release.
+    live_patch: str | None = None
     live_client_data_url: str = "https://127.0.0.1:2999/liveclientdata/allgamedata"
     # Development-only local import capability. A non-empty approved-root list
     # is required in addition to this flag before the endpoint is enabled.

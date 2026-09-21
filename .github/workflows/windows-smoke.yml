@@ -195,6 +195,7 @@ jobs:
           $manifestUrl = "http://127.0.0.1:$($fixtureInfo.port)/findings-pack-manifest.json"
           $manifestPublicKey = "$($fixtureInfo.manifest_public_key)"
           $packVersion = "$($fixtureInfo.pack_version)"
+          $corruptManifestUrl = "http://127.0.0.1:$($fixtureInfo.port)/findings-pack-corrupt-manifest.json"
           "FIXTURE_ENDPOINT=$fixtureEndpoint" |
             Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           $env:FIXTURE_ENDPOINT = $fixtureEndpoint
@@ -207,6 +208,10 @@ jobs:
           "SMOKE_PACK_VERSION=$packVersion" |
             Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           $env:SMOKE_PACK_VERSION = $packVersion
+          "SMOKE_CORRUPT_PACK_MANIFEST_URL=$corruptManifestUrl" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $env:SMOKE_CORRUPT_PACK_MANIFEST_URL = $corruptManifestUrl
+
 
           python tools/patch_updater_endpoint.py src-tauri/tauri.conf.json `
             --endpoint "$env:FIXTURE_ENDPOINT" `
@@ -249,7 +254,31 @@ jobs:
           if ($payload.version -ne $env:SMOKE_VALID_VERSION) {
             throw "updater fixture returned unexpected valid version: $($payload.version)"
           }
+          $packStoreRoot = Join-Path $env:RUNNER_TEMP "bl-pack-store-smoke"
+          $packStoreState = Join-Path $env:SMOKE_DIAGNOSTICS "pack-store-smoke.json"
+          if (Test-Path $packStoreRoot) { throw "isolated PackStore smoke root already exists" }
+          uv run --project backend --locked python tools/windows_pack_corrupt_smoke.py run `
+            --pack-dir $env:SMOKE_PACK_DIR `
+            --root $packStoreRoot `
+            --valid-manifest-url $manifestUrl `
+            --corrupt-manifest-url $corruptManifestUrl `
+            --manifest-public-key $manifestPublicKey `
+            --state-file $packStoreState
+          if ($LASTEXITCODE -ne 0) { throw "Findings Pack corrupt-candidate smoke failed" }
+          $packStoreProof = Get-Content $packStoreState | ConvertFrom-Json
+          if (
+            $packStoreProof.result -ne "passed" -or
+            -not $packStoreProof.restart_retained_generation -or
+            -not $packStoreProof.restart_retained_version -or
+            -not $packStoreProof.restart_retained_hash
+          ) {
+            throw "Findings Pack corrupt-candidate smoke did not retain the last valid generation"
+          }
 
+          $smokeImportRoot = Join-Path $env:RUNNER_TEMP "bl-smoke-import"
+          New-Item -ItemType Directory -Force -Path $smokeImportRoot | Out-Null
+          $env:SMOKE_IMPORT_ROOT = $smokeImportRoot
+          "SMOKE_IMPORT_ROOT=$smokeImportRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           pwsh -File tools/windows_packaged_smoke.ps1 `
             -InstallerPath "$env:SMOKE_INSTALLER" `
             -InstallRoot "$env:RUNNER_TEMP\bl-packaged-install" `
@@ -258,16 +287,19 @@ jobs:
             -FlipFile "$env:SMOKE_FLIP_FILE" `
             -HigherVersion "$env:SMOKE_VALID_VERSION" `
             -RejectedVersion "$env:SMOKE_INVALID_VERSION" `
-            -ExpectedPackVersion "$env:SMOKE_PACK_VERSION"
+            -ExpectedPackVersion "$env:SMOKE_PACK_VERSION" `
+            -DiagnosticsDir "$env:SMOKE_DIAGNOSTICS" `
+            -ImportRoot "$env:SMOKE_IMPORT_ROOT"
 
-      - name: Verify updater stayed on the local fixture
+      - name: Verify updater and Findings Pack stayed on the local fixture
         if: ${{ always() }}
         shell: pwsh
         run: |
           if (Test-Path $env:SMOKE_FIXTURE_STATE) {
             python tools/check_windows_smoke_fixture.py `
               "$env:SMOKE_DIAGNOSTICS\updater-fixture.requests.jsonl" `
-              --state-file "$env:SMOKE_FIXTURE_STATE"
+              --state-file "$env:SMOKE_FIXTURE_STATE" `
+              --require-security
           }
 
       - name: Restore release updater configuration
@@ -283,6 +315,10 @@ jobs:
         run: |
           if ($env:FIXTURE_PID) {
             Stop-Process -Id ([int]$env:FIXTURE_PID) -Force -ErrorAction SilentlyContinue
+          }
+          if ($env:RUNNER_TEMP) {
+            Remove-Item (Join-Path $env:RUNNER_TEMP "bl-pack-store-smoke") -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item (Join-Path $env:RUNNER_TEMP "bl-smoke-invalid-phase") -Force -ErrorAction SilentlyContinue
           }
 
       - name: Redact smoke diagnostics
@@ -305,5 +341,9 @@ jobs:
         shell: pwsh
         run: |
           Remove-Item $env:SMOKE_KEY_PATH, $env:SMOKE_PUBLIC_KEY_PATH -Force -ErrorAction SilentlyContinue
+          Remove-Item $env:SMOKE_ARTIFACTS -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item (Join-Path $env:RUNNER_TEMP "tauri.conf.json.smoke-backup") -Force -ErrorAction SilentlyContinue
           Remove-Item Env:SMOKE_KEY_PASSWORD -ErrorAction SilentlyContinue
+          Remove-Item Env:BHAYANAK_PACK_RELEASE_MANIFEST_URL -ErrorAction SilentlyContinue
           Remove-Item Env:BHAYANAK_PACK_RELEASE_MANIFEST_PUBLIC_KEY -ErrorAction SilentlyContinue
+          Remove-Item Env:SMOKE_CORRUPT_PACK_MANIFEST_URL -ErrorAction SilentlyContinue

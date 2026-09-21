@@ -5,6 +5,7 @@ from contextlib import nullcontext
 import json
 from pathlib import Path
 from types import SimpleNamespace
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -138,6 +139,7 @@ async def test_catalog_provider_suppresses_when_no_matching_version_exists() -> 
 async def test_live_service_passes_exact_adapter_to_runtime() -> None:
     fixture = load_fixture()
     snapshot = deepcopy(fixture["observations"][0]["live"])
+    snapshot["observed_at_s"] = time.time()
     snapshot["gameData"]["gameVersion"] = fixture["patch"]
     snapshot["activePlayer"]["summonerName"] = "FixturePlayer01"
     runtime = RecordingRuntime()
@@ -164,6 +166,7 @@ async def test_live_service_passes_exact_adapter_to_runtime() -> None:
 async def test_live_service_truthfully_suppresses_missing_catalog() -> None:
     fixture = load_fixture()
     snapshot = deepcopy(fixture["observations"][0]["live"])
+    snapshot["observed_at_s"] = time.time()
     snapshot["gameData"]["gameVersion"] = fixture["patch"]
     runtime = RecordingRuntime()
     service = LiveService(
@@ -181,6 +184,155 @@ async def test_live_service_truthfully_suppresses_missing_catalog() -> None:
     assert inference["probability"] is None
     assert "Data Dragon" in inference["reason"]
     assert runtime.vector is None
+
+
+async def test_live_service_refreshes_discovered_patch_for_each_game_lifecycle() -> None:
+    fixture = load_fixture()
+    first = deepcopy(fixture["observations"][0]["live"])
+    first["gameData"].update({"gameId": 1001, "gameVersion": None})
+    second = deepcopy(fixture["observations"][0]["live"])
+    second["gameData"].update({"gameId": 1002, "gameVersion": None})
+
+    class LifecycleLcu:
+        def __init__(self) -> None:
+            self.phases = iter(["InProgress", "EndOfGame", "InProgress"])
+            self.versions = iter(["15.18.1", "16.17.1"])
+            self.version_calls = 0
+
+        async def gameflow_phase(self) -> str:
+            return next(self.phases)
+
+        async def champ_select_session(self):
+            return None
+
+        async def client_version(self) -> str:
+            self.version_calls += 1
+            return next(self.versions)
+
+    class LifecycleIngame:
+        def __init__(self) -> None:
+            self.games = iter([first, second])
+
+        async def allgamedata(self) -> dict:
+            return next(self.games)
+
+    class RecordingProvider:
+        def __init__(self) -> None:
+            self.patches: list[str | None] = []
+            self.last_reason = "fixture suppression"
+
+        async def prepare(self, _raw_game, **kwargs):
+            self.patches.append(kwargs.get("patch"))
+            return None
+
+    lcu = LifecycleLcu()
+    provider = RecordingProvider()
+    service = LiveService(
+        lcu,
+        LifecycleIngame(),
+        Hub(),
+        inference=RecordingRuntime(),
+        feature_provider=provider,
+    )
+
+    await service.tick()
+    await service.tick()
+    assert service._discovered_patch is None
+    await service.tick()
+
+    assert provider.patches == ["15.18.1", "16.17.1"]
+    assert lcu.version_calls == 2
+
+
+async def test_live_service_configured_patch_stays_stable_across_games() -> None:
+    fixture = load_fixture()
+    first = deepcopy(fixture["observations"][0]["live"])
+    first["gameData"].update({"gameId": 1001, "gameVersion": None})
+    second = deepcopy(fixture["observations"][0]["live"])
+    second["gameData"].update({"gameId": 1002, "gameVersion": None})
+
+    class ConfiguredLcu:
+        def __init__(self) -> None:
+            self.version_calls = 0
+
+        async def gameflow_phase(self) -> str:
+            return "InProgress"
+
+        async def champ_select_session(self):
+            return None
+
+        async def client_version(self) -> str:
+            self.version_calls += 1
+            return "16.17.1"
+
+    class TwoGames:
+        def __init__(self) -> None:
+            self.games = iter([first, second])
+
+        async def allgamedata(self) -> dict:
+            return next(self.games)
+
+    class RecordingProvider:
+        def __init__(self) -> None:
+            self.patches: list[str | None] = []
+            self.last_reason = "fixture suppression"
+
+        async def prepare(self, _raw_game, **kwargs):
+            self.patches.append(kwargs.get("patch"))
+            return None
+
+    lcu = ConfiguredLcu()
+    provider = RecordingProvider()
+    service = LiveService(
+        lcu,
+        TwoGames(),
+        Hub(),
+        inference=RecordingRuntime(),
+        feature_provider=provider,
+        trusted_patch="15.18.9",
+    )
+
+    await service.tick()
+    await service.tick()
+
+    assert provider.patches == ["15.18.9", "15.18.9"]
+    assert lcu.version_calls == 0
+async def test_live_provider_accepts_official_shape_without_source_capture() -> None:
+    fixture = load_fixture()
+    snapshot = deepcopy(fixture["observations"][0]["live"])
+    snapshot["gameData"]["gameVersion"] = fixture["patch"]
+    provider = LiveWpFeatureProvider(StaticCatalogProvider(catalog(fixture)))
+    adapter = await provider.prepare(snapshot, monotonic_s=100.0)
+    assert adapter is not None
+    assert adapter(snapshot) is not None
+
+async def test_live_provider_accepts_official_shape_with_trusted_patch_provider() -> None:
+    fixture = load_fixture()
+    snapshot = deepcopy(fixture["observations"][0]["live"])
+    snapshot["observed_at_s"] = 100.0
+    snapshot["activePlayer"]["summonerName"] = "FixturePlayer01"
+    snapshot["gameData"].pop("gameVersion", None)
+    provider = LiveWpFeatureProvider(
+        StaticCatalogProvider(catalog(fixture)),
+        patch_provider=lambda _snapshot: fixture["patch"],
+    )
+    adapter = await provider.prepare(snapshot, now_s=100.0)
+    assert adapter is not None
+    assert adapter(snapshot) is not None
+
+async def test_live_provider_marks_identical_observation_stale_after_monotonic_bound() -> None:
+    fixture = load_fixture()
+    snapshot = deepcopy(fixture["observations"][0]["live"])
+    snapshot["gameData"]["gameVersion"] = fixture["patch"]
+    provider = LiveWpFeatureProvider(
+        StaticCatalogProvider(catalog(fixture)),
+        monotonic_clock=lambda: 0.0,
+    )
+    assert await provider.prepare(snapshot, monotonic_s=0.0) is not None
+    assert await provider.prepare(snapshot, monotonic_s=5.001) is None
+    assert provider.last_reason == "live observation stream is stale"
+
+
 
 
 async def test_typed_live_vector_reaches_runtime_model_session() -> None:
@@ -231,6 +383,7 @@ async def test_typed_live_vector_reaches_runtime_model_session() -> None:
 def test_live_route_exposes_service_probability(tmp_path: Path, monkeypatch) -> None:
     fixture = load_fixture()
     snapshot = deepcopy(fixture["observations"][0]["live"])
+    snapshot["observed_at_s"] = time.time()
     snapshot["gameData"]["gameVersion"] = fixture["patch"]
     snapshot["activePlayer"]["summonerName"] = "FixturePlayer01"
     provider = LiveWpFeatureProvider(StaticCatalogProvider(catalog(fixture)))
@@ -246,6 +399,7 @@ def test_live_route_exposes_service_probability(tmp_path: Path, monkeypatch) -> 
             )
 
         async def start(self) -> None:
+            snapshot["observed_at_s"] = time.time()
             await self.tick()
 
         async def stop(self) -> None:

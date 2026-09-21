@@ -340,6 +340,21 @@ def _build_live_event_row(raw: object) -> LiveEvent | None:
     if any(value is not None and not isinstance(value, str) for value in (actor, victim, detail)):
         return None
     return LiveEvent(name=name, t_s=event_time, actor=actor, victim=victim, detail=detail)
+
+
+def _raw_live_events(data: dict | None) -> list[LiveEvent]:
+    if not isinstance(data, dict):
+        return []
+    events_container = data.get("events")
+    raw_events = events_container.get("Events") if isinstance(events_container, dict) else None
+    if not isinstance(raw_events, list):
+        return []
+    events: list[LiveEvent] = []
+    for raw_event in raw_events:
+        event = _build_live_event_row(raw_event)
+        if event is not None:
+            events.append(event)
+    return events
 def build_ingame_snapshot(
     data: dict | None,
     *,
@@ -374,13 +389,8 @@ def build_ingame_snapshot(
             teams[side].append(row)
         if local_summoner is not None and row.summoner == local_summoner:
             local_champion = row.champion
-    events: list[LiveEvent] = []
-    for raw_event in ((data.get("events") or {}).get("Events") or []):
-        event = _build_live_event_row(raw_event)
-        if event is not None:
-            events.append(event)
-    events.sort(key=lambda event: event.t_s)
-    events = events[-MAX_EVENTS:]
+    raw_events = _raw_live_events(data)
+    events = sorted(raw_events, key=lambda event: event.t_s)[-MAX_EVENTS:]
     clock = game_data.get("gameTime", game_data.get("gameClock")) or 0
     raw_mode = game_data.get("gameMode")
     mode = raw_mode if isinstance(raw_mode, str) and raw_mode in _GAME_MODES else None
@@ -549,8 +559,8 @@ class _LiveEventDeltaTracker:
             source_order=tracked.source_order,
             name=tracked.event.name,
             t_s=tracked.event.t_s,
-            baseline_probability=baseline_probability,
-            event_probability=event_probability,
+            baseline_probability=None,
+            event_probability=None,
             delta_probability=None,
             pre_observed_game_time_s=pre_time,
             post_observed_game_time_s=post_time,
@@ -712,6 +722,7 @@ class LiveService:
         champion_names=None,
         inference=None,
         feature_provider=None,
+        trusted_patch: str | None = None,
     ) -> None:
         self._lcu = lcu
         self._ingame = ingame
@@ -720,12 +731,23 @@ class LiveService:
         self._names_source = champion_names
         self._inference = inference
         self._feature_provider = feature_provider
+        self._configured_patch = trusted_patch
+        self._discovered_patch: str | None = None
         self._task: asyncio.Task | None = None
         self._session_dump: dict | None = None
         self._ingame_dump: dict | None = None
         self._status_dump: dict | None = None
         self._game_id: int | None = None
         self._event_delta_tracker = _LiveEventDeltaTracker()
+
+    @property
+    def _trusted_patch(self) -> str | None:
+        return self._configured_patch or self._discovered_patch
+    def _reset_live_feature_stream(self) -> None:
+        reset = getattr(self._feature_provider, "reset_stream", None)
+        if callable(reset):
+            reset()
+
 
     async def start(self) -> None:
         if self._task is not None and not self._task.done():
@@ -771,9 +793,9 @@ class LiveService:
         raw_game: dict | None,
         clock_s: float,
     ) -> tuple[LiveInference, LiveFeatureVector | None]:
-        def suppressed(reason: str) -> tuple[LiveInference, LiveFeatureVector | None]:
+        def suppressed(reason: str, *, status: LiveInferenceStatus = "suppressed") -> tuple[LiveInference, LiveFeatureVector | None]:
             return (
-                LiveInference(status="suppressed", observed_game_time_s=clock_s, reason=reason),
+                LiveInference(status=status, observed_game_time_s=clock_s, reason=reason),
                 None,
             )
 
@@ -787,18 +809,19 @@ class LiveService:
             return suppressed("exact live feature adapter unavailable")
         prepare = getattr(prepared, "prepare", None)
         if prepare is not None:
-            capture_s = time.time()
             try:
-                prepared = prepare(raw_game, observed_at_s=capture_s, now_s=capture_s)
+                prepare_kwargs = {"monotonic_s": time.monotonic()}
+                if self._trusted_patch is not None:
+                    prepare_kwargs["patch"] = self._trusted_patch
+                prepared = prepare(raw_game, **prepare_kwargs)
                 if inspect.isawaitable(prepared):
                     prepared = await prepared
             except Exception:
                 prepared = None
             if prepared is None:
-                reason = getattr(self._feature_provider, "last_reason", None) or (
-                    "exact live feature adapter unavailable"
-                )
-                return suppressed(reason)
+                reason = getattr(self._feature_provider, "last_reason", None) or "exact live feature adapter unavailable"
+                status = "stale" if "stale" in reason.lower() else "suppressed"
+                return suppressed(reason, status=status)
         if not callable(prepared):
             return suppressed("exact live feature adapter unavailable")
         try:
@@ -871,6 +894,30 @@ class LiveService:
                 raw_game = await self._ingame.allgamedata()
             except Exception as exc:
                 raw_game, last_error = None, last_error or _truncate(str(exc))
+            game_id: int | None = None
+            if isinstance(raw_game, dict):
+                game_data = raw_game.get("gameData")
+                if isinstance(game_data, dict):
+                    raw_game_id = game_data.get("gameId")
+                    try:
+                        game_id = int(raw_game_id) if raw_game_id is not None else None
+                    except (TypeError, ValueError, OverflowError):
+                        game_id = None
+            new_game_lifecycle = game_id is not None and game_id != self._game_id
+            if new_game_lifecycle:
+                self._reset_live_feature_stream()
+            if self._configured_patch is None and new_game_lifecycle:
+                self._discovered_patch = None
+                version_reader = getattr(self._lcu, "client_version", None)
+                if callable(version_reader):
+                    try:
+                        candidate_patch = version_reader()
+                        if inspect.isawaitable(candidate_patch):
+                            candidate_patch = await candidate_patch
+                        if isinstance(candidate_patch, str) and candidate_patch.strip():
+                            self._discovered_patch = candidate_patch.strip()
+                    except Exception:
+                        self._discovered_patch = None
             clock_value = 0.0
             if isinstance(raw_game, dict):
                 game_data = raw_game.get("gameData")
@@ -880,12 +927,13 @@ class LiveService:
                     except (TypeError, ValueError, OverflowError):
                         clock_value = 0.0
             inference, vector = await self._live_inference(raw_game, clock_value)
-            ingame, game_id = build_ingame_snapshot(raw_game, inference=inference)
-            if game_id != self._game_id:
+            ingame, snapshot_game_id = build_ingame_snapshot(raw_game, inference=inference)
+            if snapshot_game_id != self._game_id:
                 self._event_delta_tracker.reset()
-            self._game_id = game_id
+            self._game_id = snapshot_game_id
+            raw_events = _raw_live_events(raw_game)
             event_deltas = self._event_delta_tracker.process(
-                ingame.events,
+                raw_events,
                 clock_s=ingame.clock_s,
                 inference=ingame.inference,
                 vector=vector,
@@ -893,7 +941,9 @@ class LiveService:
             ingame = ingame.model_copy(update={"event_deltas": event_deltas})
         else:
             self._game_id = None
+            self._discovered_patch = None
             self._event_delta_tracker.reset()
+            self._reset_live_feature_stream()
 
         await self._publish_changed("champselect.state", champ_select.model_dump(), "_session_dump")
         await self._publish_changed("live.state", ingame.model_dump(), "_ingame_dump")

@@ -15,8 +15,10 @@ from types import SimpleNamespace
 import httpx
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from pydantic import ValidationError as PydanticValidationError
 
 from bhayanak_legends.inference import InferenceRuntime
+from bhayanak_legends.pack_v2 import FindingsPackV2
 from bhayanak_legends.pack import PackError, PackStore, validate_pack_directory
 from bhayanak_legends.pack_v2 import PackV2ModelCard
 from pack_fixture_helpers import (
@@ -35,13 +37,14 @@ SCHEMA_PATH = PACK_DIR / "pack.schema.json"
 SEED_PACK_VERSION = "v4"
 CANDIDATE_PACK_VERSION = "v5"
 
-def _onnx_bytes(*, output: str = "probability", operator: str = "Identity") -> bytes:
+def _constant_onnx_bytes(value: float) -> bytes:
     onnx = pytest.importorskip("onnx")
     from onnx import TensorProto, helper
 
-    input_info = helper.make_tensor_value_info("features", TensorProto.FLOAT, [None, 1])
+    input_info = helper.make_tensor_value_info("features", TensorProto.FLOAT, [None, 14])
     output_info = helper.make_tensor_value_info("probability", TensorProto.FLOAT, [None, 1])
-    node = helper.make_node(operator, ["features"], [output], name="fixture-node")
+    tensor = helper.make_tensor("constant", TensorProto.FLOAT, [1, 1], [value])
+    node = helper.make_node("Constant", [], ["probability"], value=tensor)
     graph = helper.make_graph([node], "fixture", [input_info], [output_info])
     model = helper.make_model(
         graph,
@@ -51,56 +54,51 @@ def _onnx_bytes(*, output: str = "probability", operator: str = "Identity") -> b
     return model.SerializeToString()
 
 
-def _constant_onnx_bytes(value: float) -> bytes:
-    onnx = pytest.importorskip("onnx")
-    from onnx import TensorProto, helper
+def _onnx_bytes(*, output: str = "probability", operator: str = "Identity") -> bytes:
+    del output, operator
+    return _constant_onnx_bytes(0.25)
 
-    tensor = helper.make_tensor("constant", TensorProto.FLOAT, [1, 1], [value])
-    output_info = helper.make_tensor_value_info("probability", TensorProto.FLOAT, [None, 1])
-    node = helper.make_node("Constant", [], ["probability"], value=tensor)
-    graph = helper.make_graph([node], "fixture", [], [output_info])
-    model = helper.make_model(
-        graph,
-        producer_name="bhayanak-model-safety-test",
-        opset_imports=[helper.make_operatorsetid("", 13)],
+
+FIXTURE_FEATURE_ORDER = [
+    "cs10",
+    "level10",
+    "gold_diff_10",
+    "team_gold_diff_15m",
+    "recalls_before_15m",
+    "avg_banked_gold_at_recall_by_15m",
+    "avg_banked_gold_at_recall_by_20m",
+    "unseen_recall_share_by_15m",
+    "unseen_recall_share_by_20m",
+    "first_dragon_by_20m_s",
+    "first_riftherald_by_20m_s",
+    "first_baron_by_20m_s",
+    "early_fight_participation_rate",
+    "plates_taken_by_14m",
+]
+FIXTURE_ADJUSTABLE = "unseen_recall_share_by_20m"
+
+
+def _fixture_values(value: float = 0.25) -> dict[str, float]:
+    values = dict(
+        zip(
+            FIXTURE_FEATURE_ORDER,
+            [150.0, 9.5, 0.0, 0.0, 10.0, 7500.0, 7500.0, 0.5, value, 600.0, 600.0, 600.0, 0.5, 7.5],
+            strict=True,
+        )
     )
-    return model.SerializeToString()
+    return values
 
 
 def _card() -> dict:
-    return {
-        "model_id": "personal-what-if",
-        "model_version": "fixture-1",
-        "feature_contract_version": "fixture-contract",
-        "input_names": ["features"],
-        "output_names": ["probability"],
-        "features": [
-            {
-                "name": "x",
-                "dtype": "float32",
-                "unit": "probability",
-                "source": "deterministic fixture",
-                "adjustable": True,
-                "bounds": {"min": 0.0, "max": 1.0},
-            }
-        ],
-        "feature_order": ["x"],
-        "preprocessing": [
-            {"name": "identity-x", "feature": "x", "operation": "identity"}
-        ],
-        "bounds": {"x": {"min": 0.0, "max": 1.0}},
-        "patch_scope": {"min": "14.17", "max": "16.17"},
-        "validation": {
-            "grouped_holdout": {"auc": 1.0},
-            "temporal_holdout": {"auc": 1.0},
-            "calibration": {"ece": 0.0},
-            "parity": {"fixture": True},
-            "gates": {"grouped": True, "temporal": True, "parity": True},
-        },
-        "caveats": ["Deterministic test fixture only."],
-        "smoke_test": {"features": [0.25], "expected": 0.25, "tolerance": 1e-6},
+    source = json.loads((PACK_DIR / "findings-pack.v2.json").read_text(encoding="utf-8"))
+    card = copy.deepcopy(source["models"]["personal_what_if"]["model_card"])
+    card["model_version"] = "fixture-1"
+    card["smoke_test"] = {
+        "features": [_fixture_values()[name] for name in FIXTURE_FEATURE_ORDER],
+        "expected": 0.25,
+        "tolerance": 1e-6,
     }
-
+    return card
 
 def _fixture_pack(tmp_path: Path, *, artifact: bytes | None = None) -> tuple[Path, dict, bytes, dict]:
     artifact = artifact or _onnx_bytes()
@@ -113,9 +111,9 @@ def _fixture_pack(tmp_path: Path, *, artifact: bytes | None = None) -> tuple[Pat
 
     card = PackV2ModelCard.model_validate(raw_card).model_dump(mode="json")
     card_bytes = json.dumps(card, separators=(",", ":"), ensure_ascii=False).encode()
-    pack["feature_contracts"]["models"]["personal_what_if"] = "fixture-contract"
+    pack["feature_contracts"]["models"]["personal_what_if"] = "loltrends-cutoff-v2"
     pack["models"]["personal_what_if"] = {
-        "model_id": "personal-what-if",
+        "model_id": "personal-what-if-v2",
         "release_status": "available",
         "artifact": {
             "path": "models/fixture.onnx",
@@ -150,14 +148,15 @@ def test_deterministic_onnx_fixture_validates_and_survives_restart(tmp_path: Pat
     validate_pack_directory(root)
     store = PackStore(root)
     runtime = InferenceRuntime(store)
-    result = runtime.predict("personal_what_if", {"x": 0.25}, patch="16.17")
+    values = _fixture_values()
+    result = runtime.predict("personal_what_if", values, patch="16.17")
     assert result.status == "available"
     assert result.probability == pytest.approx(0.25, abs=1e-6)
 
     restarted = PackStore(root)
     restarted.initialize()
     after_restart = InferenceRuntime(restarted).predict(
-        "personal_what_if", {"x": 0.25}, patch="16.17"
+        "personal_what_if", values, patch="16.17"
     )
     assert after_restart.status == "available"
     assert after_restart.probability == pytest.approx(0.25, abs=1e-6)
@@ -166,11 +165,77 @@ def test_deterministic_onnx_fixture_validates_and_survives_restart(tmp_path: Pat
 def test_runtime_requires_exact_features_and_declared_domain(tmp_path: Path) -> None:
     root, _pack, _artifact, _card_payload = _fixture_pack(tmp_path)
     runtime = InferenceRuntime(PackStore(root))
-    assert runtime.predict("personal_what_if", {"x": 0.25, "extra": 1}).status == "suppressed"
+    values = _fixture_values()
+    assert runtime.predict("personal_what_if", {**values, "extra": 1}).status == "suppressed"
     assert runtime.predict("personal_what_if", {}).status == "suppressed"
-    out_of_domain = runtime.predict("personal_what_if", {"x": 1.1})
+    out_of_domain = runtime.predict(
+        "personal_what_if", {**values, FIXTURE_ADJUSTABLE: 1.1}
+    )
     assert out_of_domain.status == "out-of-domain"
     assert "fixture.onnx" not in (out_of_domain.reason or "")
+
+
+def test_what_if_rejects_out_of_domain_baseline_before_predictions(tmp_path: Path) -> None:
+    root, _pack, _artifact, _card_payload = _fixture_pack(tmp_path)
+    runtime = InferenceRuntime(PackStore(root))
+    calls: list[dict[str, object]] = []
+
+    def unexpected_prediction(_model_key: str, values, **_kwargs):
+        calls.append(dict(values))
+        raise AssertionError("out-of-domain baseline must not reach prediction")
+
+    runtime.predict = unexpected_prediction
+    result = runtime.what_if(
+        {FIXTURE_ADJUSTABLE: 0.5},
+        {**_fixture_values(), FIXTURE_ADJUSTABLE: 1.5},
+        patch="16.17",
+    )
+
+    assert result.status == "out-of-domain"
+    assert result.probability is None
+    assert result.baseline_probability is None
+    assert result.adjusted_features is None
+    assert result.rejected_fields == [FIXTURE_ADJUSTABLE]
+    assert calls == []
+
+
+def test_what_if_provenance_mismatch_is_contract_valid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _pack, _artifact, _card_payload = _fixture_pack(tmp_path)
+    runtime = InferenceRuntime(PackStore(root))
+    predictions = iter(
+        [
+            SimpleNamespace(
+                status="available",
+                probability=0.25,
+                model_version="fixture-1",
+                pack_version="v4",
+                reason=None,
+            ),
+            SimpleNamespace(
+                status="available",
+                probability=0.5,
+                model_version="fixture-2",
+                pack_version="v4",
+                reason=None,
+            ),
+        ]
+    )
+    monkeypatch.setattr(runtime, "predict", lambda *_args, **_kwargs: next(predictions))
+
+    result = runtime.what_if(
+        {FIXTURE_ADJUSTABLE: 0.5},
+        _fixture_values(),
+        patch="16.17",
+    )
+
+    assert result.status == "error"
+    assert result.probability is None
+    assert result.baseline_probability is None
+    assert result.adjusted_features is None
+    assert result.rejected_fields == []
+    assert result.reason == "baseline and adjusted inferences have mismatched model provenance"
 
 
 @pytest.mark.parametrize(
@@ -307,7 +372,7 @@ def test_corrupt_active_model_recovers_last_known_good_pack(tmp_path: Path) -> N
     restarted.initialize()
     assert (root / "models" / "fixture.onnx").is_file()
     assert InferenceRuntime(restarted).predict(
-        "personal_what_if", {"x": 0.25}
+        "personal_what_if", _fixture_values()
     ).status == "available"
 
 
@@ -445,8 +510,8 @@ def test_activation_waits_for_outer_what_if_read_transaction(
     def run_what_if() -> None:
         results.append(
             runtime.what_if(
-                {"x": 0.5},
-                {"x": 0.25},
+                {FIXTURE_ADJUSTABLE: 0.5},
+                _fixture_values(),
                 patch="16.17",
             )
         )
@@ -494,3 +559,22 @@ def test_surrender_runtime_gate_runs_before_session_loading(tmp_path: Path, monk
     result = runtime.predict("surrender_advisor", {"x": 0.25})
     assert result.status == "suppressed"
     assert result.reason == "Surrender Advisor is unavailable"
+
+def test_live_model_card_strict_registry_mutations_are_rejected() -> None:
+    source = json.loads((PACK_DIR / "findings-pack.v2.json").read_text(encoding="utf-8"))
+    card = copy.deepcopy(source["models"]["live_wp"]["model_card"])
+    mutations = {
+        "order": lambda payload: payload["feature_order"].__setitem__(0, "team_kills_diff"),
+        "name": lambda payload: payload["features"][0].__setitem__("name", "wrong_feature"),
+        "unit": lambda payload: payload["features"][1].__setitem__("unit", "kills"),
+        "source": lambda payload: payload["features"][1].__setitem__("source", "untrusted"),
+        "adjustable": lambda payload: payload["features"][1].__setitem__("adjustable", True),
+        "bounds": lambda payload: payload["features"][1]["bounds"].__setitem__("max", 99.0),
+    }
+    for mutation in mutations.values():
+        broken = copy.deepcopy(card)
+        mutation(broken)
+        candidate = copy.deepcopy(source)
+        candidate["models"]["live_wp"]["model_card"] = broken
+        with pytest.raises(PydanticValidationError):
+            FindingsPackV2.model_validate(candidate)

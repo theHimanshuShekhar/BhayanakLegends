@@ -274,11 +274,19 @@ export interface PackV2ModelFeature {
   bounds: PackV2ModelInterval;
 }
 
+export interface PackV2TrainingImputation {
+  strategy: "median";
+  value: number;
+  fit_scope: "training_only";
+}
+
 export interface PackV2PreprocessingStep {
   name: string;
   feature: string;
   operation: string;
   parameters: number[] | null;
+  imputation?: PackV2TrainingImputation | null;
+  runtime_missing_policy?: "reject" | null;
 }
 
 export interface PackV2SmokeTest {
@@ -290,7 +298,7 @@ export interface PackV2SmokeTest {
 export interface PackV2ModelValidation {
   grouped_holdout: Record<string, number>;
   temporal_holdout: Record<string, number>;
-  calibration: Record<string, number>;
+  calibration: Record<string, number | string>;
   parity: Record<string, string | number | boolean>;
   gates: Record<string, boolean> | null;
 }
@@ -362,8 +370,19 @@ export function isFindingsPack(value: unknown): value is FindingsPack {
 }
 
 export function isFindingsPackV2(value: unknown): value is FindingsPackV2 {
-  if (typeof value !== "object" || value === null || !("schema_version" in value)) {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("schema_version" in value) ||
+    value.schema_version !== 2
+  ) {
     return false;
   }
-  return value.schema_version === 2;
+  const pack = value as Partial<FindingsPackV2>;
+  return typeof pack.pack_version === "string" &&
+    pack.pack_version.trim().length > 0 &&
+    typeof pack.feature_contracts === "object" &&
+    pack.feature_contracts !== null &&
+    typeof pack.models === "object" &&
+    pack.models !== null;
 }

@@ -187,7 +187,7 @@ export function LiveMatchPage() {
               boxShadow: active ? "0 0 8px var(--color-teal)" : "none",
             }}
           />
-          {active ? ":2999 · 1s poll" : "Live Companion idle"}
+          {active ? ":2999 · 2s poll" : "Live Companion idle"}
         </span>
         {ingame?.mode && (
           <div

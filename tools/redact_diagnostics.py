@@ -26,8 +26,11 @@ QUERY_TOKEN = re.compile(
 )
 TOKEN_SHAPES = re.compile(
     r"\b(?:ghp|github_pat|glpat|xox[baprs])_[A-Za-z0-9._-]+\b"
+    r"|\bRGAPI-[A-Za-z0-9_-]+\b"
+    r"|\bBearer\s+[A-Za-z0-9._~+/=-]+\b"
 )
 RIOT_KEY = re.compile(r"\bRGAPI-[A-Za-z0-9_-]+\b")
+RAW_LONG_TOKEN = re.compile(r"(?<![A-Za-z0-9])(?=[A-Za-z0-9._~+/=-]{32,}(?![A-Za-z0-9]))[A-Za-z0-9._~+/=-]{32,}")
 KEY_FILE_NAME = re.compile(
     r"(?i)(?:private|public|production|updater|signing|secret|password|token).*(?:key|pem)"
 )
@@ -39,8 +42,8 @@ def redact(text: str) -> str:
     text = BEARER_TOKEN.sub("Bearer [REDACTED]", text)
     text = QUERY_TOKEN.sub(r"\1[REDACTED]", text)
     text = TOKEN_SHAPES.sub("[REDACTED_TOKEN]", text)
-    return RIOT_KEY.sub("RGAPI-[REDACTED]", text)
-
+    text = RIOT_KEY.sub("RGAPI-[REDACTED]", text)
+    return RAW_LONG_TOKEN.sub("[REDACTED_TOKEN]", text)
 
 def _safe_name(path: Path) -> bool:
     return KEY_FILE_NAME.search(path.name) is None

@@ -176,7 +176,7 @@ jobs:
             --asset "$RUNNER_TEMP_NATIVE/findings-pack.v2.zip" \
             --manifest "$RUNNER_TEMP_NATIVE/findings-pack-manifest.json" \
             --download-url "findings-pack.v2.zip" \
-            --min-app-version "0.1.0"
+            --min-app-version "$VERSION"
 
       - name: Sign Findings Pack manifest
         shell: bash
@@ -202,6 +202,8 @@ jobs:
           PACK_MANIFEST_PATH="$RUNNER_TEMP_NATIVE/findings-pack-manifest.json"
           PACK_SIGNATURE_PATH="$RUNNER_TEMP_NATIVE/findings-pack-manifest.json.sig"
           PACK_ASSET_PATH="$RUNNER_TEMP_NATIVE/findings-pack.v2.zip"
+          VERSION="${GITHUB_REF_NAME#v}"
+          export PACK_EXPECTED_APP_VERSION="$VERSION"
           uv run --project backend --locked python - <<'PY'
           import hashlib
           import json
@@ -221,6 +223,8 @@ jobs:
               raise SystemExit("generated Findings Pack manifest size is stale")
           if manifest["sha256"] != hashlib.sha256(asset).hexdigest():
               raise SystemExit("generated Findings Pack manifest hash is stale")
+          if manifest["min_app_version"] != os.environ["PACK_EXPECTED_APP_VERSION"]:
+              raise SystemExit("generated Findings Pack minimum app version does not match the release tag")
           verify_manifest_signature(raw_manifest, signature_path.read_bytes())
           print("generated Findings Pack manifest, payload, and signature match")
           PY

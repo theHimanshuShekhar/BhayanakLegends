@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import argparse
-import copy
 import json
+import sqlite3
 import signal
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -19,11 +20,62 @@ def load_json(name: str) -> dict:
 
 
 class ReplayState:
-    def __init__(self, kind: str) -> None:
+    def __init__(self, kind: str, data_dir: Path | None = None) -> None:
         self.kind = kind
+        self.data_dir = data_dir
         self.scenario = "idle"
+        self._phase_generation = 0
         self.champ = load_json("champselect_session.json")
         self.game = load_json("allgamedata.json")
+
+    @staticmethod
+    def _gameflow_for(scenario: str) -> str:
+        if scenario in {
+            "champ-select",
+            "champ-select-update",
+            "champ-select-assigned",
+            "champ-select-assigned-unlocked",
+            "champ-select-picked",
+            "champ-select-picked-not-locked",
+            "champ-select-locked",
+            "champ-select-completed-lock",
+            "champ-select-unknown-role",
+            "champ-select-unknown",
+            "pack-unavailable",
+            "pack-error",
+        }:
+            return "ChampSelect"
+        if scenario in {"in-game", "in-game-update", "in-game-empty", "malformed"}:
+            return "InProgress"
+        return "None"
+
+    def _refresh_live_observation(self) -> None:
+        self.game["observed_at_s"] = time.time()
+        # The real Live Client API has no replay marker. This fixture-only
+        # field makes an explicit phase transition a new local observation
+        # for the production provider's frozen-stream fingerprint.
+        self.game["replay_phase_generation"] = self._phase_generation
+    def set_history_latest(self, eligibility: str) -> None:
+        if self.kind != "lcu" or self.data_dir is None:
+            raise ValueError("history seed control is available only on the owned LCU replay")
+        if eligibility not in {"eligible", "ineligible"}:
+            raise ValueError(f"unknown history eligibility: {eligibility}")
+        if eligibility == "eligible":
+            eligible_played_at = "2026-03-01T00:00:00Z"
+            ineligible_played_at = "2026-02-01T00:00:00Z"
+        else:
+            eligible_played_at = "2026-02-01T00:00:00Z"
+            ineligible_played_at = "2026-03-01T00:00:00Z"
+        with sqlite3.connect(self.data_dir / "app.db", timeout=5.0) as connection:
+            connection.execute(
+                "UPDATE matches SET played_at = ? WHERE match_id = ?",
+                (eligible_played_at, "what-if-eligible"),
+            )
+            connection.execute(
+                "UPDATE matches SET played_at = ? WHERE match_id = ?",
+                (ineligible_played_at, "what-if-ineligible"),
+            )
+
 
     def _local_cell(self) -> dict:
         local_cell_id = self.champ["localTeamCellId"]
@@ -59,6 +111,10 @@ class ReplayState:
             "unknown-role": "champ-select-unknown-role",
             "missing-pack": "pack-unavailable",
         }.get(scenario, scenario)
+        previous_phase = self._gameflow_for(self.scenario)
+        next_phase = self._gameflow_for(scenario)
+        if next_phase != previous_phase:
+            self._phase_generation += 1
         self.scenario = scenario
         if scenario in {"champ-select", "champ-select-locked", "champ-select-completed-lock"}:
             self.champ = load_json("champselect_session.json")
@@ -79,14 +135,16 @@ class ReplayState:
             self._set_local_state(assigned_position="UNKNOWN", champion_id=0, completed=False)
         elif scenario == "in-game-empty":
             self.game = load_json("allgamedata.json")
+            self._refresh_live_observation()
             for player in self.game["allPlayers"]:
                 player["items"] = []
             self.game["events"]["Events"] = []
         elif scenario in {"in-game", "in-game-update"}:
             self.game = load_json("allgamedata.json")
+            self._refresh_live_observation()
             if scenario == "in-game-update":
                 self.game["gameData"]["gameTime"] = 812.4
-                self.game["gameData"]["gameId"] = 5123456790
+                self.game["gameData"]["gameId"] = 5123456789
                 self.game["events"]["Events"].append(
                     {
                         "EventName": "BaronKill",
@@ -130,14 +188,17 @@ class ReplayState:
             return 200, "{malformed"
         if self.kind == "lcu":
             if path == "phase":
-                return 200, self.gameflow()
+                return 200, self._gameflow_for(self.scenario)
             if path == "session":
                 return 200, self.champ if self.scenario.startswith("champ-select") else None
             if path == "summoner":
                 return 200, {"summonerId": "replay"}
         else:
             if path == "allgamedata":
-                return 200, self.game if self.scenario.startswith("in-game") else None
+                if self.scenario.startswith("in-game"):
+                    self._refresh_live_observation()
+                    return 200, self.game
+                return 200, None
         return 404, {"error": "not found"}
 
 
@@ -189,8 +250,13 @@ class Handler(BaseHTTPRequestHandler):
         try:
             size = int(self.headers.get("Content-Length", "0"))
             payload = json.loads(self.rfile.read(size) or b"{}")
-            self.replay.set_scenario(str(payload["scenario"]))
-        except (ValueError, KeyError, json.JSONDecodeError) as exc:
+            scenario = str(payload["scenario"])
+            if scenario.startswith("history-"):
+                self.replay.set_history_latest(scenario.removeprefix("history-"))
+                self._send(200, {"status": "ok", "scenario": scenario})
+                return
+            self.replay.set_scenario(scenario)
+        except (ValueError, KeyError, json.JSONDecodeError, sqlite3.Error) as exc:
             self._send(400, {"error": str(exc)})
             return
         self._send(200, {"status": "ok", "scenario": self.replay.scenario})
@@ -200,8 +266,9 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--kind", choices=("lcu", "live"), required=True)
     parser.add_argument("--port", type=int, required=True)
+    parser.add_argument("--data-dir", type=Path)
     args = parser.parse_args()
-    state = ReplayState(args.kind)
+    state = ReplayState(args.kind, args.data_dir)
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     server.replay = state  # type: ignore[attr-defined]
     server.daemon_threads = True

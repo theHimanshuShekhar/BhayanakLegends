@@ -80,6 +80,7 @@ log = logging.getLogger("bhayanak_legends.lcu")
 GAMEFLOW_PHASE_PATH = "/lol-gameflow/v1/gameflow-phase"
 CHAMP_SELECT_SESSION_PATH = "/lol-champ-select/v1/session"
 CURRENT_SUMMONER_PATH = "/lol-summoner/v1/current-summoner"
+CLIENT_VERSION_PATH = "/lol-patch/v1/game-version"
 LIVE_CLIENT_DATA_URL = "https://127.0.0.1:2999/liveclientdata/allgamedata"
 DD_VERSIONS_URL = "https://ddragon.leagueoflegends.com/api/versions.json"
 DD_CHAMPIONS_URL = "https://ddragon.leagueoflegends.com/cdn/{version}/data/en_US/champion.json"
@@ -158,6 +159,8 @@ class LcuTransport(Protocol):
     async def champ_select_session(self) -> dict[str, Any] | None: ...
 
     async def current_summoner(self) -> dict[str, Any] | None: ...
+
+    async def client_version(self) -> str | None: ...
 
 
 class IngameTransport(Protocol):
@@ -240,6 +243,15 @@ class HttpxLcuConnection:
 
     async def current_summoner(self) -> dict[str, Any] | None:
         return await self._get_json(CURRENT_SUMMONER_PATH)
+
+    async def client_version(self) -> str | None:
+        payload = await self._get_json(CLIENT_VERSION_PATH)
+        if isinstance(payload, dict):
+            for key in ("version", "gameVersion", "patch"):
+                value = payload.get(key)
+                if isinstance(value, str) and _patch_key(value) is not None:
+                    return value.strip()
+        return None
 
     async def aclose(self) -> None:
         await self._drop()

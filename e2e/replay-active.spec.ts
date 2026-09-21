@@ -15,6 +15,32 @@ const VIEWPORTS = [
 ] as const;
 const UPDATE_FIXTURE_CLOCK_SECONDS = 812;
 
+const POSTGAME_DIGEST = {
+  match_id: "REPLAY_POSTGAME",
+  played_at: "2026-08-01T00:00:00Z",
+  champion: "FixtureMage",
+  role: "MIDDLE",
+  win: true,
+  duration_s: 1800,
+  checkpoints: { gold_diff_10: 100, gold_diff_15: 250, gold_diff_20: null },
+  habits: [],
+  headline: "Won as FixtureMage in a 30-minute game",
+  feature_contract_version: "loltrends-parity-v2",
+  personal_history_eligibility: "eligible",
+  features: {
+    early_fight_participation_rate: 0.4,
+    first_dragon_by_20m_s: 512,
+    plates_taken_by_14m: 2,
+  },
+  team_state: {
+    feature: "team_gold_diff_15m",
+    feature_contract_version: "loltrends-parity-v2",
+    team_gold_diff_15m: 250,
+    observed_through_s: 1800,
+    non_surrendered: true,
+  },
+};
+
 type LivePlayer = {
   summoner: string;
   champion: string | null;
@@ -27,6 +53,21 @@ type LivePlayer = {
   items: { id: number; count: number }[];
 };
 
+type LiveInference = {
+  status: string;
+  probability: number | null;
+  observed_game_time_s: number | null;
+  model_version: string | null;
+  pack_version: string | null;
+};
+
+type LiveEventDelta = {
+  event_id: string;
+  source_order: number;
+  delta_probability: number | null;
+  suppression_status: string;
+};
+
 type LiveSnapshot = {
   active: boolean;
   clock_s: number;
@@ -35,6 +76,8 @@ type LiveSnapshot = {
   local_champion: string | null;
   teams: { order: LivePlayer[]; chaos: LivePlayer[] };
   events: { name: string; t_s: number; actor: string | null; victim: string | null; detail: string | null }[];
+  inference: LiveInference;
+  event_deltas: LiveEventDelta[];
 };
 
 async function setScenario(request: APIRequestContext, base: string, scenario: string) {
@@ -243,12 +286,13 @@ test.describe("active Live Companion replay", () => {
     await expect(page.getByTestId("team-chaos")).toContainText("Camille");
     await expect(page.getByTestId("score-strip")).toContainText("kills");
     await expect(page.getByTestId("event-feed")).toContainText("DragonKill");
-    await expect(page.getByTestId("wp-value")).toHaveText(/Unavailable:/i);
-    await expect(page.getByTestId("wp-status")).toHaveText(/^(?:unavailable|suppressed)$/i);
-    await expect(page.getByTestId("wp-band")).not.toContainText(
-      /(?:\d+(?:\.\d+)?%|bottom quartile|top quartile)/i,
-    );
-    await expectRenderedSnapshot(page, initial);
+    await expect(page.getByTestId("wp-value")).toHaveText(/\d+(?:\.\d+)?%/);
+    await expect(page.getByTestId("wp-status")).toHaveText("available");
+    expect(initial.inference.status).toBe("available");
+    expect(initial.inference.probability).toEqual(expect.any(Number));
+    expect(initial.inference.model_version).toBe("live-wp-v2");
+    expect(initial.inference.pack_version).toBe("v4");
+    expect(initial.event_deltas.every((delta) => delta.suppression_status !== "available" && delta.delta_probability === null)).toBe(true);
     await expectLiveDataContractDetector(page, initial);
     await expectNoHorizontalClipping(page);
     await captureState(page, testInfo, "active");
@@ -259,6 +303,11 @@ test.describe("active Live Companion replay", () => {
     await expect(page.getByTestId("active-kda")).toContainText("5 / 2 / 7");
     await expectGameClockAtLeast(page, UPDATE_FIXTURE_CLOCK_SECONDS);
     const updated = await readIngame(request);
+    expect(updated.inference.status).toBe("available");
+    expect(updated.event_deltas.length).toBeGreaterThan(0);
+    expect(updated.event_deltas.some((delta) => delta.suppression_status === "available" && delta.delta_probability !== null)).toBe(true);
+    expect(updated.event_deltas.some((delta) => delta.event_id.includes("BaronKill"))).toBe(true);
+    await expect(page.getByTestId("wp-event-deltas")).toContainText("BaronKill");
     await expectRenderedSnapshot(page, updated);
     await expectLiveDataContractDetector(page, updated);
     await expect(page).toHaveURL(/\/live$/);
@@ -336,13 +385,14 @@ test.describe("active Live Companion replay", () => {
       await page.unroute("**/events**");
 
       for (const [outcome, win] of [["victory", true], ["defeat", false]] as const) {
-        await page.route(`${SIDECAR}/postgame/latest`, async (route) => {
-          const response = await route.fetch();
-          const digest = (await response.json()) as Record<string, unknown> | null;
-          if (digest) digest.win = win;
-          await route.fulfill({ response, body: JSON.stringify(digest) });
-        });
-        await page.goto("/postgame");
+        await page.route(`${SIDECAR}/postgame/latest`, (route) =>
+          route.fulfill({ status: 200, json: { ...POSTGAME_DIGEST, win } }),
+        );
+        const postgameResponse = page.waitForResponse(
+          (response) => response.url() === `${SIDECAR}/postgame/latest` && response.ok(),
+        );
+        await page.goto("/postgame", { waitUntil: "domcontentloaded" });
+        await postgameResponse;
         await expect(page.getByTestId("verdict")).toHaveText(outcome === "victory" ? "Victory" : "Defeat");
         await captureState(page, testInfo, `contrast-${outcome}-${viewport.width}`);
         await page.unroute(`${SIDECAR}/postgame/latest`);
@@ -492,17 +542,18 @@ test.describe("active Live Companion replay", () => {
       await expect(page).toHaveURL(/\/live$/);
       await expect(collapse).toBeVisible();
       await expect(page.getByTestId("live-route-status")).toHaveText("Live Companion game data active");
-      await expect(page.getByTestId("bridge-status")).toContainText(":2999 · 1s poll");
+      await expect(page.getByTestId("bridge-status")).toContainText(":2999 · 2s poll");
 
       const initial = await readIngame(request);
       await expect(initial.teams.order.flatMap((player) => player.items)).not.toHaveLength(0);
       await expectRenderedSnapshot(page, initial);
       await expectLiveDataContractDetector(page, initial);
-      await expect(page.getByTestId("wp-value")).toHaveText(/Unavailable:/i);
-      await expect(page.getByTestId("wp-status")).toHaveText(/^(?:unavailable|suppressed)$/i);
-      await expect(page.getByTestId("wp-band")).not.toContainText(
-        /(?:\d+(?:\.\d+)?%|bottom quartile|top quartile)/i,
-      );
+      expect(initial.inference.status).toBe("available");
+      expect(initial.inference.probability).toEqual(expect.any(Number));
+      expect(initial.inference.model_version).toBe("live-wp-v2");
+      expect(initial.inference.pack_version).toBe("v4");
+      await expect(page.getByTestId("wp-value")).toHaveText(/\d+(?:\.\d+)?%/);
+      await expect(page.getByTestId("wp-status")).toHaveText("available");
       await expectNoHorizontalClipping(page);
       await captureState(page, testInfo, `flow-in-game-${viewport.width}`);
 
@@ -513,6 +564,18 @@ test.describe("active Live Companion replay", () => {
       await expect(page.getByTestId("active-kda")).toContainText("5 / 2 / 7");
       await expectGameClockAtLeast(page, UPDATE_FIXTURE_CLOCK_SECONDS);
       const updated = await readIngame(request);
+      expect(updated.inference.status).toBe("available");
+      expect(updated.inference.model_version).toBe("live-wp-v2");
+      expect(updated.inference.pack_version).toBe("v4");
+      expect(
+        updated.event_deltas.some(
+          (delta) =>
+            delta.event_id.includes("BaronKill") &&
+            delta.suppression_status === "available" &&
+            delta.delta_probability !== null,
+        ),
+      ).toBe(true);
+      await expect(page.getByTestId("wp-event-deltas")).toContainText("BaronKill");
       await expectRenderedSnapshot(page, updated);
       await expectLiveDataContractDetector(page, updated);
       await expect(collapse).toBeVisible();

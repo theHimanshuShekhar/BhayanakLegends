@@ -17,6 +17,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = REPO_ROOT / "tools" / "windows_updater_fixture.py"
+PACK_ROLLBACK_SMOKE = REPO_ROOT / "tools" / "windows_pack_corrupt_smoke.py"
 
 
 def _wait_for_state(path: Path, process: subprocess.Popen[str]) -> dict[str, object]:
@@ -114,6 +115,28 @@ def test_fixture_serves_exact_valid_then_mismatched_artifacts(fixture_server) ->
     assert manifest["size"] == len(packed) == state["pack_size"]
     assert manifest["sha256"] == hashlib.sha256(packed).hexdigest() == state["pack_sha256"]
     assert manifest["required_model_artifacts"] == state["required_model_artifacts"]
+    corrupt_manifest = json.loads(_get(port, "/findings-pack-corrupt-manifest.json"))
+    corrupt_signature = _get(port, "/findings-pack-corrupt-manifest.json.sig")
+    corrupt_packed = _get(port, "/findings-pack-corrupt.zip")
+    pack_state = state["findings_pack"]
+    assert manifest["pack_version"] == "v4"
+    assert corrupt_manifest["pack_version"] == state["corrupt_manifest_pack_version"]
+    assert corrupt_manifest["pack_version"] != state["pack_version"]
+    assert corrupt_manifest["pack_version"] == "v5-smoke-invalid-129"
+    assert corrupt_manifest["smoke_only_invalid_candidate"] is True
+    assert corrupt_manifest["size"] == len(corrupt_packed) == pack_state["corrupt_size"]
+    assert (
+        corrupt_manifest["sha256"]
+        == hashlib.sha256(corrupt_packed).hexdigest()
+        == pack_state["corrupt_sha256"]
+    )
+    assert hashlib.sha256(corrupt_signature).hexdigest() == pack_state[
+        "corrupt_manifest_signature_sha256"
+    ]
+    with zipfile.ZipFile(io.BytesIO(corrupt_packed)) as archive:
+        with pytest.raises(json.JSONDecodeError):
+            json.loads(archive.read("findings-pack.v2.json"))
+
     pack_root = REPO_ROOT / "pack"
     expected_files = sorted(
         path.relative_to(pack_root).as_posix()
@@ -137,6 +160,55 @@ def test_fixture_serves_exact_valid_then_mismatched_artifacts(fixture_server) ->
     assert "/artifacts/invalid/invalid.nsis.zip" in requests
     assert "127.0.0.1" not in requests
     assert "?" not in requests
+
+def test_pack_rollback_helper_activates_exact_pack_and_retains_it_after_corrupt_candidate(
+    fixture_server, tmp_path: Path
+) -> None:
+    _process, state, _valid_bytes, _invalid_bytes = fixture_server
+    port = int(state["port"])
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(PACK_ROLLBACK_SMOKE),
+            "run",
+            "--pack-dir",
+            str(REPO_ROOT / "pack"),
+            "--root",
+            str(tmp_path / "isolated-store"),
+            "--valid-manifest-url",
+            f"http://127.0.0.1:{port}/findings-pack-manifest.json",
+            "--corrupt-manifest-url",
+            f"http://127.0.0.1:{port}/findings-pack-corrupt-manifest.json",
+            "--manifest-public-key",
+            str(state["manifest_public_key"]),
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    proof = json.loads(result.stdout)
+    assert proof["result"] == "passed"
+    assert proof["pack_version"] == state["pack_version"]
+    assert proof["valid_archive_sha256"] == state["pack_sha256"]
+    assert set(proof["model"]["available_model_keys"]) == {"live_wp", "personal_what_if"}
+    assert set(proof["model"]["models"]) == {"live_wp", "personal_what_if"}
+    assert proof["model"]["models"]["live_wp"]["status"] == "available"
+    assert proof["model"]["models"]["personal_what_if"]["what_if_status"] == "available"
+    assert set(proof["after_rejection_restart"]["model"]["available_model_keys"]) == {
+        "live_wp",
+        "personal_what_if",
+    }
+    assert proof["restart_retained_version"] is True
+    assert proof["restart_retained_hash"] is True
+    requests = Path(str(state["requests_file"])).read_text(encoding="utf-8")
+    assert "/findings-pack-manifest.json" in requests
+    assert "/findings-pack-corrupt-manifest.json" in requests
+    assert "/findings-pack-corrupt-manifest.json.sig" in requests
+    assert "/findings-pack-corrupt.zip" in requests
+    assert requests.index("/findings-pack-manifest.json") < requests.index("/findings-pack-corrupt-manifest.json")
+    assert requests.index("/findings-pack-corrupt-manifest.json.sig") < requests.index("/findings-pack-corrupt.zip")
 
 
 def test_fixture_rejects_non_loopback_and_query_requests(fixture_server) -> None:

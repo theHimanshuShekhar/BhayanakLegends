@@ -7,7 +7,9 @@ param(
   [Parameter(Mandatory = $true)][string]$FlipFile,
   [Parameter(Mandatory = $true)][string]$HigherVersion,
   [Parameter(Mandatory = $true)][string]$RejectedVersion,
-  [Parameter(Mandatory = $true)][string]$ExpectedPackVersion
+  [Parameter(Mandatory = $true)][string]$ExpectedPackVersion,
+  [Parameter(Mandatory = $true)][string]$DiagnosticsDir,
+  [Parameter(Mandatory = $true)][string]$ImportRoot
 )
 
 # Proves the full signed-updater lifecycle against the lower-version install
@@ -39,6 +41,10 @@ $state = [ordered]@{
   owned_sidecars    = @()
   errors            = @()
 }
+$baseline = @()
+$app1 = $null
+$app2 = $null
+$app3 = $null
 
 function Save-State {
   $state | ConvertTo-Json -Depth 8 | Set-Content -Path $StatePath -Encoding UTF8
@@ -148,48 +154,12 @@ function Show-AppLogs {
   } else {
     Write-Output "packaged app state during ${Context}: still running"
   }
+  # Raw sidecar/app output remains in SMOKE_DIAGNOSTICS for the redactor and
+  # checker. Never stream it to the workflow log, where masking is not proof.
   foreach ($log in @($AppStdoutLog, $AppStderrLog)) {
     if (-not $log) { continue }
-    if (Test-Path $log) {
-      Write-Output "--- $log (last 40 lines) ---"
-      if ((Get-Item $log).Length -gt 0) {
-        Get-Content -Path $log -Tail 40 | ForEach-Object { Write-Output $_ }
-      } else {
-        Write-Output "(empty)"
-      }
-    } else {
-      Write-Output "--- $log (absent) ---"
-    }
-  }
-  # Crash forensics: surface recent Application-log entries tied to this
-  # executable or generic crash reporters. Faulting module and exception
-  # code lines are called out explicitly.
-  if ($AppName) {
-    try {
-      $events = Get-WinEvent -FilterHashtable @{ LogName = "Application"; StartTime = (Get-Date).AddMinutes(-15) } `
-        -ErrorAction SilentlyContinue |
-        Where-Object {
-          ($_.ProviderName -in @("Application Error", "Windows Error Reporting")) -or
-          ($_.Message -and $_.Message -like "*$AppName*")
-        } |
-        Select-Object -First 10
-      if ($events) {
-        Write-Output "--- Application event log (last 15 min, matching '$AppName' or crash providers) ---"
-        foreach ($event in $events) {
-          Write-Output "[$($event.TimeCreated)] $($event.ProviderName) (id $($event.Id))"
-          if ($event.Message) {
-            $event.Message -split "`n" |
-              Where-Object { $_ -match "faulting|exception|module" } |
-              ForEach-Object { Write-Output "  $($_.Trim())" }
-          } else {
-            Write-Output "  (no message body)"
-          }
-        }
-      } else {
-        Write-Output "--- Application event log: no entries matching '$AppName' or crash providers in the last 15 minutes ---"
-      }
-    } catch {
-      Write-Output "--- Application event log query failed: $($_.Exception.Message) ---"
+    if (-not (Test-Path $log)) {
+      Write-Output "diagnostic log absent: $([IO.Path]::GetFileName($log))"
     }
   }
 }
@@ -201,6 +171,8 @@ function Invoke-WebviewAssertions {
     [Parameter(Mandatory = $true)][string]$DebugPort,
     [string]$ExpectedVersion,
     [string]$ExpectedPackVersion,
+    [string]$DiagnosticsDir,
+    [string]$ImportRoot,
     [int]$AppExitGraceSeconds = 0,
     [string]$AppStdoutLog,
     [string]$AppStderrLog,
@@ -213,8 +185,13 @@ function Invoke-WebviewAssertions {
   # update-available phase, where the app legitimately self-exits during the
   # install handoff; there node gets a short grace window to conclude on its
   # own (it notices the CDP port going dark and exits 0) before this is
-  # treated as a crash.
-  $nodeArgs = @("tools/windows_packaged_smoke.mjs", "--phase", $Phase, "--debug-port", $DebugPort)
+  $nodeArgs = @(
+    "tools/windows_packaged_smoke.mjs",
+    "--phase", $Phase,
+    "--debug-port", $DebugPort,
+    "--diagnostics-dir", $DiagnosticsDir,
+    "--import-dir", (Join-Path $ImportRoot "FixturePlayer03-BL03")
+  )
   if ($ExpectedVersion) { $nodeArgs += @("--expected-version", $ExpectedVersion) }
   if ($ExpectedPackVersion) { $nodeArgs += @("--expected-pack-version", $ExpectedPackVersion) }
   $node = Start-Process -FilePath "node" -ArgumentList $nodeArgs -NoNewWindow -PassThru
@@ -250,9 +227,9 @@ function Invoke-WebviewAssertions {
 }
 
 try {
-  New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null
   $baseline = @(Get-Sidecars)
   $state.baseline_sidecars = $baseline
+  New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null
   $installerProcess = Start-Process -FilePath $InstallerPath -ArgumentList @("/S", "/D=$InstallRoot") -Wait -PassThru
   if ($installerProcess.ExitCode -ne 0) { throw "NSIS installer failed with exit code $($installerProcess.ExitCode)" }
 
@@ -303,12 +280,9 @@ try {
       (Select-String -Path $installedProbeStdout -Pattern '"type":\s*"ready"' -Quiet -ErrorAction SilentlyContinue)
   } while (-not $installedReady -and -not $installedProbe.HasExited -and (Get-Date) -lt $installedProbeDeadline)
   foreach ($log in @($installedProbeStdout, $installedProbeStderr)) {
-    Write-Output "--- $log ---"
-    if ((Test-Path $log) -and (Get-Item $log).Length -gt 0) {
-      Get-Content $log | ForEach-Object { Write-Output $_ }
-    } else {
-      Write-Output "(empty or absent)"
-    }
+    $name = [IO.Path]::GetFileName($log)
+    $bytes = if (Test-Path $log) { (Get-Item $log).Length } else { 0 }
+    Write-Output "installed sidecar diagnostic captured: $name ($bytes bytes)"
   }
   $state.installed_sidecar_probe = [ordered]@{
     ready = [bool]$installedReady
@@ -320,9 +294,10 @@ try {
     Where-Object { $_.Name -like "bhayanak-legends-sidecar*" } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
   $env:BHAYANAK_TOKEN = $null
-
-
-
+  New-Item -ItemType Directory -Force -Path $ImportRoot | Out-Null
+  $importRootCanonical = (Resolve-Path $ImportRoot).Path
+  $env:BHAYANAK_ALLOW_IMPORT = "true"
+  $env:BHAYANAK_IMPORT_ROOTS = ConvertTo-Json @($importRootCanonical) -Compress
   $app1StdoutLog = Join-Path $env:SMOKE_DIAGNOSTICS "app1-stdout.log"
   $app1StderrLog = Join-Path $env:SMOKE_DIAGNOSTICS "app1-stderr.log"
   $app1 = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru `
@@ -330,7 +305,7 @@ try {
   try {
     # The app may legitimately self-exit mid-phase during install handoff;
     # give node a short grace window to notice the port going dark first.
-    Invoke-WebviewAssertions -App $app1 -Phase "update-available" -DebugPort $DebugPort -ExpectedVersion $HigherVersion -ExpectedPackVersion $ExpectedPackVersion -AppExitGraceSeconds 15 `
+    Invoke-WebviewAssertions -App $app1 -Phase "update-available" -DebugPort $DebugPort -ExpectedVersion $HigherVersion -ExpectedPackVersion $ExpectedPackVersion -DiagnosticsDir $DiagnosticsDir -ImportRoot $ImportRoot -AppExitGraceSeconds 15 `
       -AppStdoutLog $app1StdoutLog -AppStderrLog $app1StderrLog -AppName $appNameForDiagnostics
     $state.phases += [ordered]@{ name = "update-available"; result = "passed" }
   } catch {
@@ -398,7 +373,7 @@ try {
   }
   Save-State
   try {
-    Invoke-WebviewAssertions -App $app2 -Phase "updated" -DebugPort $DebugPort -ExpectedVersion $HigherVersion -ExpectedPackVersion $ExpectedPackVersion `
+    Invoke-WebviewAssertions -App $app2 -Phase "updated" -DebugPort $DebugPort -ExpectedVersion $HigherVersion -ExpectedPackVersion $ExpectedPackVersion -DiagnosticsDir $DiagnosticsDir -ImportRoot $ImportRoot `
       -AppStdoutLog $app2StdoutLog -AppStderrLog $app2StderrLog -AppName $appNameForDiagnostics
     $state.phases += [ordered]@{ name = "updated"; result = "passed" }
   } catch {
@@ -425,7 +400,7 @@ try {
   $app3 = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru `
     -RedirectStandardOutput $app3StdoutLog -RedirectStandardError $app3StderrLog
   try {
-    Invoke-WebviewAssertions -App $app3 -Phase "invalid" -DebugPort $DebugPort -ExpectedVersion $RejectedVersion -ExpectedPackVersion $ExpectedPackVersion `
+    Invoke-WebviewAssertions -App $app3 -Phase "invalid" -DebugPort $DebugPort -ExpectedVersion $RejectedVersion -ExpectedPackVersion $ExpectedPackVersion -DiagnosticsDir $DiagnosticsDir -ImportRoot $ImportRoot `
       -AppStdoutLog $app3StdoutLog -AppStderrLog $app3StderrLog -AppName $appNameForDiagnostics
     $state.phases += [ordered]@{ name = "invalid"; result = "passed" }
   } catch {
@@ -452,4 +427,32 @@ try {
   $state.errors += $_.Exception.Message
   Save-State
   throw
+} finally {
+  foreach ($candidate in @($app1, $app2, $app3)) {
+    if ($null -eq $candidate) { continue }
+    try {
+      $candidate.Refresh()
+      if (-not $candidate.HasExited) {
+        Stop-Process -Id $candidate.Id -Force -ErrorAction SilentlyContinue
+        [void](Wait-Exit -ProcessId $candidate.Id -TimeoutSeconds 10)
+      }
+    } catch {
+      # Best-effort app cleanup continues to the owned-sidecar sweep below.
+    }
+  }
+  $cleanup = Stop-OwnedSidecars -BaselineSidecars $baseline
+  foreach ($sidecar in @($cleanup.attempted)) {
+    if ($state.owned_sidecars -notcontains $sidecar) {
+      $state.owned_sidecars += [int]$sidecar
+    }
+  }
+  $survivors = @($cleanup.survivors)
+  if ($survivors.Count -gt 0) {
+    $message = "owned sidecars survived final packaged-smoke cleanup: $($survivors -join ', ')"
+    $state.result = "failed"
+    $state.errors += $message
+    Save-State
+    throw $message
+  }
+  Save-State
 }

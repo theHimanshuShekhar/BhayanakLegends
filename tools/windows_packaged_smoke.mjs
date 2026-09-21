@@ -1,4 +1,7 @@
 import { chromium } from "@playwright/test";
+import http from "node:http";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 // Packaged-smoke webview assertions for the signed-updater proof pipeline.
 //
@@ -22,9 +25,18 @@ const phase = args.get("--phase");
 const debugPort = args.get("--debug-port");
 const expectedVersion = args.get("--expected-version");
 const expectedPackVersion = args.get("--expected-pack-version");
-if (!["update-available", "updated", "invalid"].includes(phase) || !debugPort || !expectedVersion || !expectedPackVersion) {
+const diagnosticsDir = args.get("--diagnostics-dir");
+const importDir = args.get("--import-dir");
+if (
+  !["update-available", "updated", "invalid"].includes(phase) ||
+  !debugPort ||
+  !expectedVersion ||
+  !expectedPackVersion ||
+  !diagnosticsDir ||
+  !importDir
+) {
   throw new Error(
-    "usage: windows_packaged_smoke.mjs --phase update-available|updated|invalid --debug-port PORT --expected-version VERSION --expected-pack-version PACK_VERSION",
+    "usage: windows_packaged_smoke.mjs --phase update-available|updated|invalid --debug-port PORT --expected-version VERSION --expected-pack-version PACK_VERSION --diagnostics-dir DIR --import-dir DIR",
   );
 }
 if ((phase === "update-available" || phase === "invalid") && !expectedVersion) {
@@ -36,6 +48,144 @@ const UPDATER_TESTID = "updater-status";
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function readDiagnosticsText(root) {
+  const files = [];
+  const visit = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) visit(path);
+      else if (entry.isFile()) files.push(path);
+    }
+  };
+  visit(root);
+  return files.map((path) => ({ path, text: readFileSync(path, "utf8") }));
+}
+
+function assertDiagnosticsSafe(token) {
+  const rawQuery = `/events?token=${encodeURIComponent(token)}`;
+  const decodedQuery = `token=${token}`;
+  const tokenAssignment = /\b(?:[A-Za-z0-9_-]*token|password|secret)\b\s*[:=]\s*["']?[A-Za-z0-9._~+/=-]{8,}/i;
+  const tokenShape = /\b(?:ghp|github_pat|glpat|xox[baprs])_[A-Za-z0-9._-]+\b|\bRGAPI-[A-Za-z0-9_-]+\b|\bBearer\s+[A-Za-z0-9._~+/=-]+/i;
+  for (const { text } of readDiagnosticsText(diagnosticsDir)) {
+    if (text.includes(token) || text.includes(rawQuery) || text.includes(decodedQuery)) {
+      throw new Error("packaged diagnostics contain a discovered token or raw SSE query");
+    }
+    if (tokenShape.test(text) || tokenAssignment.test(text)) {
+      throw new Error("packaged diagnostics contain a token-shaped value");
+    }
+  }
+}
+
+function rawHttp({ port, method = "GET", path, host, token, body, accept }) {
+  return new Promise((resolve, reject) => {
+    const headers = { Host: host, Connection: "close" };
+    if (token !== undefined) headers["X-BL-Token"] = token;
+    if (body !== undefined) {
+      headers["Content-Type"] = "application/json";
+      headers["Content-Length"] = Buffer.byteLength(body);
+    }
+    if (accept) headers.Accept = accept;
+    const request = http.request(
+      { host: "127.0.0.1", port, method, path, headers },
+      (response) => {
+        const chunks = [];
+        response.on("data", (chunk) => chunks.push(chunk));
+        response.on("end", () =>
+          resolve({ status: response.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf8") }),
+        );
+      },
+    );
+    request.setTimeout(10_000, () => request.destroy(new Error("raw sidecar request timed out")));
+    request.on("error", reject);
+    if (body !== undefined) request.write(body);
+    request.end();
+  });
+}
+
+async function assertSecurityMatrix(sidecarInfo, phase) {
+  const { port, token } = sidecarInfo;
+  if (
+    typeof token !== "string" ||
+    token.length < 32 ||
+    token !== token.trim() ||
+    token.toLowerCase() === "dev"
+  ) {
+    throw new Error("packaged sidecar returned an invalid security token");
+  }
+  const validHost = `127.0.0.1:${port}`;
+  const invalidToken = `${token.slice(0, -1)}${token.endsWith("x") ? "y" : "x"}`;
+  const cases = [
+    ["valid-token-valid-host", token, validHost, 200],
+    ["invalid-token-valid-host", invalidToken, validHost, 401],
+    ["valid-token-invalid-host", token, `invalid.example:${port}`, 400],
+    ["invalid-token-invalid-host", invalidToken, `invalid.example:${port}`, 400],
+  ];
+  const httpProof = [];
+  for (const [name, requestToken, host, expected] of cases) {
+    const result = await rawHttp({ port, path: "/health", host, token: requestToken });
+    if (result.status !== expected) throw new Error(`packaged security matrix failed: ${name}`);
+    httpProof.push({ case: name, status: result.status });
+  }
+
+  const importResult = await rawHttp({
+    port,
+    method: "POST",
+    path: "/dev/import",
+    host: validHost,
+    token,
+    body: JSON.stringify({ dir: importDir }),
+  });
+  if (importResult.status !== 403 || !importResult.body.includes("dev import disabled")) {
+    throw new Error("packaged frozen import security check failed");
+  }
+
+  const sse = await new Promise((resolve, reject) => {
+    const request = http.request(
+      {
+        host: "127.0.0.1",
+        port,
+        method: "GET",
+        path: `/events?token=${encodeURIComponent(token)}`,
+        headers: { Host: validHost, Accept: "text/event-stream", Connection: "close" },
+      },
+      (response) => {
+        let data = "";
+        let settled = false;
+        const finish = (value) => {
+          if (settled) return;
+          settled = true;
+          request.destroy();
+          resolve(value);
+        };
+        response.on("data", (chunk) => {
+          data += chunk.toString("utf8");
+          if (data.includes('"type": "hello"') || data.includes('"type":"hello"')) {
+            finish({ status: response.statusCode ?? 0, hello: true });
+          }
+        });
+        response.on("end", () => finish({ status: response.statusCode ?? 0, hello: false }));
+      },
+    );
+    request.setTimeout(10_000, () => request.destroy(new Error("SSE security request timed out")));
+    request.on("error", (error) => {
+      if (error.code !== "ECONNRESET") reject(error);
+    });
+    request.end();
+  });
+  if (sse.status !== 200 || !sse.hello) throw new Error("packaged SSE query-token check failed");
+
+  assertDiagnosticsSafe(token);
+  const proof = {
+    phase,
+    token: { length: token.length, not_dev: true, explicit: true },
+    http: httpProof,
+    sse: { status: sse.status, hello: sse.hello, query_token: true },
+    dev_import: { status: importResult.status, fixture_reads: false },
+  };
+  writeFileSync(join(diagnosticsDir, `sidecar-security-${phase}.json`), `${JSON.stringify(proof)}\n`, "utf8");
+  return proof;
 }
 
 async function waitForCdp(deadlineMs) {
@@ -99,7 +249,12 @@ async function assertSidecarConnected(page) {
         return internals.invoke("sidecar_info");
       });
       const title = await page.getByTestId("sidecar-dot").getAttribute("title").catch(() => null);
-      last = JSON.stringify({ sidecarInfo, title });
+      last = JSON.stringify({
+        sidecarInfo: sidecarInfo
+          ? { port: sidecarInfo.port, status: sidecarInfo.status, token_present: typeof sidecarInfo.token === "string" }
+          : null,
+        title,
+      });
       if (
         sidecarInfo &&
         typeof sidecarInfo.port === "number" &&
@@ -109,12 +264,14 @@ async function assertSidecarConnected(page) {
         ["ok", "degraded"].includes(sidecarInfo.status) &&
         typeof sidecarInfo.token === "string" &&
         sidecarInfo.token.length >= 32 &&
+        sidecarInfo.token === sidecarInfo.token.trim() &&
+        sidecarInfo.token.toLowerCase() !== "dev" &&
         title === "sidecar connected"
       ) {
         return sidecarInfo;
       }
     } catch (error) {
-      last = error instanceof Error ? error.message : String(error);
+      last = error instanceof Error ? error.message : "sidecar handshake failed";
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
@@ -215,11 +372,36 @@ function assertModelInventory(pack) {
       if (declaration.artifact.format !== "onnx") {
         throw new Error(`available model ${key} is not an ONNX artifact`);
       }
+      const card = declaration.model_card;
+      const smoke = card.smoke_test;
+      if (
+        typeof card.model_version !== "string" ||
+        !Array.isArray(card.feature_order) ||
+        card.feature_order.length === 0 ||
+        !smoke ||
+        !Array.isArray(smoke.features) ||
+        smoke.features.length !== card.feature_order.length ||
+        typeof smoke.expected !== "number" ||
+        !Number.isFinite(smoke.expected) ||
+        typeof smoke.tolerance !== "number" ||
+        !Number.isFinite(smoke.tolerance) ||
+        smoke.tolerance < 0 ||
+        !card.patch_scope ||
+        typeof card.patch_scope.max !== "string"
+      ) {
+        throw new Error(`available model ${key} has an invalid model-card smoke contract`);
+      }
       available.push({
         key,
-        model_version: declaration.model_card.model_version,
+        model_version: card.model_version,
         artifact_path: declaration.artifact.path,
         card_path: declaration.artifact.model_card_path,
+        smoke: {
+          feature_count: card.feature_order.length,
+          expected: smoke.expected,
+          tolerance: smoke.tolerance,
+          patch: card.patch_scope.max,
+        },
       });
     } else if (key === "surrender_advisor" && declaration.release_status !== "withheld") {
       throw new Error("Surrender Advisor must remain withheld in the packaged smoke");
@@ -230,44 +412,86 @@ function assertModelInventory(pack) {
 
 async function assertAvailableModelInference(page, sidecarInfo, availableModels) {
   if (availableModels.length === 0) {
-    return { attempted: false, status: "no-available-model", model_count: 0 };
+    return { attempted: false, status: "no-available-model", model_count: 0, models: {} };
   }
-  const result = await page.evaluate(
-    async ({ port, token }) => {
-      try {
-        const response = await fetch(`http://127.0.0.1:${port}/history/what-if`, {
-          method: "POST",
-          headers: {
-            "X-BL-Token": token,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ adjustments: {} }),
-        });
-        return response.ok ? response.json() : { status: `http-${response.status}` };
-      } catch (error) {
-        return { status: "request-failed", reason: String(error) };
-      }
+  const results = await page.evaluate(
+    async ({ port, token, models }) => {
+      return Promise.all(
+        models.map(async (model) => {
+          const path = model.key === "personal_what_if" ? "/history/what-if" : "/live/ingame";
+          const options = {
+            headers: { "X-BL-Token": token },
+          };
+          if (model.key === "personal_what_if") {
+            options.method = "POST";
+            options.headers["Content-Type"] = "application/json";
+            options.body = JSON.stringify({ adjustments: {} });
+          }
+          try {
+            const response = await fetch(`http://127.0.0.1:${port}${path}`, options);
+            let payload = null;
+            try {
+              payload = await response.json();
+            } catch {
+              payload = { status: "invalid-json" };
+            }
+            return { key: model.key, path, http_status: response.status, payload };
+          } catch (error) {
+            return {
+              key: model.key,
+              path,
+              http_status: 0,
+              payload: { status: "request-failed", reason: String(error) },
+            };
+          }
+        }),
+      );
     },
-    { port: sidecarInfo.port, token: sidecarInfo.token },
+    { port: sidecarInfo.port, token: sidecarInfo.token, models: availableModels },
   );
-  if (result.status === "available") {
-    if (
-      typeof result.probability !== "number" ||
-      !Number.isFinite(result.probability) ||
-      result.probability < 0 ||
-      result.probability > 1 ||
-      typeof result.model_version !== "string" ||
-      result.pack_version !== expectedPackVersion
-    ) {
-      throw new Error("available Personal What-If inference returned an invalid result");
+  const proof = {};
+  for (const entry of results) {
+    if (entry.http_status !== 200) {
+      throw new Error(`available model ${entry.key} route failed: ${JSON.stringify(entry)}`);
     }
-  } else if (result.status === "error" || result.status === "request-failed") {
-    throw new Error(`available model inference failed: ${result.reason ?? result.status}`);
+    const inference = entry.key === "live_wp" ? entry.payload?.inference : entry.payload;
+    if (!inference || typeof inference.status !== "string") {
+      throw new Error(`available model ${entry.key} route returned no inference status`);
+    }
+    if (["error", "request-failed", "invalid-json"].includes(inference.status)) {
+      throw new Error(`available model ${entry.key} inference failed: ${inference.reason ?? inference.status}`);
+    }
+    if (!["available", "suppressed", "stale", "incompatible", "unsupported-patch"].includes(inference.status)) {
+      throw new Error(`available model ${entry.key} returned unknown inference status: ${inference.status}`);
+    }
+    if (inference.status === "available") {
+      const model = availableModels.find((candidate) => candidate.key === entry.key);
+      if (
+        typeof inference.probability !== "number" ||
+        !Number.isFinite(inference.probability) ||
+        inference.probability < 0 ||
+        inference.probability > 1 ||
+        inference.model_version !== model.model_version ||
+        inference.pack_version !== expectedPackVersion
+      ) {
+        throw new Error(`available model ${entry.key} returned invalid provenance/output`);
+      }
+    }
+    proof[entry.key] = {
+      path: entry.path,
+      status: inference.status,
+      model_version: inference.model_version ?? null,
+      pack_version: inference.pack_version ?? null,
+    };
+  }
+  if (Object.keys(proof).length !== availableModels.length) {
+    throw new Error("packaged smoke skipped an available model route");
   }
   return {
     attempted: true,
-    status: result.status,
+    status: "checked-all-available-model-routes",
     model_count: availableModels.length,
+    models: proof,
   };
 }
 
@@ -392,6 +616,7 @@ async function waitForAppPage(browser, deadlineMs) {
 // harness watches the app process and kills this script early if the app
 // itself dies, so a long wait here only costs time when progress is real.
 const browser = await waitForCdp(120_000);
+let diagnosticToken = null;
 try {
   const page = await waitForAppPage(browser, 30_000);
 
@@ -400,15 +625,24 @@ try {
   let result;
   if (phase === "update-available") {
     const sidecarInfo = await assertSidecarConnected(page);
+    diagnosticToken = sidecarInfo.token;
+    const securityProof = await assertSecurityMatrix(sidecarInfo, phase);
     const packProof = await assertPackContract(page, sidecarInfo);
-    result = { ...packProof, ...await runUpdateAvailablePhase(page) };
+    result = { ...securityProof, ...packProof, ...await runUpdateAvailablePhase(page) };
   } else if (phase === "updated") {
-    result = await runUpdatedPhase(page);
+    const sidecarInfo = await assertSidecarConnected(page);
+    diagnosticToken = sidecarInfo.token;
+    const securityProof = await assertSecurityMatrix(sidecarInfo, phase);
+    result = { ...securityProof, ...await runUpdatedPhase(page) };
   } else {
-    result = await runInvalidPhase(page);
+    const sidecarInfo = await assertSidecarConnected(page);
+    diagnosticToken = sidecarInfo.token;
+    const securityProof = await assertSecurityMatrix(sidecarInfo, phase);
+    result = { ...securityProof, ...await runInvalidPhase(page) };
   }
 
   console.log(JSON.stringify({ phase, ...result }));
 } finally {
+  if (diagnosticToken) assertDiagnosticsSafe(diagnosticToken);
   await browser.close().catch(() => {});
 }

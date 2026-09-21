@@ -3,9 +3,10 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import type { SseMessage } from "../../api/sse";
+import type { PostGameDigest, WhatIfResponse } from "../../api/types";
 import { HistoryPage } from "../history";
 import { api } from "../../api/client";
-
+import { makePack } from "./fixtures";
 let sseHandler: ((msg: SseMessage) => void) | undefined;
 
 vi.mock("../../api/client", () => ({
@@ -21,6 +22,7 @@ vi.mock("../../api/client", () => ({
     historySummary: vi.fn(),
     trajectories: vi.fn(),
     postgameLatest: vi.fn(),
+    whatIf: vi.fn(),
     benchmarks: vi.fn(),
     liveStatus: vi.fn(),
   },
@@ -101,6 +103,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   sseHandler = undefined;
   vi.mocked(api.historySummary).mockResolvedValue(summary);
+  vi.mocked(api.pack).mockResolvedValue(null as never);
+  vi.mocked(api.postgameLatest).mockResolvedValue(null);
   vi.mocked(api.settings).mockResolvedValue(settings);
   vi.mocked(api.syncStatus).mockResolvedValue({
     ...running,
@@ -109,6 +113,53 @@ beforeEach(() => {
     started_at: null,
   });
 });
+const eligibleDigest: PostGameDigest = {
+  match_id: "what-if-history-match",
+  played_at: "2026-03-01T00:00:00Z",
+  champion: "Ahri",
+  role: "MIDDLE",
+  win: true,
+  duration_s: 1800,
+  checkpoints: { gold_diff_10: 0, gold_diff_15: null, gold_diff_20: null },
+  habits: [],
+  headline: "Fixture Personal History match",
+  feature_contract_version: "loltrends-parity-v2",
+  personal_history_eligibility: "eligible",
+  features: {
+    cs10: 150,
+    level10: 9.5,
+    gold_diff_10: 0,
+    team_gold_diff_15m: 0,
+    recalls_before_15m: 2,
+    avg_banked_gold_at_recall_by_15m: 650,
+    avg_banked_gold_at_recall_by_20m: 700,
+    unseen_recall_share_by_15m: 0.5,
+    unseen_recall_share_by_20m: 0.5,
+    first_dragon_by_20m_s: 600,
+    first_riftherald_by_20m_s: 800,
+    first_baron_by_20m_s: 0,
+    early_fight_participation_rate: 0.5,
+    plates_taken_by_14m: 7.5,
+  },
+  team_state: {
+    feature: "team_gold_diff_15m",
+    feature_contract_version: "loltrends-parity-v2",
+    team_gold_diff_15m: 0,
+    observed_through_s: 1200,
+    non_surrendered: true,
+  },
+};
+
+const availableWhatIfResponse: WhatIfResponse = {
+  status: "available",
+  probability: 0.6,
+  baseline_probability: 0.5,
+  adjusted_features: eligibleDigest.features as Record<string, number>,
+  model_version: "personal-what-if-v2",
+  pack_version: "v4",
+  rejected_fields: [],
+  reason: null,
+};
 
 describe("HistoryPage", () => {
   it("renders the summary stat row and by-role table", async () => {
@@ -123,6 +174,24 @@ describe("HistoryPage", () => {
     expect(within(table).getByText("TOP")).toBeInTheDocument();
     expect(within(table).getByText("JUNGLE")).toBeInTheDocument();
     expect(within(table).getByText("56.7%")).toBeInTheDocument(); // 34/60
+  });
+  it("mounts one Journal simulator with declared controls and clears stale results", async () => {
+    vi.mocked(api.settings).mockResolvedValue(activeSettings);
+    vi.mocked(api.pack).mockResolvedValue(makePack());
+    vi.mocked(api.postgameLatest).mockResolvedValue(eligibleDigest);
+    vi.mocked(api.whatIf).mockResolvedValue(availableWhatIfResponse);
+    renderPage(<HistoryPage />);
+
+    const panel = await screen.findByTestId("what-if-panel");
+    expect(screen.getAllByTestId("what-if-panel")).toHaveLength(1);
+    const control = await within(panel).findByTestId("what-if-control-unseen_recall_share_by_20m");
+    await waitFor(() => expect(within(panel).getByTestId("what-if-run")).not.toBeDisabled());
+    fireEvent.change(control, { target: { value: "0.75" } });
+    fireEvent.click(within(panel).getByTestId("what-if-run"));
+    await waitFor(() => expect(api.whatIf).toHaveBeenCalledWith({ unseen_recall_share_by_20m: 0.75 }));
+    await waitFor(() => expect(within(panel).getByTestId("what-if-prediction")).toHaveTextContent("60.0%"));
+    fireEvent.change(control, { target: { value: "0.25" } });
+    await waitFor(() => expect(within(panel).getByTestId("what-if-prediction")).toHaveTextContent("Unavailable"));
   });
 
   it("dresses the screen in the design system shells and pill buttons", async () => {

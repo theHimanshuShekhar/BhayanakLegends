@@ -1,7 +1,9 @@
-import { useHistorySummary } from "../api/hooks";
+import { isFindingsPackV2 } from "../api/pack-v2";
+import { useHistorySummary, usePack, usePostgameLatest } from "../api/hooks";
 import { classifyApiError } from "../api/client";
 import { CaveatFooter } from "../components/journal/CaveatFooter";
 import { InsightsProfiles } from "../components/journal/InsightsProfiles";
+import { WhatIfPanel } from "../components/progress/WhatIfPanel";
 import { SyncPanel } from "../components/journal/SyncPanel";
 import { Unavailable } from "../components/ui";
 import { formatRate as pct } from "../components/format";
@@ -52,7 +54,9 @@ function HistorySkeleton() {
 
 export function HistoryPage() {
   const summary = useHistorySummary();
-
+  const pack = usePack();
+  const packV2 = isFindingsPackV2(pack.data) ? pack.data : undefined;
+  const digest = usePostgameLatest();
   return (
     <div className="history-page">
       <PageHeader title="Improvement Journal" />
@@ -192,6 +196,7 @@ export function HistoryPage() {
       <SyncPanel />
 
       <InsightsProfiles />
+      <WhatIfPanel pack={packV2} digest={digest.data ?? null} />
 
       <CaveatFooter />
     </div>

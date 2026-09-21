@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { isChampSelectSnapshot, isInGameSnapshot } from "./liveValidation";
+import { isChampSelectSnapshot, isInGameSnapshot, isWhatIfResponse } from "./liveValidation";
 import type {
   BenchmarkResponse,
   ChampSelectSnapshot,
@@ -19,7 +19,7 @@ import type {
 import type { FindingsPack } from "./pack-v2";
 const MAX_ERROR_DETAIL = 240;
 const MIN_BROWSER_TOKEN_LENGTH = 32;
-const DEFAULT_BROWSER_TOKEN = "local-sidecar-development-token-32chars";
+
 
 export interface SidecarConnection {
   base: string;
@@ -49,11 +49,18 @@ let connectionGeneration = 0;
 
 function browserToken(): string {
   const configured = import.meta.env.VITE_BL_TOKEN;
-  const token =
-    typeof configured === "string" && configured.trim().length > 0
-      ? configured.trim()
-      : DEFAULT_BROWSER_TOKEN;
-  if (token.length < MIN_BROWSER_TOKEN_LENGTH || token.toLowerCase() === "dev") {
+  if (typeof configured !== "string") {
+    throw new Error(
+      "VITE_BL_TOKEN must be explicitly configured with a non-default token of at least 32 characters.",
+    );
+  }
+  const token = configured.trim();
+  if (
+    !token ||
+    token !== configured ||
+    token.length < MIN_BROWSER_TOKEN_LENGTH ||
+    token.toLowerCase() === "dev"
+  ) {
     throw new Error(
       "VITE_BL_TOKEN must be explicitly configured with a non-default token of at least 32 characters.",
     );
@@ -158,6 +165,15 @@ async function liveIngame(): Promise<InGameSnapshot> {
   if (!isInGameSnapshot(value)) throw new Error("Invalid /live/ingame response");
   return value;
 }
+async function whatIf(adjustments: Record<string, number>): Promise<WhatIfResponse> {
+  const value = await request<unknown>("/history/what-if", {
+    method: "POST",
+    body: JSON.stringify({ adjustments }),
+  });
+  if (!isWhatIfResponse(value)) throw new Error("Invalid /history/what-if response");
+  return value;
+}
+
 
 export const api = {
   health: () => request<Health>("/health"),
@@ -192,11 +208,7 @@ export const api = {
   },
   postgameLatest: () =>
     request<PostGameDigest | null>("/postgame/latest"),
-  whatIf: (adjustments: Record<string, number>) =>
-    request<WhatIfResponse>("/history/what-if", {
-      method: "POST",
-      body: JSON.stringify({ adjustments }),
-    }),
+  whatIf,
   benchmarks: () => request<BenchmarkResponse>("/benchmarks"),
   liveStatus: () => request<LiveStatus>("/live/status"),
   liveSession,

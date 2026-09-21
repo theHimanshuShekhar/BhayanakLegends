@@ -38,17 +38,30 @@ const validInGame = {
   },
   event_deltas: [],
 };
+const validWhatIf = {
+  status: "available",
+  probability: 0.6,
+  baseline_probability: 0.5,
+  adjusted_features: { unseen_recall_share_by_20m: 0.75 },
+  model_version: "personal-what-if-v2",
+  pack_version: "v4",
+  rejected_fields: [],
+  reason: null,
+};
+
 
 describe("sidecar API boundary", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
     vi.stubGlobal("fetch", vi.fn());
     Object.defineProperty(window, "__TAURI_INTERNALS__", {
       configurable: true,
       value: {},
     });
   });
+
 
   it("resolves a cold Tauri connection before REST and SSE URL construction", async () => {
     invoke.mockResolvedValue({ port: 24567, token: "cold-token" });
@@ -87,8 +100,54 @@ describe("sidecar API boundary", () => {
 
     await expect(api.liveSession()).rejects.toThrow("Invalid /live/session response");
   });
-  it("uses browser development defaults through the same async boundary", async () => {
+
+  it("accepts a contract-valid What-If response at the API boundary", async () => {
+    invoke.mockResolvedValue({ port: 24567, token: "cold-token", status: "ok" });
+    vi.mocked(fetch).mockResolvedValue(response(validWhatIf));
+    const { api } = await import("./client");
+
+    await expect(api.whatIf({ unseen_recall_share_by_20m: 0.75 })).resolves.toEqual(validWhatIf);
+  });
+
+  it("rejects malformed What-If responses before consumers receive data", async () => {
+    invoke.mockResolvedValue({ port: 24567, token: "cold-token", status: "ok" });
+    vi.mocked(fetch).mockResolvedValue(
+      response({
+        ...validWhatIf,
+        adjusted_features: { unseen_recall_share_by_20m: "bad" },
+      }),
+    );
+    const { api } = await import("./client");
+
+    await expect(api.whatIf({ unseen_recall_share_by_20m: 0.75 })).rejects.toThrow(
+      "Invalid /history/what-if response",
+    );
+  });
+  it.each([
+    ["missing", undefined],
+    ["blank", ""],
+    ["short", "short-token"],
+    ["dev", "dev"],
+    ["whitespace-padded", " browser-token-012345678901234567890123 "],
+  ])("fails closed for %s browser token configuration", async (_label, token) => {
     Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
+    if (token === undefined) {
+      Reflect.deleteProperty(import.meta.env, "VITE_BL_TOKEN");
+    } else {
+      vi.stubEnv("VITE_BL_TOKEN", token);
+    }
+    const { api, eventsUrl } = await import("./client");
+
+    await expect(api.health()).rejects.toThrow(/VITE_BL_TOKEN must be explicitly configured/);
+    await expect(eventsUrl()).rejects.toThrow(/VITE_BL_TOKEN must be explicitly configured/);
+    expect(invoke).not.toHaveBeenCalled();
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
+  it("uses an explicitly configured browser token through the same async boundary", async () => {
+    Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
+    const token = "browser-test-token-012345678901234567890123";
+    vi.stubEnv("VITE_BL_TOKEN", token);
     vi.mocked(fetch).mockImplementation(async () => response({ status: "ok" }));
     const { api, eventsUrl } = await import("./client");
 
@@ -97,15 +156,14 @@ describe("sidecar API boundary", () => {
     expect(vi.mocked(fetch)).toHaveBeenCalledWith(
       "http://127.0.0.1:23110/health",
       expect.objectContaining({
-        headers: expect.objectContaining({
-          "X-BL-Token": "local-sidecar-development-token-32chars",
-        }),
+        headers: expect.objectContaining({ "X-BL-Token": token }),
       }),
     );
     await expect(eventsUrl()).resolves.toBe(
-      "http://127.0.0.1:23110/events?token=local-sidecar-development-token-32chars",
+      `http://127.0.0.1:23110/events?token=${encodeURIComponent(token)}`,
     );
   });
+
 
   it("exposes bounded safe details from non-success JSON responses", async () => {
     invoke.mockResolvedValue({ port: 24567, token: "dev-token" });

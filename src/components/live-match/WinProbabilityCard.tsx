@@ -15,6 +15,14 @@ function eventDeltaLabel(delta: LiveEventDelta): string {
   return `${delta.name} @${formatClock(delta.t_s)} · ${value}${provenance}`;
 }
 
+function hasLiveProvenance(
+  result: InGameSnapshot["inference"] | LiveEventDelta,
+  modelVersion: string,
+  packVersion: string,
+): boolean {
+  return result.model_version === modelVersion && result.pack_version === packVersion;
+}
+
 export function WinProbabilityCard({
   pack,
   clockS,
@@ -32,24 +40,59 @@ export function WinProbabilityCard({
 }) {
   const packV2 = pack;
   const declaration = packV2?.models?.live_wp;
+  const activeModelVersion = declaration?.model_card?.model_version;
+  const activePackVersion = packV2?.pack_version;
   const modelContractReady =
     packV2?.feature_contracts.models?.live_wp === "live-wp-v2" &&
-    declaration?.release_status === "available" &&
+    declaration?.model_id === "live-wp-v2" &&
+    declaration.release_status === "available" &&
     declaration.artifact != null &&
-    declaration.model_card != null;
-  const liveInference =
-    active && modelContractReady ? inference : undefined;
+    declaration.model_card?.model_id === "live-wp-v2" &&
+    declaration.model_card.feature_contract_version === "live-wp-v2" &&
+    activeModelVersion != null &&
+    activePackVersion != null &&
+    packVersion === activePackVersion;
+  const visibleEventDeltas = modelContractReady && activeModelVersion != null && activePackVersion != null
+    ? eventDeltas.map((delta) =>
+        delta.suppression_status === "available" &&
+        !hasLiveProvenance(delta, activeModelVersion, activePackVersion)
+          ? {
+              ...delta,
+              suppression_status: "suppressed" as const,
+              baseline_probability: null,
+              event_probability: null,
+              delta_probability: null,
+              reason: "event delta provenance differs from active model",
+            }
+          : delta,
+      )
+    : [];
+  const liveInference = active && modelContractReady ? inference : undefined;
+  const inferenceProvenanceReady =
+    liveInference != null &&
+    activeModelVersion != null &&
+    activePackVersion != null &&
+    hasLiveProvenance(liveInference, activeModelVersion, activePackVersion);
   const available =
-    liveInference?.status === "available" && liveInference.probability != null;
+    inferenceProvenanceReady &&
+    liveInference.status === "available" &&
+    liveInference.probability != null;
+  const provenanceMismatch = liveInference != null && !inferenceProvenanceReady;
   const value = available
     ? formatRate(liveInference.probability)
     : formatUnavailable(
-        modelContractReady
-          ? liveInference?.reason ?? "compatible live inputs unavailable"
-          : "live model contract unavailable",
+        provenanceMismatch
+          ? "live result provenance differs from active model"
+          : modelContractReady
+            ? liveInference?.reason ?? "compatible live inputs unavailable"
+            : "live model contract unavailable",
       );
-  const statusLabel = modelContractReady ? liveInference?.status ?? "unavailable" : "unavailable";
-  const versionLabel = liveInference?.model_version
+  const statusLabel = !modelContractReady
+    ? "unavailable"
+    : provenanceMismatch
+      ? "incompatible"
+      : liveInference?.status ?? "unavailable";
+  const versionLabel = available && liveInference.model_version
     ? ` · model ${liveInference.model_version}`
     : "";
   return (
@@ -122,9 +165,9 @@ export function WinProbabilityCard({
         <span>{available ? `observed ${formatClock(liveInference?.observed_game_time_s ?? clockS)}` : statusLabel}</span>
         <span className="mono-n">{formatClock(clockS)}</span>
       </div>
-      {modelContractReady && eventDeltas.length > 0 && (
+      {visibleEventDeltas.length > 0 && (
         <div data-testid="wp-event-deltas" style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 8 }}>
-          {eventDeltas.map((delta) => (
+          {visibleEventDeltas.map((delta) => (
             <div key={delta.event_id} style={{ fontSize: 9.5, color: "var(--color-dim)" }}>
               {eventDeltaLabel(delta)}
             </div>

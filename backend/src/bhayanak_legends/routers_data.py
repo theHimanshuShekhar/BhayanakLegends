@@ -301,11 +301,27 @@ def history_what_if(request: Request, body: WhatIfRequest) -> dict:
             reason="compatible Personal History or model runtime is unavailable",
         ).model_dump()
     features = _decode_features(latest)
+    if features.get("feature_contract_version") != PARITY_V2_VERSION:
+        return WhatIfResponse(
+            status="suppressed",
+            reason="Personal History feature contract is unavailable",
+        ).model_dump()
+    if features.get("personal_history_eligibility") != "eligible":
+        return WhatIfResponse(
+            status="suppressed",
+            reason="Personal History seed is not eligible",
+        ).model_dump()
+    patch = latest.get("patch")
+    if not isinstance(patch, str) or _PATCH_RE.fullmatch(patch) is None:
+        return WhatIfResponse(
+            status="suppressed",
+            reason="Personal History patch is unavailable",
+        ).model_dump()
     personal_features = _v2_features(features)
     result = runtime.what_if_from_personal_features(
         body.adjustments,
         personal_features,
-        patch=latest.get("patch"),
+        patch=patch,
     )
     return result.model_dump(exclude_none=True)
 

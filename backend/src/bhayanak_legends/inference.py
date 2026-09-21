@@ -7,12 +7,17 @@ from collections.abc import Mapping
 from numbers import Real
 from pathlib import Path
 from typing import Any
-
 from .model_runtime import ModelRuntimeError, load_onnx_session, run_model
 from .models import LiveInference, WhatIfResponse
 from .pack import PackError, PackStore
 from .live_features import FEATURE_ORDER, LIVE_WP_CONTRACT_VERSION, LiveFeatureVector
-from .pack_v2 import EXECUTABLE_MODEL_KEYS, FindingsPackV2, WITHHELD_MODEL_KEYS
+from .pack_v2 import (
+    EXECUTABLE_MODEL_KEYS,
+    FindingsPackV2,
+    PERSONAL_MODEL_CONTRACT_VERSION,
+    PERSONAL_MODEL_ID,
+    WITHHELD_MODEL_KEYS,
+)
 
 
 class InferenceRuntime:
@@ -60,13 +65,24 @@ class InferenceRuntime:
         declaration = (pack.models or {}).get(model_key)
         if declaration is None:
             return pack, None, "model declaration unavailable"
-        # This is deliberately checked before release_status and before any
-        # artifact access.  It protects the gate even when a caller supplies a
-        # malformed object that bypassed FindingsPackV2 validation.
         if model_key in WITHHELD_MODEL_KEYS:
             return pack, None, "Surrender Advisor is unavailable"
         if model_key not in EXECUTABLE_MODEL_KEYS:
             return pack, None, "model declaration unavailable"
+        canonical_identity = {
+            "personal_what_if": (PERSONAL_MODEL_ID, PERSONAL_MODEL_CONTRACT_VERSION),
+            "live_wp": ("live-wp-v2", "live-wp-v2"),
+        }.get(model_key)
+        if canonical_identity is not None:
+            model_id, contract = canonical_identity
+            card = getattr(declaration, "model_card", None)
+            if (
+                declaration.model_id != model_id
+                or card is None
+                or card.model_id != model_id
+                or card.feature_contract_version != contract
+            ):
+                return pack, None, "model declaration identity is incompatible"
         if declaration.release_status != "available":
             return pack, None, declaration.release_reason or "model is not released"
         if declaration.artifact is None or declaration.model_card is None:
@@ -269,7 +285,7 @@ class InferenceRuntime:
         return LiveInference(
             status="available",
             probability=probability,
-            observed_game_time_s=observed_game_time_s,
+            observed_game_time_s=observed_game_time_s if observed_game_time_s is not None else 0.0,
             model_version=card.model_version,
             pack_version=pack.pack_version,
         )
@@ -305,6 +321,13 @@ class InferenceRuntime:
                 pack_version=pack.pack_version,
                 reason="model card unavailable",
             )
+        if not isinstance(adjustments, Mapping) or not isinstance(baseline, Mapping):
+            return WhatIfResponse(
+                status="rejected",
+                model_version=card.model_version,
+                pack_version=pack.pack_version,
+                reason="Personal History inputs must be objects",
+            )
         expected = {feature.name for feature in card.features}
         adjustable = {feature.name for feature in card.features if feature.adjustable}
         rejected = sorted(set(adjustments) - adjustable)
@@ -325,22 +348,44 @@ class InferenceRuntime:
                 reason="Personal History baseline does not match the model feature contract",
             )
         feature_by_name = {feature.name: feature for feature in card.features}
-        invalid_adjustments: list[str] = []
-        out_of_domain: list[str] = []
-        for name, value in adjustments.items():
-            feature = feature_by_name[name]
-            if not self._finite(value):
-                invalid_adjustments.append(name)
-                continue
-            numeric = float(value)
-            if numeric < feature.bounds.min or numeric > feature.bounds.max:
-                out_of_domain.append(name)
+
+        def invalid_features(values: Mapping[str, object]) -> tuple[list[str], list[str]]:
+            non_finite: list[str] = []
+            out_of_domain: list[str] = []
+            for name, value in values.items():
+                feature = feature_by_name[name]
+                if not self._finite(value):
+                    non_finite.append(name)
+                    continue
+                numeric = float(value)
+                if numeric < feature.bounds.min or numeric > feature.bounds.max:
+                    out_of_domain.append(name)
+            return sorted(non_finite), sorted(out_of_domain)
+
+        invalid_baseline, baseline_out_of_domain = invalid_features(baseline)
+        if invalid_baseline:
+            return WhatIfResponse(
+                status="rejected",
+                model_version=card.model_version,
+                pack_version=pack.pack_version,
+                rejected_fields=invalid_baseline,
+                reason="Personal History baseline must contain finite numbers",
+            )
+        if baseline_out_of_domain:
+            return WhatIfResponse(
+                status="out-of-domain",
+                model_version=card.model_version,
+                pack_version=pack.pack_version,
+                rejected_fields=baseline_out_of_domain,
+                reason="Personal History baseline is outside its declared model domains",
+            )
+        invalid_adjustments, out_of_domain = invalid_features(adjustments)
         if invalid_adjustments:
             return WhatIfResponse(
                 status="rejected",
                 model_version=card.model_version,
                 pack_version=pack.pack_version,
-                rejected_fields=sorted(invalid_adjustments),
+                rejected_fields=invalid_adjustments,
                 reason="adjustments must be finite numbers",
             )
         if out_of_domain:
@@ -348,23 +393,36 @@ class InferenceRuntime:
                 status="out-of-domain",
                 model_version=card.model_version,
                 pack_version=pack.pack_version,
-                rejected_fields=sorted(out_of_domain),
+                rejected_fields=out_of_domain,
                 reason="adjustments are outside their declared model domains",
             )
         changed = dict(baseline)
         changed.update(adjustments)
         baseline_result = self.predict("personal_what_if", baseline, patch=patch)
         changed_result = self.predict("personal_what_if", changed, patch=patch)
-        if changed_result.status != "available" or baseline_result.status != "available":
+        baseline_available = baseline_result.status == "available"
+        changed_available = changed_result.status == "available"
+        if not baseline_available or not changed_available:
+            failed = changed_result if not changed_available else baseline_result
             return WhatIfResponse(
-                status=changed_result.status,
-                baseline_probability=baseline_result.probability,
+                status=failed.status,
+                model_version=failed.model_version or baseline_result.model_version,
+                pack_version=failed.pack_version or baseline_result.pack_version,
+                reason=failed.reason,
+            )
+        if (
+            baseline_result.model_version is None
+            or changed_result.model_version is None
+            or baseline_result.pack_version is None
+            or changed_result.pack_version is None
+            or baseline_result.model_version != changed_result.model_version
+            or baseline_result.pack_version != changed_result.pack_version
+        ):
+            return WhatIfResponse(
+                status="error",
                 model_version=changed_result.model_version or baseline_result.model_version,
                 pack_version=changed_result.pack_version or baseline_result.pack_version,
-                adjusted_features={
-                    key: float(value) for key, value in changed.items() if self._finite(value)
-                },
-                reason=changed_result.reason or baseline_result.reason,
+                reason="baseline and adjusted inferences have mismatched model provenance",
             )
         return WhatIfResponse(
             status="available",
@@ -477,7 +535,7 @@ class InferenceRuntime:
         *,
         patch: str | None = None,
     ) -> WhatIfResponse:
-        """Build a model-card-ordered baseline from one v2 personal row."""
+        """Build a complete model-card-ordered baseline from one v2 row."""
         pack, declaration, reason = self._declaration("personal_what_if")
         if pack is None or declaration is None:
             return WhatIfResponse(
@@ -492,8 +550,22 @@ class InferenceRuntime:
                 pack_version=pack.pack_version,
                 reason="model card unavailable",
             )
+        if not isinstance(features, Mapping):
+            return WhatIfResponse(
+                status="suppressed",
+                model_version=card.model_version,
+                pack_version=pack.pack_version,
+                reason="Personal History feature projection is unavailable",
+            )
         baseline = {feature.name: features.get(feature.name) for feature in card.features}
-        return self.what_if(adjustments, baseline, patch=patch)
+        if any(not self._finite(value) for value in baseline.values()):
+            return WhatIfResponse(
+                status="suppressed",
+                model_version=card.model_version,
+                pack_version=pack.pack_version,
+                reason="Personal History feature projection is incomplete",
+            )
+        return self._what_if_unlocked(adjustments, baseline, patch=patch)
 
     def clear(self) -> None:
         with self._pack_store.read_transaction():

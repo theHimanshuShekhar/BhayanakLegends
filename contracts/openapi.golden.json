@@ -3281,7 +3281,14 @@
         "properties": {
           "calibration": {
             "additionalProperties": {
-              "type": "number"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                }
+              ]
             },
             "type": "object"
           },
@@ -3536,6 +3543,16 @@
             "minLength": 1,
             "type": "string"
           },
+          "imputation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PackV2TrainingImputation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "name": {
             "minLength": 1,
             "type": "string"
@@ -3551,6 +3568,17 @@
                   "type": "number"
                 },
                 "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "runtime_missing_policy": {
+            "anyOf": [
+              {
+                "const": "reject",
+                "type": "string"
               },
               {
                 "type": "null"
@@ -3881,6 +3909,28 @@
           "minimum_games",
           "tier",
           "release_status"
+        ],
+        "type": "object"
+      },
+      "PackV2TrainingImputation": {
+        "additionalProperties": false,
+        "properties": {
+          "fit_scope": {
+            "const": "training_only",
+            "type": "string"
+          },
+          "strategy": {
+            "const": "median",
+            "type": "string"
+          },
+          "value": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "strategy",
+          "value",
+          "fit_scope"
         ],
         "type": "object"
       },
@@ -4583,6 +4633,9 @@
             "type": "object"
           }
         },
+        "required": [
+          "adjustments"
+        ],
         "type": "object"
       },
       "WhatIfResponse": {
