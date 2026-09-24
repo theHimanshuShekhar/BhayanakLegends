@@ -59,13 +59,21 @@ type LiveInference = {
   observed_game_time_s: number | null;
   model_version: string | null;
   pack_version: string | null;
+  reason: string | null;
 };
 
 type LiveEventDelta = {
   event_id: string;
   source_order: number;
+  name: string;
+  t_s: number;
+  baseline_probability: number | null;
+  event_probability: number | null;
   delta_probability: number | null;
   suppression_status: string;
+  reason: string | null;
+  pre_observed_game_time_s: number | null;
+  post_observed_game_time_s: number | null;
 };
 
 type LiveSnapshot = {
@@ -92,6 +100,59 @@ async function readIngame(request: APIRequestContext): Promise<LiveSnapshot> {
   expect(snapshot.active).toBe(true);
   expect(snapshot.teams).toEqual(expect.objectContaining({ order: expect.any(Array), chaos: expect.any(Array) }));
   return snapshot;
+}
+async function waitForBaronDelta(request: APIRequestContext): Promise<LiveSnapshot> {
+  let latest: LiveSnapshot | undefined;
+  await expect
+    .poll(
+      async () => {
+        latest = await readIngame(request);
+        const delta = latest.event_deltas.find((item) => item.event_id.includes("BaronKill"));
+        return {
+          available: delta?.suppression_status === "available" && delta.delta_probability !== null,
+          inference_status: latest.inference.status,
+          inference_reason: latest.inference.reason,
+          clock_s: latest.clock_s,
+          delta_status: delta?.suppression_status ?? "not observed",
+          delta_reason: delta?.reason ?? null,
+          event_time_s: delta?.t_s ?? null,
+          pre_observed_game_time_s: delta?.pre_observed_game_time_s ?? null,
+          post_observed_game_time_s: delta?.post_observed_game_time_s ?? null,
+        };
+      },
+      { message: "BaronKill must have an available causal delta with pre-event and post-event observations", timeout: 30_000 },
+    )
+    .toMatchObject({ available: true });
+  expect(latest!.event_deltas.find((item) => item.event_id.includes("BaronKill"))).toEqual(
+    expect.objectContaining({
+      suppression_status: "available",
+      delta_probability: expect.any(Number),
+      t_s: 801.2,
+      pre_observed_game_time_s: 780,
+      post_observed_game_time_s: 812.4,
+    }),
+  );
+  expect(latest!.event_deltas.find((item) => item.event_id.includes("BaronKill"))!.delta_probability).toBeGreaterThan(0);
+  return latest!;
+}
+
+async function waitForPreEventSnapshot(request: APIRequestContext): Promise<LiveSnapshot> {
+  let latest: LiveSnapshot | undefined;
+  await expect
+    .poll(
+      async () => {
+        latest = await readIngame(request);
+        return {
+          clock_s: latest.clock_s,
+          observed_game_time_s: latest.inference.observed_game_time_s,
+          inference_status: latest.inference.status,
+          has_baron_event: latest.events.some((event) => event.name === "BaronKill"),
+        };
+      },
+      { message: "replay must publish an available inference before the BaronKill timestamp", timeout: 30_000 },
+    )
+    .toMatchObject({ clock_s: 780, observed_game_time_s: 780, inference_status: "available", has_baron_event: false });
+  return latest!;
 }
 
 function containsForbiddenKeys(value: unknown): boolean {
@@ -296,17 +357,16 @@ test.describe("active Live Companion replay", () => {
     await expectLiveDataContractDetector(page, initial);
     await expectNoHorizontalClipping(page);
     await captureState(page, testInfo, "active");
-
+    await setScenario(request, LIVE, "in-game-pre-event");
+    await waitForPreEventSnapshot(request);
     await setScenario(request, LCU, "in-game-update");
     await setScenario(request, LIVE, "in-game-update");
     await expect(page.getByTestId("event-feed")).toContainText("BaronKill");
     await expect(page.getByTestId("active-kda")).toContainText("5 / 2 / 7");
     await expectGameClockAtLeast(page, UPDATE_FIXTURE_CLOCK_SECONDS);
-    const updated = await readIngame(request);
+    const updated = await waitForBaronDelta(request);
     expect(updated.inference.status).toBe("available");
-    expect(updated.event_deltas.length).toBeGreaterThan(0);
-    expect(updated.event_deltas.some((delta) => delta.suppression_status === "available" && delta.delta_probability !== null)).toBe(true);
-    expect(updated.event_deltas.some((delta) => delta.event_id.includes("BaronKill"))).toBe(true);
+    expect(updated.event_deltas.some((delta) => delta.event_id.includes("BaronKill") && delta.suppression_status === "available" && delta.delta_probability !== null && delta.delta_probability > 0)).toBe(true);
     await expect(page.getByTestId("wp-event-deltas")).toContainText("BaronKill");
     await expectRenderedSnapshot(page, updated);
     await expectLiveDataContractDetector(page, updated);
@@ -447,6 +507,7 @@ test.describe("active Live Companion replay", () => {
     await setScenario(request, LIVE, "idle");
     await page.goto("/live");
     await setScenario(request, LCU, "in-game");
+    await waitForPreloadedStatus(request, { inGame: true });
     await setScenario(request, LIVE, "in-game");
     await expect(page.getByTestId("player-row-local")).toBeVisible();
     await expectReducedMotion(page);
@@ -524,6 +585,7 @@ test.describe("active Live Companion replay", () => {
       // Champ select → in-game happens reactively on the same document.
       await setScenario(request, LCU, "in-game");
       await setScenario(request, LIVE, "in-game");
+      await waitForPreloadedStatus(request, { inGame: true, champSelect: false });
       const expand = page.getByRole("button", { name: "Expand Live Companion" });
       await expect(expand).toBeVisible();
       await expect(page.getByTestId("live-companion-mode")).toHaveText("in-game");
@@ -536,8 +598,6 @@ test.describe("active Live Companion replay", () => {
       await expand.click();
       const collapse = page.getByRole("button", { name: "Collapse Live Companion" });
       await expect(collapse).toBeVisible();
-
-      // Client-side route change keeps the same document and the expanded widget.
       await page.getByTestId("nav-live").click();
       await expect(page).toHaveURL(/\/live$/);
       await expect(collapse).toBeVisible();
@@ -556,25 +616,16 @@ test.describe("active Live Companion replay", () => {
       await expect(page.getByTestId("wp-status")).toHaveText("available");
       await expectNoHorizontalClipping(page);
       await captureState(page, testInfo, `flow-in-game-${viewport.width}`);
-
-      // Repeated frames leave expansion untouched while the game continues.
-      await setScenario(request, LCU, "in-game-update");
+      await setScenario(request, LIVE, "in-game-pre-event");
+      await waitForPreEventSnapshot(request);
       await setScenario(request, LIVE, "in-game-update");
       await expect(page.getByTestId("event-feed")).toContainText("BaronKill");
       await expect(page.getByTestId("active-kda")).toContainText("5 / 2 / 7");
       await expectGameClockAtLeast(page, UPDATE_FIXTURE_CLOCK_SECONDS);
-      const updated = await readIngame(request);
+      const updated = await waitForBaronDelta(request);
       expect(updated.inference.status).toBe("available");
       expect(updated.inference.model_version).toBe("live-wp-v2");
       expect(updated.inference.pack_version).toBe("v4");
-      expect(
-        updated.event_deltas.some(
-          (delta) =>
-            delta.event_id.includes("BaronKill") &&
-            delta.suppression_status === "available" &&
-            delta.delta_probability !== null,
-        ),
-      ).toBe(true);
       await expect(page.getByTestId("wp-event-deltas")).toContainText("BaronKill");
       await expectRenderedSnapshot(page, updated);
       await expectLiveDataContractDetector(page, updated);

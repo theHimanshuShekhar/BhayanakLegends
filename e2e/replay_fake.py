@@ -45,7 +45,7 @@ class ReplayState:
             "pack-error",
         }:
             return "ChampSelect"
-        if scenario in {"in-game", "in-game-update", "in-game-empty", "malformed"}:
+        if scenario in {"in-game", "in-game-pre-event", "in-game-update", "in-game-empty", "malformed"}:
             return "InProgress"
         return "None"
 
@@ -139,10 +139,12 @@ class ReplayState:
             for player in self.game["allPlayers"]:
                 player["items"] = []
             self.game["events"]["Events"] = []
-        elif scenario in {"in-game", "in-game-update"}:
+        elif scenario in {"in-game", "in-game-pre-event", "in-game-update"}:
             self.game = load_json("allgamedata.json")
             self._refresh_live_observation()
-            if scenario == "in-game-update":
+            if scenario == "in-game-pre-event":
+                self.game["gameData"]["gameTime"] = 780.0
+            elif scenario == "in-game-update":
                 self.game["gameData"]["gameTime"] = 812.4
                 self.game["gameData"]["gameId"] = 5123456789
                 self.game["events"]["Events"].append(
