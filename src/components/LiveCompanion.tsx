@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState } from "react";
 import { useLiveStatus } from "../api/hooks";
+import type { LiveStatus } from "../api/types";
 type LivePhase = "idle" | "champ-select" | "in-game";
 type CompanionModeRequest =
   | { mode: "idle" }
@@ -11,9 +12,12 @@ function syncWindowMode(request: CompanionModeRequest) {
   void invoke("set_live_companion_mode", request).catch(() => undefined);
 }
 
-function modeFromSources(champSelectActive: boolean, inGameActive: boolean): LivePhase {
-  if (inGameActive) return "in-game";
-  if (champSelectActive) return "champ-select";
+function modeFromSources(status: LiveStatus): LivePhase {
+  // Partial live.state frames only update `active`; the reconciled status can
+  // briefly retain the current game id while an inactive frame is in flight.
+  // Treat the id as live until the full coarse status confirms it was cleared.
+  if (status.ingame.active || status.ingame.game_id !== null) return "in-game";
+  if (status.champ_select.active) return "champ-select";
   return "idle";
 }
 
@@ -44,7 +48,7 @@ export function LiveCompanion() {
   useEffect(() => {
     const status = liveStatus.data;
     if (!status) return;
-    applyPhase(modeFromSources(status.champ_select.active, status.ingame.active));
+    applyPhase(modeFromSources(status));
   }, [liveStatus.data]);
 
   useEffect(() => {

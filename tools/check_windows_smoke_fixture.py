@@ -59,6 +59,13 @@ def _state_routes(path: Path) -> tuple[set[str], dict[str, str]]:
     corrupt_version = state.get("corrupt_manifest_pack_version")
     if corrupt_version != "v5-smoke-invalid-129":
         raise SystemExit("fixture corrupt manifest must use the smoke-only newer version")
+    invalid = state.get("invalid")
+    if not isinstance(invalid, dict):
+        raise SystemExit("fixture state is missing invalid updater metadata")
+    if invalid.get("artifact_bytes_differ") is not True:
+        raise SystemExit("fixture invalid updater bytes must differ from the valid artifact")
+    if invalid.get("signature_reused") is not True:
+        raise SystemExit("fixture invalid updater must reuse the valid detached signature")
     findings_pack = state.get("findings_pack")
     required = (
         "valid_manifest_route",
@@ -123,6 +130,7 @@ def _check_security_proofs(path: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("requests_file", type=Path)
+    parser.add_argument("--smoke-state", type=Path)
     parser.add_argument("--state-file", type=Path)
     parser.add_argument("--require-security", action="store_true")
     args = parser.parse_args()
@@ -155,6 +163,25 @@ def main() -> None:
             raise SystemExit("fixture request log contains an artifact route outside its state")
         if args.require_security:
             _check_security_proofs(args.state_file.parent)
+            if args.smoke_state is None:
+                raise SystemExit("security verification requires packaged smoke state")
+            try:
+                smoke = json.loads(args.smoke_state.read_text(encoding="utf-8-sig"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise SystemExit("packaged smoke state cannot be read") from exc
+            phases = {
+                row.get("name"): row.get("result")
+                for row in smoke.get("phases", [])
+                if isinstance(row, dict)
+            }
+            retention = smoke.get("invalid_retention")
+            if phases.get("invalid") != "passed":
+                raise SystemExit("packaged smoke did not prove semantic updater rejection")
+            if not isinstance(retention, dict) or not all(
+                retention.get(key) is True
+                for key in ("version_unchanged", "hash_unchanged", "sidecar_healthy")
+            ):
+                raise SystemExit("packaged smoke did not prove rejection health and retention")
     expected_pack_paths = {
         "valid_manifest": (
             pack_routes["valid_manifest_route"]

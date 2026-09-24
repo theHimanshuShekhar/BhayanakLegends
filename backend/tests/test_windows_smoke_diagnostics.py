@@ -28,7 +28,11 @@ def _write_fixture_state(path: Path) -> None:
                     "corrupt_route": "/findings-pack-corrupt.zip",
                 },
                 "valid": {"artifact_route": "/artifacts/valid/valid.nsis.zip"},
-                "invalid": {"artifact_route": "/artifacts/invalid/invalid.nsis.zip"},
+                "invalid": {
+                    "artifact_route": "/artifacts/invalid/invalid.nsis.zip",
+                    "artifact_bytes_differ": True,
+                    "signature_reused": True,
+                },
             }
         ),
         encoding="utf-8",
@@ -37,13 +41,55 @@ def _write_fixture_state(path: Path) -> None:
 def _write_requests(path: Path, rows: list[dict[str, object]]) -> None:
     path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
 
+def _write_smoke_state(path: Path, *, invalid_result: str = "passed") -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "phases": [
+                    {"name": "update-available", "result": "passed"},
+                    {"name": "updated", "result": "passed"},
+                    {"name": "invalid", "result": invalid_result},
+                ],
+                "invalid_retention": {
+                    "version_unchanged": True,
+                    "hash_unchanged": True,
+                    "sidecar_healthy": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+def _write_security_proofs(root: Path) -> None:
+    for phase in ("update-available", "updated", "invalid"):
+        (root / f"sidecar-security-{phase}.json").write_text(
+            json.dumps(
+                {
+                    "phase": phase,
+                    "token": {"length": 32, "not_dev": True, "explicit": True},
+                    "http": [
+                        {"case": "valid-token-valid-host", "status": 200},
+                        {"case": "invalid-token-valid-host", "status": 401},
+                        {"case": "valid-token-invalid-host", "status": 400},
+                        {"case": "invalid-token-invalid-host", "status": 400},
+                    ],
+                    "sse": {"status": 200, "hello": True, "query_token": True},
+                    "dev_import": {"status": 403, "fixture_reads": False},
+                }
+            ),
+            encoding="utf-8",
+        )
+
 
 def test_fixture_checker_requires_both_updater_phases_and_path_only_logs(
     tmp_path: Path,
 ) -> None:
     requests = tmp_path / "requests.jsonl"
     state = tmp_path / "state.json"
+    smoke_state = tmp_path / "smoke-state.json"
     _write_fixture_state(state)
+    _write_smoke_state(smoke_state)
+    _write_security_proofs(tmp_path)
     _write_requests(
         requests,
         [
@@ -62,7 +108,14 @@ def test_fixture_checker_requires_both_updater_phases_and_path_only_logs(
         ],
     )
     result = subprocess.run(
-        [sys.executable, str(CHECKER), str(requests), "--state-file", str(state)],
+        [
+            sys.executable,
+            str(CHECKER),
+            str(requests),
+            "--state-file", str(state),
+            "--smoke-state", str(smoke_state),
+            "--require-security",
+        ],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,

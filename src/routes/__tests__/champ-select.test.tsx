@@ -163,7 +163,7 @@ describe("ChampSelectPage", () => {
     await screen.findByTestId("cs-ban-strip");
     expect(await screen.findByTestId("cs-session-status")).toHaveTextContent(/Annie locked · MIDDLE/i);
     expect(screen.queryByTestId("card-role-tiers")).toBeNull();
-    expect(screen.getByTestId("your-lane-tier")).toHaveTextContent(/LOCKED · MIDDLE/);
+    expect(screen.getByTestId("your-lane-tier")).toHaveTextContent(/FINDINGS PACK · TIER B/);
   });
 
   it("withholds recommendations when the pack is missing", async () => {

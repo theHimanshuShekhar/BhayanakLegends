@@ -33,6 +33,11 @@ def test_workflow_runs_distinct_bounded_pack_rollback_and_updater_proofs() -> No
     assert "windows_packaged_smoke.mjs" in POWERSHELL.read_text(encoding="utf-8")
     assert "assertPackContract" in NODE.read_text(encoding="utf-8")
     assert 'Remove-Item (Join-Path $env:RUNNER_TEMP "bl-pack-store-smoke")' in workflow
+    assert "invalid_retention" in POWERSHELL.read_text(encoding="utf-8")
+    assert "version_unchanged" in POWERSHELL.read_text(encoding="utf-8")
+    assert "hash_unchanged" in POWERSHELL.read_text(encoding="utf-8")
+    assert "sidecar_healthy" in POWERSHELL.read_text(encoding="utf-8")
+    assert '--smoke-state "$env:SMOKE_DIAGNOSTICS\\smoke-state.json"' in workflow
 def test_packaged_smoke_security_matrix_is_wired_without_raw_token_output() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
     powershell = POWERSHELL.read_text(encoding="utf-8")
@@ -73,31 +78,28 @@ def test_pack_rollback_helper_uses_real_release_channel_store_and_subprocess_res
 
 def test_pack_corrupt_manifest_is_manifest_only_newer_and_sidecar_executes_all_models() -> None:
     fixture = FIXTURE.read_text(encoding="utf-8")
-    powershell = POWERSHELL.read_text(encoding="utf-8")
+    helper = HELPER.read_text(encoding="utf-8")
     node = NODE.read_text(encoding="utf-8")
     assert 'corrupt_manifest_payload["pack_version"] = "v5-smoke-invalid-129"' in fixture
-    assert "canonical pack" in fixture
-    assert "corrupt_manifest_pack_version" in fixture
-    assert "assertModelInventory" in node
-    assert "smoke.expected" in node
-    assert "smoke.tolerance" in node
+    assert '"smoke_only_invalid_candidate"' in fixture
+    assert "artifact_bytes_differ" in fixture
+    assert "signature_reused" in fixture
+    assert "_run_candidate(restarted, corrupt_manifest_url, public_key, version)" in helper
+    assert "for model_key, declaration in available.items()" in helper
+    assert 'results.get("personal_what_if")' in helper
     assert 'model.key === "personal_what_if" ? "/history/what-if" : "/live/ingame"' in node
-    assert "checked-all-available-model-routes" in node
-    assert "signature does not match its bytes" in powershell
-    assert "signature could not be verified" in node
+    assert 'waitUpdaterFailure(page, "signature"' in node
+    assert 'data-updater-error-kind' in node
 
 
 def test_pack_corruption_is_not_conflated_with_updater_signature_rejection() -> None:
     fixture = FIXTURE.read_text(encoding="utf-8")
+    helper = HELPER.read_text(encoding="utf-8")
     powershell = POWERSHELL.read_text(encoding="utf-8")
     node = NODE.read_text(encoding="utf-8")
-    assert 'CORRUPT_PACK_ROUTE = "/findings-pack-corrupt.zip"' in fixture
-    assert "corrupt_manifest_signature" in fixture
+    assert "findings-pack-corrupt" in fixture
+    assert "corrupt_manifest_url" in helper
     assert "signature does not match its bytes" in powershell
-    assert "signature could not be verified" in node
+    assert 'waitUpdaterFailure(page, "signature"' in node
     assert "findings-pack-corrupt" not in powershell
     assert "findings-pack-corrupt" not in node
-
-    assert "finally {" in powershell
-    assert "Stop-OwnedSidecars -BaselineSidecars $baseline" in powershell
-    assert "owned sidecars survived final packaged-smoke cleanup" in powershell

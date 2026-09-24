@@ -118,10 +118,9 @@ const MATCHUP_EXAMPLES = [
 ] as const;
 
 /**
- * The bundled v2 pack truthfully has no qualifying tier rows. These browser
- * scenarios need a separate, explicit v2 fixture so role and directional
- * matchup journeys exercise their real UI contracts without changing the
- * shipped pack or weakening route readiness.
+ * These browser scenarios exercise a small, explicit v2 evidence fixture so
+ * role and directional matchup journeys cover their real UI contracts without
+ * changing the shipped population pack or weakening route readiness.
  */
 export async function mockTierEvidencePack(page: Page): Promise<void> {
   const response = await page.context().request.get(PACK_URL, { headers: PACK_HEADERS });

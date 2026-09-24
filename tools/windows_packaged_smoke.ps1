@@ -176,7 +176,8 @@ function Invoke-WebviewAssertions {
     [int]$AppExitGraceSeconds = 0,
     [string]$AppStdoutLog,
     [string]$AppStderrLog,
-    [string]$AppName
+    [string]$AppName,
+    [Parameter(Mandatory = $true)][string]$NodeDiagnosticPath
   )
   # Runs the webview assertions as a live child process so its stdout/stderr
   # stream straight into the step log, while polling the packaged app every
@@ -190,7 +191,8 @@ function Invoke-WebviewAssertions {
     "--phase", $Phase,
     "--debug-port", $DebugPort,
     "--diagnostics-dir", $DiagnosticsDir,
-    "--import-dir", (Join-Path $ImportRoot "FixturePlayer03-BL03")
+    "--import-dir", (Join-Path $ImportRoot "FixturePlayer03-BL03"),
+    "--diagnostic-result", $NodeDiagnosticPath
   )
   if ($ExpectedVersion) { $nodeArgs += @("--expected-version", $ExpectedVersion) }
   if ($ExpectedPackVersion) { $nodeArgs += @("--expected-pack-version", $ExpectedPackVersion) }
@@ -300,13 +302,14 @@ try {
   $env:BHAYANAK_IMPORT_ROOTS = ConvertTo-Json @($importRootCanonical) -Compress
   $app1StdoutLog = Join-Path $env:SMOKE_DIAGNOSTICS "app1-stdout.log"
   $app1StderrLog = Join-Path $env:SMOKE_DIAGNOSTICS "app1-stderr.log"
+  $app1NodeDiagnostic = Join-Path $env:SMOKE_DIAGNOSTICS "node-update-available-result.json"
   $app1 = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru `
     -RedirectStandardOutput $app1StdoutLog -RedirectStandardError $app1StderrLog
   try {
     # The app may legitimately self-exit mid-phase during install handoff;
     # give node a short grace window to notice the port going dark first.
     Invoke-WebviewAssertions -App $app1 -Phase "update-available" -DebugPort $DebugPort -ExpectedVersion $HigherVersion -ExpectedPackVersion $ExpectedPackVersion -DiagnosticsDir $DiagnosticsDir -ImportRoot $ImportRoot -AppExitGraceSeconds 15 `
-      -AppStdoutLog $app1StdoutLog -AppStderrLog $app1StderrLog -AppName $appNameForDiagnostics
+      -AppStdoutLog $app1StdoutLog -AppStderrLog $app1StderrLog -AppName $appNameForDiagnostics -NodeDiagnosticPath $app1NodeDiagnostic
     $state.phases += [ordered]@{ name = "update-available"; result = "passed" }
   } catch {
     $state.phases += [ordered]@{ name = "update-available"; result = "failed"; error = $_.Exception.Message }
@@ -371,10 +374,11 @@ try {
     Save-State
     throw $message
   }
+  $app2NodeDiagnostic = Join-Path $env:SMOKE_DIAGNOSTICS "node-updated-result.json"
   Save-State
   try {
     Invoke-WebviewAssertions -App $app2 -Phase "updated" -DebugPort $DebugPort -ExpectedVersion $HigherVersion -ExpectedPackVersion $ExpectedPackVersion -DiagnosticsDir $DiagnosticsDir -ImportRoot $ImportRoot `
-      -AppStdoutLog $app2StdoutLog -AppStderrLog $app2StderrLog -AppName $appNameForDiagnostics
+      -AppStdoutLog $app2StdoutLog -AppStderrLog $app2StderrLog -AppName $appNameForDiagnostics -NodeDiagnosticPath $app2NodeDiagnostic
     $state.phases += [ordered]@{ name = "updated"; result = "passed" }
   } catch {
     $state.phases += [ordered]@{ name = "updated"; result = "failed"; error = $_.Exception.Message }
@@ -392,34 +396,67 @@ try {
   $updatedHash = (Get-FileHash -Path $appPath).Hash
   Save-State
 
-  # --- Phase 3: a real archive with a signature that does not match its bytes must be rejected.
+  # --- Phase 3: changed bytes with the valid detached signature must be rejected.
   New-Item -ItemType File -Force -Path $FlipFile | Out-Null
+  $preInvalidVersion = (Get-Item -Path $appPath).VersionInfo.ProductVersion
+  $preInvalidHash = (Get-FileHash -Path $appPath).Hash
+  $state.invalid_retention = [ordered]@{
+    version_before = $preInvalidVersion
+    hash_before = $preInvalidHash
+    version_after = $null
+    hash_after = $null
+    version_unchanged = $false
+    hash_unchanged = $false
+    sidecar_healthy = $false
+  }
 
   $app3StdoutLog = Join-Path $env:SMOKE_DIAGNOSTICS "app3-stdout.log"
   $app3StderrLog = Join-Path $env:SMOKE_DIAGNOSTICS "app3-stderr.log"
+  $app3NodeDiagnostic = Join-Path $env:SMOKE_DIAGNOSTICS "node-invalid-result.json"
   $app3 = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -PassThru `
     -RedirectStandardOutput $app3StdoutLog -RedirectStandardError $app3StderrLog
+  $invalidAssertionError = $null
   try {
-    Invoke-WebviewAssertions -App $app3 -Phase "invalid" -DebugPort $DebugPort -ExpectedVersion $RejectedVersion -ExpectedPackVersion $ExpectedPackVersion -DiagnosticsDir $DiagnosticsDir -ImportRoot $ImportRoot `
+    Invoke-WebviewAssertions -App $app3 -Phase "invalid" -DebugPort $DebugPort -ExpectedVersion $RejectedVersion -ExpectedPackVersion $ExpectedPackVersion -DiagnosticsDir $DiagnosticsDir -ImportRoot $ImportRoot -NodeDiagnosticPath $app3NodeDiagnostic `
       -AppStdoutLog $app3StdoutLog -AppStderrLog $app3StderrLog -AppName $appNameForDiagnostics
     $state.phases += [ordered]@{ name = "invalid"; result = "passed" }
+    $state.invalid_retention.sidecar_healthy = $true
   } catch {
-    $state.phases += [ordered]@{ name = "invalid"; result = "failed"; error = $_.Exception.Message }
-    throw
+    $invalidAssertionError = $_
+    $nodeDiagnostic = $null
+    if (Test-Path $app3NodeDiagnostic) {
+      try { $nodeDiagnostic = Get-Content $app3NodeDiagnostic -Raw | ConvertFrom-Json } catch { $nodeDiagnostic = $null }
+    }
+    $state.invalid_node = if ($nodeDiagnostic) {
+      [ordered]@{ stage = $nodeDiagnostic.stage; code = $nodeDiagnostic.code; last_ui_state = $nodeDiagnostic.last_ui_state; cdp_alive = $nodeDiagnostic.cdp_alive }
+    } else { [ordered]@{ stage = "unknown"; code = "diagnostic-missing"; last_ui_state = $null; cdp_alive = $false } }
+    Write-Output "invalid updater assertion: stage=$($state.invalid_node.stage) code=$($state.invalid_node.code)"
+    $state.phases += [ordered]@{ name = "invalid"; result = "failed"; error = "semantic updater rejection assertion failed" }
   } finally {
-    Close-App -App $app3 -BaselineSidecars $baseline
+    $cleanupError = $null
+    try {
+      Close-App -App $app3 -BaselineSidecars $baseline
+    } catch {
+      $cleanupError = $_
+    } finally {
+      $state.invalid_retention.version_after = (Get-Item -Path $appPath).VersionInfo.ProductVersion
+      $state.invalid_retention.hash_after = (Get-FileHash -Path $appPath).Hash
+      $state.invalid_retention.version_unchanged = ($state.invalid_retention.version_after -eq $preInvalidVersion)
+      $state.invalid_retention.hash_unchanged = ($state.invalid_retention.hash_after -eq $preInvalidHash)
+      $state.rejected_update_left_install_unchanged = `
+        ($state.invalid_retention.version_unchanged -and $state.invalid_retention.hash_unchanged)
+      Save-State
+    }
+    if ($cleanupError -and -not $invalidAssertionError) { $invalidAssertionError = $cleanupError }
   }
-  Save-State
 
-  $finalVersion = (Get-Item -Path $appPath).VersionInfo.ProductVersion
-  if ($finalVersion -ne $HigherVersion) {
-    throw "installed version changed after a rejected update: now '$finalVersion', expected '$HigherVersion'"
+  if (-not $state.invalid_retention.version_unchanged) {
+    throw "installed version changed after a rejected update"
   }
-  $finalHash = (Get-FileHash -Path $appPath).Hash
-  if ($finalHash -ne $updatedHash) {
+  if (-not $state.invalid_retention.hash_unchanged) {
     throw "installed executable bytes changed after a rejected update"
   }
-  $state.rejected_update_left_install_unchanged = $true
+  if ($invalidAssertionError) { throw $invalidAssertionError }
   $state.result = "passed"
   Save-State
 } catch {

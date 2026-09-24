@@ -242,13 +242,30 @@ test.describe("Personal History What-If sidecar replay", () => {
     await recallGold.fill("900");
     await unseenRecall.fill("0.75");
     await plates.fill("8");
-    const browserRequest = page.waitForRequest(
-      (outgoing) => outgoing.method() === "POST" && outgoing.url().endsWith("/history/what-if"),
+    const browserResponsePromise = page.waitForResponse(
+      (response) => response.request().method() === "POST" && response.url().endsWith("/history/what-if"),
     );
     await page.getByTestId("what-if-run").click();
-    const browserMutation = await browserRequest;
+    const browserResponse = await browserResponsePromise;
+    const browserBody = (await browserResponse.json()) as WhatIfBody;
+    const browserMutation = browserResponse.request();
+    expect(
+      browserResponse.ok(),
+      `What-If response: ${browserResponse.status()} ${JSON.stringify(browserBody)}`,
+    ).toBeTruthy();
+    expect(browserBody).toMatchObject({
+      status: "available",
+      model_version: "personal-what-if-v2",
+      pack_version: "v4",
+      reason: null,
+    });
+    expect(browserBody.probability).toEqual(expect.any(Number));
+    expect(browserBody.baseline_probability).toEqual(expect.any(Number));
 
-    await expect(page.getByTestId("what-if-current")).toHaveText(/\d+(?:\.\d+)?%/);
+    await expect(
+      page.getByTestId("what-if-current"),
+      `What-If response: ${browserResponse.status()} ${JSON.stringify(browserBody)}`,
+    ).toHaveText(/\d+(?:\.\d+)?%/);
     await expect(page.getByTestId("what-if-prediction")).toHaveText(/\d+(?:\.\d+)?%/);
     await expect(page.getByTestId("what-if-provenance")).toHaveText(
       "Model personal-what-if-v2 · Pack v4",
