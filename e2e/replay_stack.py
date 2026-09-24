@@ -92,6 +92,8 @@ def personal_feature_payload(eligibility: str) -> str:
         "first_dragon_by_20m_s": 600.0,
         "first_riftherald_by_20m_s": 800.0,
         "first_baron_by_20m_s": 0.0,
+        "smite_contests_before_15m": None,
+        "smite_contests_before_20m": None,
         "early_fight_participation_rate": 0.5,
         "plates_taken_by_14m": 7.5,
     }
@@ -100,7 +102,10 @@ def personal_feature_payload(eligibility: str) -> str:
             "feature_contract_version": "loltrends-parity-v2",
             "personal_history_eligibility": eligibility,
             "features": features,
-            "feature_status": {name: "available" for name in features},
+            "feature_status": {
+                name: "available" if value is not None else "unavailable"
+                for name, value in features.items()
+            },
             "team_state": {
                 "feature": "team_gold_diff_15m",
                 "feature_contract_version": "loltrends-parity-v2",

@@ -7,10 +7,11 @@ export function RouteArchetypesCard({ pack }: { pack: FindingsPackV2 | undefined
   return (
     <section
       className="card3b"
+      aria-label="Route archetypes"
       data-testid="route-archetypes-card"
       style={{ padding: 13, display: "flex", flexDirection: "column", gap: 8 }}
     >
-      <SectionHead label="ROUTE ARCHETYPES · DESCRIPTIVE" color="var(--color-info)" />
+      <SectionHead level={3} label="ROUTE ARCHETYPES · DESCRIPTIVE" color="var(--color-info)" />
       {rows.length === 0 ? (
         <div style={{ padding: "10px 9px", borderRadius: 12, background: "var(--color-surface-3)", fontSize: 10, lineHeight: 1.45, color: "var(--color-dim)" }}>
           <Unavailable reason="approximate route evidence unavailable" />

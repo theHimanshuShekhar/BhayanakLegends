@@ -1,6 +1,23 @@
 import { describe, expect, it } from "vitest";
 import { makePack } from "../routes/__tests__/fixtures";
-import { habitEvidence } from "./populationEvidence";
+import { habitEvidence, tierEvidence } from "./populationEvidence";
+
+describe("Findings Pack v2 tier evidence", () => {
+  it("recognizes schema-native role-tier rows and preserves their declared values", () => {
+    const rows = tierEvidence(makePack(), "TOP");
+
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((row) => row.role === "TOP" && row.games >= row.minimumGames)).toBe(true);
+    expect(rows[0]).toMatchObject({
+      champion: "Swain",
+      role: "TOP",
+      games: 831,
+      winRate: 0.54994,
+      rankBand: "S",
+      metadata: { metric: "win_rate", unit: "rate", sample: 831 },
+    });
+  });
+});
 
 describe("Findings Pack v2 habit evidence", () => {
   it("exposes the expanded-corpus multipliers with directional labels", () => {
