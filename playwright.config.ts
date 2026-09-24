@@ -13,7 +13,9 @@ export default defineConfig({
   webServer: [
     {
       command: "python3 e2e/replay_stack.py",
-      url: "http://127.0.0.1:23122/events?token=local-sidecar-development-token-32chars",
+      // /events never completes; probing it keeps an SSE connection open during teardown.
+      // /health returns a finite 401 without credentials, which Playwright accepts as ready.
+      url: "http://127.0.0.1:23122/health",
       reuseExistingServer: false,
       timeout: 60_000,
       gracefulShutdown: { signal: "SIGTERM", timeout: 10_000 },
