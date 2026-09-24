@@ -507,8 +507,8 @@ test.describe("active Live Companion replay", () => {
     await setScenario(request, LIVE, "idle");
     await page.goto("/live");
     await setScenario(request, LCU, "in-game");
-    await waitForPreloadedStatus(request, { inGame: true });
     await setScenario(request, LIVE, "in-game");
+    await waitForPreloadedStatus(request, { inGame: true });
     await expect(page.getByTestId("player-row-local")).toBeVisible();
     await expectReducedMotion(page);
     await setScenario(request, LCU, "in-game-update");
@@ -604,7 +604,10 @@ test.describe("active Live Companion replay", () => {
       await expect(page.getByTestId("live-route-status")).toHaveText("Live Companion game data active");
       await expect(page.getByTestId("bridge-status")).toContainText(":2999 · 2s poll");
 
-      const initial = await readIngame(request);
+      // The replay's frozen 754s frame becomes stale after five seconds;
+      // advance the official game clock before asserting model availability.
+      await setScenario(request, LIVE, "in-game-pre-event");
+      const initial = await waitForPreEventSnapshot(request);
       await expect(initial.teams.order.flatMap((player) => player.items)).not.toHaveLength(0);
       await expectRenderedSnapshot(page, initial);
       await expectLiveDataContractDetector(page, initial);
@@ -616,8 +619,6 @@ test.describe("active Live Companion replay", () => {
       await expect(page.getByTestId("wp-status")).toHaveText("available");
       await expectNoHorizontalClipping(page);
       await captureState(page, testInfo, `flow-in-game-${viewport.width}`);
-      await setScenario(request, LIVE, "in-game-pre-event");
-      await waitForPreEventSnapshot(request);
       await setScenario(request, LIVE, "in-game-update");
       await expect(page.getByTestId("event-feed")).toContainText("BaronKill");
       await expect(page.getByTestId("active-kda")).toContainText("5 / 2 / 7");

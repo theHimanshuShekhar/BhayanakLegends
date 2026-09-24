@@ -16,6 +16,7 @@ export default defineConfig({
       url: "http://127.0.0.1:23122/events?token=local-sidecar-development-token-32chars",
       reuseExistingServer: false,
       timeout: 60_000,
+      gracefulShutdown: { signal: "SIGTERM", timeout: 10_000 },
     },
     {
       command: "pnpm dev --host 127.0.0.1",
