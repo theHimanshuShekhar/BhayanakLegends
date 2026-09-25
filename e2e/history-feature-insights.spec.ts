@@ -9,7 +9,6 @@ const AUTH = {
 const WHAT_IF_CONTROLS = [
   "avg_banked_gold_at_recall_by_20m",
   "unseen_recall_share_by_20m",
-  "plates_taken_by_14m",
 ] as const;
 
 type WhatIfBody = {
@@ -20,6 +19,7 @@ type WhatIfBody = {
   pack_version: string | null;
   reason: string | null;
 };
+
 
 async function setHistorySeed(request: APIRequestContext, eligibility: "eligible" | "ineligible") {
   const response = await request.post(`${LCU}/control`, {
@@ -220,7 +220,7 @@ test.describe("Personal History What-If sidecar replay", () => {
     expect(directBody).toMatchObject({
       status: "available",
       model_version: "personal-what-if-v2",
-      pack_version: "v4",
+      pack_version: "v5",
       reason: null,
     });
     expect(directBody.probability).toEqual(expect.any(Number));
@@ -230,38 +230,57 @@ test.describe("Personal History What-If sidecar replay", () => {
     await page.goto("/history");
     await expect(page.getByRole("heading", { level: 1, name: "Improvement Journal" })).toBeVisible();
     await expect(page.getByTestId("what-if-panel")).toHaveCount(1);
-    await expect(page.locator('[data-testid^="what-if-control-"]')).toHaveCount(3);
+    await expect(page.locator('[data-testid^="what-if-control-"]')).toHaveCount(2);
+    await expect(page.getByTestId("what-if-control-plates_taken_by_14m")).toHaveCount(0);
     for (const control of WHAT_IF_CONTROLS) {
       await expect(page.getByTestId(`what-if-control-${control}`)).toBeEnabled();
     }
     await expect(page.getByTestId("what-if-caption")).toContainText(/association only; not causal/i);
-
+    await expect(page.getByTestId("what-if-plate-baseline")).toContainText(
+      "Personal History plate value: 7.5 platesRead-only input to this model; this app does not offer plate adjustments.",
+    );
+    await expect(page.getByTestId("what-if-plate-evidence")).toContainText(
+      "Population evidence: a-lite; weak, era-sensitive review context only.",
+    );
     const recallGold = page.getByTestId("what-if-control-avg_banked_gold_at_recall_by_20m");
     const unseenRecall = page.getByTestId("what-if-control-unseen_recall_share_by_20m");
-    const plates = page.getByTestId("what-if-control-plates_taken_by_14m");
     await recallGold.fill("900");
     await unseenRecall.fill("0.75");
-    await plates.fill("8");
-    const browserRequest = page.waitForRequest(
-      (outgoing) => outgoing.method() === "POST" && outgoing.url().endsWith("/history/what-if"),
+    const browserResponsePromise = page.waitForResponse(
+      (response) => response.request().method() === "POST" && response.url().endsWith("/history/what-if"),
     );
     await page.getByTestId("what-if-run").click();
-    const browserMutation = await browserRequest;
-
-    await expect(page.getByTestId("what-if-current")).toHaveText(/\d+(?:\.\d+)?%/);
+    const browserResponse = await browserResponsePromise;
+    const browserBody = (await browserResponse.json()) as WhatIfBody;
+    const browserMutation = browserResponse.request();
+    expect(
+      browserResponse.ok(),
+      `What-If response: ${browserResponse.status()} ${JSON.stringify(browserBody)}`,
+    ).toBeTruthy();
+    expect(browserBody).toMatchObject({
+      status: "available",
+      model_version: "personal-what-if-v2",
+      pack_version: "v5",
+      reason: null,
+    });
+    expect(browserBody.probability).toEqual(expect.any(Number));
+    expect(browserBody.baseline_probability).toEqual(expect.any(Number));
+    await expect(
+      page.getByTestId("what-if-current"),
+      `What-If response: ${browserResponse.status()} ${JSON.stringify(browserBody)}`,
+    ).toHaveText(/\d+(?:\.\d+)?%/);
     await expect(page.getByTestId("what-if-prediction")).toHaveText(/\d+(?:\.\d+)?%/);
     await expect(page.getByTestId("what-if-provenance")).toHaveText(
-      "Model personal-what-if-v2 · Pack v4",
+      "Model personal-what-if-v2 · Pack v5",
     );
     expect(browserMutation.headers()["x-bl-token"]).toBe(AUTH["X-BL-Token"]);
-    expect(
-      (browserMutation.postDataJSON() as { adjustments: Record<string, number> }).adjustments,
-    ).toEqual({
-      avg_banked_gold_at_recall_by_20m: 900,
-      unseen_recall_share_by_20m: 0.75,
-      plates_taken_by_14m: 8,
+    const mutationPayload = browserMutation.postDataJSON();
+    expect(mutationPayload).toEqual({
+      adjustments: {
+        avg_banked_gold_at_recall_by_20m: 900,
+        unseen_recall_share_by_20m: 0.75,
+      },
     });
-
     await unseenRecall.fill("0.25");
     await expect(page.getByTestId("what-if-current")).toHaveText("Unavailable");
     await expect(page.getByTestId("what-if-prediction")).toHaveText("Unavailable");
@@ -285,7 +304,39 @@ test.describe("Personal History What-If sidecar replay", () => {
     await expect(page.getByTestId("what-if-current")).toHaveText("Unavailable");
     await expect(page.getByTestId("what-if-prediction")).toHaveText("Unavailable");
     await expect(page.getByTestId("what-if-provenance")).toHaveCount(0);
-    await expect(page.getByTestId("what-if-caption")).toContainText(/baseline is unavailable/i);
+    await expect(page.getByTestId("what-if-caption")).toContainText(/complete finite baseline inside the model-card domains/i);
     await setHistorySeed(request, "eligible");
+  });
+  test("keeps plate input read-only when population evidence is absent and avoids claims when withheld", async ({ page, request }) => {
+    await setHistorySeed(request, "eligible");
+    const response = await request.get(`${SIDECAR}/pack`, { headers: AUTH });
+    expect(response.ok()).toBeTruthy();
+    const pack = await response.json();
+    pack.habits = pack.habits.filter((habit: { feature: string }) => habit.feature !== "plates_taken_by_14m");
+    await page.route("**/pack", (route) => route.fulfill({ json: pack }));
+
+    await page.goto("/history");
+    await expect(page.getByTestId("what-if-control-plates_taken_by_14m")).toHaveCount(0);
+    await expect(page.getByTestId("what-if-plate-baseline")).toContainText(
+      "Personal History plate value: 7.5 platesRead-only input to this model; this app does not offer plate adjustments.",
+    );
+    await expect(page.getByTestId("what-if-plate-evidence")).toContainText(
+      "Population evidence for plates is unavailable; no population comparison is shown.",
+    );
+
+    const withheldPack = await response.json();
+    withheldPack.models.personal_what_if.release_status = "withheld";
+    withheldPack.models.personal_what_if.model_card = null;
+    withheldPack.models.personal_what_if.release_reason = "Model release is withheld for review.";
+    await page.unroute("**/pack");
+    await page.route("**/pack", (route) => route.fulfill({ json: withheldPack }));
+    await page.reload();
+    await expect(page.getByTestId("what-if-plate-baseline")).toContainText(
+      "Personal History plate value: 7.5 platesNot used by a What-If model while its model card is unavailable.",
+    );
+    await expect(page.getByTestId("what-if-plate-evidence")).not.toContainText(
+      /model-card input|model.*adjustable/i,
+    );
+    await expect(page.getByTestId("what-if-run")).toBeDisabled();
   });
 });

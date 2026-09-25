@@ -142,10 +142,10 @@ interface ChampionInsight {
 Checkpoint missing-data rule: `cs10`, `level10`, and `gold_diff_10` are `null`
 unless the match timeline contains a populated frame with a timestamp at or
 after 600,000 ms, proving that the match reached ten minutes. Once proven,
-each value uses the latest timeline frame at or before 600,000 ms; it is never
-guessed or interpolated, and remains `null` when that selected frame lacks the
-participant. The independent 15- and 20-minute lookups retain their
-latest-at-or-before behavior.
+each value uses the latest populated timeline frame at or before 600,000 ms;
+it is never guessed or interpolated, and remains `null` when that selected
+frame lacks the participant. The independent 15- and 20-minute lookups retain
+their latest-at-or-before behavior.
 
 // The backend never emits a permanent value="n/a"/verdict="n/a" row. A
 // digest with no contracted habit outcome carries habits: [] and the UI says
@@ -297,10 +297,9 @@ interface WhatIfResponse {
   rejected_fields: string[];
   reason: string|null;
 }
-// `available` requires probability, baseline_probability, adjusted_features,
-// model_version, and pack_version, with no rejected fields or reason. Every
-// non-available status carries null probability, baseline_probability, and
-// adjusted_features; rejected/out-of-domain may carry rejected_fields.
+// `available` requires current/baseline probabilities, the resulting feature
+// vector, and model/pack provenance. Other states carry null probabilities
+// and adjusted_features; rejected/out-of-domain may identify rejected fields.
 ```
 
 ### SSE events (envelope `{type, ts, data}`)
@@ -314,7 +313,7 @@ interface WhatIfResponse {
 | `live.status` | `LiveStatus` (coarse health) |
 | `pack.updated` | `{schema_version, pack_version}` |
 | `hello` | `{app_version, pack_version}` (sent on connect) |
-## Findings Pack schema dispatch and v2 contract (current release v4)
+## Findings Pack schema dispatch and v2 contract (current release v5)
 `GET /pack` returns a discriminated `FindingsPackV1 | FindingsPackV2`
 payload. `schema_version` is the discriminator and the filename must agree:
 `findings-pack.v1.json` is parsed only by the historical v1 model, while
@@ -345,7 +344,7 @@ atomically from the bundled seed on first startup; an existing active pack
 wins over a changed bundled seed.
 
 The v2 root has `schema_version: 2`; the current Findings Pack release is
-`pack_version: "v4"`. Its patch range is `14.17` through `16.17`, and it has
+`pack_version: "v5"`. Its patch range is `14.17` through `16.17`, and it has
 the following discriminated evidence collections: `findings`, `habits`,
 `objectives`, `comeback_odds`, `ban_context`, `tier_list`, `matchup_examples`,
 `checkpoints`, `route_archetypes`, and `build_evidence`. Every row has patch
@@ -392,11 +391,18 @@ extractor contract. Its ordered `float32` inputs are:
 `recalls_before_15m`, `avg_banked_gold_at_recall_by_15m`,
 `avg_banked_gold_at_recall_by_20m`, `unseen_recall_share_by_15m`,
 `unseen_recall_share_by_20m`, `first_dragon_by_20m_s`,
-`first_riftherald_by_20m_s`, `first_baron_by_20m_s`,
-`early_fight_participation_rate`, and `plates_taken_by_14m`.
-The extractor's `smite_contests_before_15m` and
-`smite_contests_before_20m` fields remain available for parity-v2 Personal
-History, but are not released model inputs.
+`first_riftherald_by_20m_s`, `early_fight_participation_rate`, and
+`plates_taken_by_14m`. The extractor's `first_baron_by_20m_s`,
+`smite_contests_before_15m`, and `smite_contests_before_20m` remain
+Personal History fields, but are not released model inputs: the current
+training corpus has no finite support for them.
+The released model trains only TOP, MIDDLE, and BOTTOM participants from
+Matches observed through 20 minutes. The Personal History plate extractor
+does not emit a plate input for JUNGLE or UTILITY; those local seeds suppress
+inference rather than using an invented zero. Model-card bounds are observed
+finite training-domain extrema, not game-rule maxima; values outside those
+bounds suppress inference even when the local extractor reports them.
+
 
 Each released projection feature card declares these units and sources:
 
@@ -407,13 +413,16 @@ Each released projection feature card declares these units and sources:
 | `recalls_before_15m` | `recalls` | parity-v2 bounded recalls through 900s |
 | `avg_banked_gold_at_recall_by_15m`, `avg_banked_gold_at_recall_by_20m` | `gold` | parity-v2 bounded recall observations |
 | `unseen_recall_share_by_15m`, `unseen_recall_share_by_20m`, `early_fight_participation_rate` | `share` | parity-v2 bounded visibility/fight observations |
-| `first_dragon_by_20m_s`, `first_riftherald_by_20m_s`, `first_baron_by_20m_s` | `seconds` | parity-v2 objective events through 1200s |
+| `first_dragon_by_20m_s`, `first_riftherald_by_20m_s` | `seconds` | parity-v2 objective events through 1200s |
 | `plates_taken_by_14m` | `plates` | parity-v2 turret-plate observations through 840s |
 
-Only `unseen_recall_share_by_20m`, `avg_banked_gold_at_recall_by_20m`, and
-`plates_taken_by_14m` are adjustable controls. Training-only median
-imputation values are recorded per feature in the model card; runtime never
-imputes, clips, proxies, or falls back, and rejects missing/non-finite values.
+Only `unseen_recall_share_by_20m` and
+`avg_banked_gold_at_recall_by_20m` are adjustable controls. The model card can
+declare additional producer-Actionable inputs without upgrading their separate
+Findings Pack population evidence. In particular, `plates_taken_by_14m` is a
+producer model-card control but the population habit is `a-lite`, weak,
+era-sensitive, and review-context-only. The Journal therefore shows it as a
+read-only model input and labels the population evidence separately.
 Calibration evidence must identify grouped holdout predictions excluded from
 fit, include a positive sample count, and the card's complete validation gate
 set and multi-vector ONNX parity evidence must pass before activation.
@@ -448,8 +457,8 @@ reason and no executable fields. Model cards contain an explicit
 `loltrends-cutoff-v2`), exact ordered `float32` inputs, units, sources,
 adjustable flags, bounds, preprocessing, patch scope, validation gates,
 caveats, and a smoke-test vector. The shipped `live_wp` card is validated for
-patches `14.18` through `15.18`; the v4 pack may contain newer evidence, but
-live inference outside that card scope (including v4's `16.17` upper bound) is
+patches `14.18` through `15.18`; the v5 pack may contain newer evidence, but
+live inference outside that card scope (including v5's `16.17` upper bound) is
 truthfully returned as `unsupported-patch` until a card with matching evidence
 is shipped. Runtime inference accepts only finite values
 matching the card exactly, rejects unknown or missing fields and out-of-domain
@@ -488,12 +497,20 @@ kinds stay in `events` but do not create delta entries. No live probability is
 inferred from clock time alone.
 
 `POST /history/what-if` accepts only local JSON
-`{"adjustments": Record<string, number>}`. The backend accepts exactly the
-card-declared adjustable fields, requires a complete finite baseline, and
-rejects unknown, missing, non-finite, and out-of-domain values without
-clipping or extrapolation. Its response reports `available` with a
-probability only after successful local ONNX inference, or a truthful
-`suppressed`/`rejected`/`error` status with nullable probability and a reason.
+`{"adjustments": Record<string, number>}`. The route requires the latest local
+match to be eligible, in `loltrends-parity-v2`, and within the declared model
+patch range; it never falls back to an earlier match or population data. The
+sidecar requires the exact Personal History extractor projection, then maps
+only model-card-declared inputs into the model-order baseline. Adjustable
+controls are the Actionable, model-card-declared features only; the complete
+baseline and every adjustment must be finite and inside card bounds. Unknown,
+missing, non-adjustable, incompatible, non-finite, and out-of-domain inputs are
+rejected or suppressed without clipping, imputation, proxy, or fallback. Raw
+non-finite JSON numbers are rejected with HTTP 422 before model inference;
+validation responses do not include their offending values. A
+successful response reports both local ONNX probabilities and exact model/pack
+versions; the Journal also renders the card patch scope and caveats. The delta
+is observational model output, never a causal intervention guarantee.
 
 ### Table-level provenance
 Every numeric-bearing table has an entry in the root `provenance` map:

@@ -18,9 +18,14 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from pydantic import ValidationError as PydanticValidationError
 
 from bhayanak_legends.inference import InferenceRuntime
-from bhayanak_legends.pack_v2 import FindingsPackV2
 from bhayanak_legends.pack import PackError, PackStore, validate_pack_directory
-from bhayanak_legends.pack_v2 import PackV2ModelCard
+from bhayanak_legends.pack_v2 import (
+    FindingsPackV2,
+    PERSONAL_MODEL_ADJUSTABLE_FEATURES,
+    PERSONAL_MODEL_CARD_ADJUSTABLE_FEATURES,
+    PERSONAL_MODEL_POPULATION_EVIDENCE_TIERS,
+    PackV2ModelCard,
+)
 from pack_fixture_helpers import (
     canonical_model_assets,
     declared_model_assets,
@@ -34,14 +39,14 @@ ROOT = Path(__file__).resolve().parents[2]
 PACK_DIR = ROOT / "pack"
 SCHEMA_PATH = PACK_DIR / "pack.schema.json"
 
-SEED_PACK_VERSION = "v4"
-CANDIDATE_PACK_VERSION = "v5"
+SEED_PACK_VERSION = "v5"
+CANDIDATE_PACK_VERSION = "v6"
 
 def _constant_onnx_bytes(value: float) -> bytes:
     onnx = pytest.importorskip("onnx")
     from onnx import TensorProto, helper
 
-    input_info = helper.make_tensor_value_info("features", TensorProto.FLOAT, [None, 14])
+    input_info = helper.make_tensor_value_info("features", TensorProto.FLOAT, [None, 13])
     output_info = helper.make_tensor_value_info("probability", TensorProto.FLOAT, [None, 1])
     tensor = helper.make_tensor("constant", TensorProto.FLOAT, [1, 1], [value])
     node = helper.make_node("Constant", [], ["probability"], value=tensor)
@@ -71,7 +76,6 @@ FIXTURE_FEATURE_ORDER = [
     "unseen_recall_share_by_20m",
     "first_dragon_by_20m_s",
     "first_riftherald_by_20m_s",
-    "first_baron_by_20m_s",
     "early_fight_participation_rate",
     "plates_taken_by_14m",
 ]
@@ -82,7 +86,7 @@ def _fixture_values(value: float = 0.25) -> dict[str, float]:
     values = dict(
         zip(
             FIXTURE_FEATURE_ORDER,
-            [150.0, 9.5, 0.0, 0.0, 10.0, 7500.0, 7500.0, 0.5, value, 600.0, 600.0, 600.0, 0.5, 7.5],
+            [75.0, 9.5, 0.0, 0.0, 2.0, 750.0, 700.0, 0.5, value, 600.0, 900.0, 0.5, 7.5],
             strict=True,
         )
     )
@@ -210,14 +214,14 @@ def test_what_if_provenance_mismatch_is_contract_valid(
                 status="available",
                 probability=0.25,
                 model_version="fixture-1",
-                pack_version="v4",
+                pack_version="v5",
                 reason=None,
             ),
             SimpleNamespace(
                 status="available",
                 probability=0.5,
                 model_version="fixture-2",
-                pack_version="v4",
+                pack_version="v5",
                 reason=None,
             ),
         ]
@@ -578,3 +582,80 @@ def test_live_model_card_strict_registry_mutations_are_rejected() -> None:
         candidate["models"]["live_wp"]["model_card"] = broken
         with pytest.raises(PydanticValidationError):
             FindingsPackV2.model_validate(candidate)
+
+
+def test_personal_model_card_rejects_non_actionable_or_extractor_unknown_inputs() -> None:
+    source = json.loads((PACK_DIR / "findings-pack.v2.json").read_text(encoding="utf-8"))
+    card = copy.deepcopy(source["models"]["personal_what_if"]["model_card"])
+    mutations = (
+        lambda payload: payload["features"][3].__setitem__("name", "first_dragon_s"),
+        lambda payload: payload["features"][0].__setitem__("source", "untrusted producer"),
+    )
+    for mutation in mutations:
+        broken = copy.deepcopy(card)
+        mutation(broken)
+        candidate = copy.deepcopy(source)
+        candidate["models"]["personal_what_if"]["model_card"] = broken
+        with pytest.raises(PydanticValidationError):
+            FindingsPackV2.model_validate(candidate)
+
+def test_what_if_rejects_extra_nonadjustable_field(tmp_path: Path) -> None:
+    root, _pack, _artifact, _card_payload = _fixture_pack(tmp_path)
+    runtime = InferenceRuntime(PackStore(root))
+    result = runtime.what_if(
+        {FIXTURE_ADJUSTABLE: 0.5, "cs10": 151.0},
+        _fixture_values(),
+        patch="16.17",
+    )
+    assert result.status == "rejected"
+    assert result.rejected_fields == ["cs10"]
+    assert result.probability is None
+def test_personal_inference_requires_exact_extractor_seed(tmp_path: Path) -> None:
+    root, _pack, _artifact, _card_payload = _fixture_pack(tmp_path)
+    runtime = InferenceRuntime(PackStore(root))
+    model_values = _fixture_values()
+    extractor_values = {
+        **model_values,
+        "first_baron_by_20m_s": 0.0,
+        "smite_contests_before_15m": None,
+        "smite_contests_before_20m": None,
+    }
+
+    complete = runtime.what_if_from_personal_features(
+        {FIXTURE_ADJUSTABLE: 0.5}, extractor_values, patch="16.17"
+    )
+    incomplete = runtime.what_if_from_personal_features(
+        {FIXTURE_ADJUSTABLE: 0.5}, model_values, patch="16.17"
+    )
+
+    assert complete.status == "available"
+    assert complete.adjusted_features is not None
+    assert "smite_contests_before_15m" not in complete.adjusted_features
+    assert incomplete.status == "rejected"
+    assert incomplete.rejected_fields == [
+        "first_baron_by_20m_s",
+        "smite_contests_before_15m",
+        "smite_contests_before_20m",
+    ]
+    assert incomplete.probability is None
+def test_personal_model_card_keeps_a_lite_population_plate_separate_from_producer_control() -> None:
+    source = json.loads((PACK_DIR / "findings-pack.v2.json").read_text(encoding="utf-8"))
+    card = PackV2ModelCard.model_validate(source["models"]["personal_what_if"]["model_card"])
+    plate_feature = next(
+        feature for feature in card.features if feature.name == "plates_taken_by_14m"
+    )
+    plate_habit = next(
+        habit for habit in source["habits"] if habit["feature"] == plate_feature.name
+    )
+    assert plate_feature.adjustable is True
+    assert PERSONAL_MODEL_CARD_ADJUSTABLE_FEATURES == {
+        "unseen_recall_share_by_20m",
+        "avg_banked_gold_at_recall_by_20m",
+        "plates_taken_by_14m",
+    }
+    assert PERSONAL_MODEL_POPULATION_EVIDENCE_TIERS[plate_feature.name] == "a-lite"
+    assert plate_habit["tier"] == "a-lite"
+    assert plate_habit["strength"] == "weak"
+    assert plate_habit["era_stability"] == "sensitive"
+    assert plate_habit["review_context_only"] is True
+    assert plate_feature.name not in PERSONAL_MODEL_ADJUSTABLE_FEATURES

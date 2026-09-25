@@ -247,9 +247,13 @@ def _v2_features(**values: object) -> dict:
     }
     return features
 
-def _personal_features(**overrides: object) -> dict:
+def _personal_features(
+    *,
+    team_state: dict[str, object] | None = None,
+    **overrides: object,
+) -> dict:
     values: dict[str, object] = {
-        "cs10": 150.0,
+        "cs10": 75.0,
         "level10": 9.5,
         "gold_diff_10": 0.0,
         "team_gold_diff_15m": 0.0,
@@ -259,13 +263,18 @@ def _personal_features(**overrides: object) -> dict:
         "unseen_recall_share_by_15m": 0.5,
         "unseen_recall_share_by_20m": 0.5,
         "first_dragon_by_20m_s": 600.0,
-        "first_riftherald_by_20m_s": 800.0,
+        "first_riftherald_by_20m_s": 900.0,
         "first_baron_by_20m_s": 0.0,
+        "smite_contests_before_15m": None,
+        "smite_contests_before_20m": None,
         "early_fight_participation_rate": 0.5,
         "plates_taken_by_14m": 7.5,
     }
     values.update(overrides)
-    return _v2_features(**values)
+    result = _v2_features(**values)
+    if team_state is not None:
+        result["team_state"].update(team_state)
+    return result
 
 
 def test_what_if_authorized_success_uses_exact_personal_history_seed(tmp_path: Path):
@@ -291,8 +300,11 @@ def test_what_if_authorized_success_uses_exact_personal_history_seed(tmp_path: P
     assert body["probability"] is not None
     assert body["baseline_probability"] is not None
     assert body["model_version"] == "personal-what-if-v2"
-    assert body["pack_version"] == "v4"
+    assert body["pack_version"] == "v5"
     assert body["adjusted_features"]["unseen_recall_share_by_20m"] == 0.75
+    assert body["adjusted_features"]["cs10"] == 75.0
+    assert body["adjusted_features"]["avg_banked_gold_at_recall_by_20m"] == 700.0
+    assert body["adjusted_features"]["plates_taken_by_14m"] == 7.5
     assert set(body["adjusted_features"]) == {
         "cs10",
         "level10",
@@ -305,11 +317,93 @@ def test_what_if_authorized_success_uses_exact_personal_history_seed(tmp_path: P
         "unseen_recall_share_by_20m",
         "first_dragon_by_20m_s",
         "first_riftherald_by_20m_s",
-        "first_baron_by_20m_s",
         "early_fight_participation_rate",
         "plates_taken_by_14m",
     }
 
+@pytest.mark.parametrize("invalid_number", ["NaN", "1e400"])
+def test_what_if_rejects_raw_nonfinite_json_before_inference(
+    tmp_path: Path, invalid_number: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    client = build_client(tmp_path, pack=SHIPPED_PACK)
+    seed(client.app.state.store, "eligible-seed", features=_personal_features())
+
+    def unexpected_inference(*args: object, **kwargs: object) -> None:
+        pytest.fail("non-finite adjustment reached model inference")
+
+    client.app.state.inference_runtime.what_if_from_personal_features = unexpected_inference
+    caplog.clear()
+    with TestClient(client.app, raise_server_exceptions=False) as actual_client:
+        response = actual_client.post(
+            "/history/what-if",
+            content=(
+                '{"adjustments":{"unseen_recall_share_by_20m":'
+                + invalid_number
+                + '}}'
+            ).encode(),
+            headers={**AUTH, "Content-Type": "application/json"},
+        )
+
+    assert response.status_code == 422
+    assert invalid_number not in response.text
+    assert "NaN" not in response.text
+    assert "Infinity" not in response.text
+    assert AUTH["X-BL-Token"] not in response.text
+    assert "probability" not in response.text
+    assert invalid_number not in caplog.text
+    assert AUTH["X-BL-Token"] not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("content", "content_type"),
+    [(b"", "application/json"), (b"not-json", "text/plain")],
+)
+def test_what_if_retains_default_validation_for_non_json_requests(
+    tmp_path: Path, content: bytes, content_type: str
+) -> None:
+    client = build_client(tmp_path, pack=SHIPPED_PACK)
+    with TestClient(client.app, raise_server_exceptions=False) as actual_client:
+        response = actual_client.post(
+            "/history/what-if",
+            content=content,
+            headers={**AUTH, "Content-Type": content_type},
+        )
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "team_state",
+    [
+        {"feature": "gold_diff_15"},
+        {"feature_contract_version": "loltrends-parity-v1"},
+        {"observed_through_s": 899.0},
+        {"non_surrendered": False},
+        {"team_gold_diff_15m": 100.0},
+    ],
+)
+def test_what_if_suppresses_incompatible_nested_team_state(
+    tmp_path: Path, team_state: dict[str, object]
+) -> None:
+    client = build_client(tmp_path, pack=SHIPPED_PACK)
+    seed(
+        client.app.state.store,
+        "contradictory-team-state",
+        features=_personal_features(team_state=team_state),
+    )
+
+    with client:
+        response = client.post(
+            "/history/what-if",
+            json={"adjustments": {"unseen_recall_share_by_20m": 0.75}},
+            headers=AUTH,
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "suppressed"
+    assert body["probability"] is None
+    assert body["baseline_probability"] is None
+    assert body["reason"] == "Personal History 15-minute team state is missing or incompatible"
 
 @pytest.mark.parametrize(
     ("adjustments", "status"),

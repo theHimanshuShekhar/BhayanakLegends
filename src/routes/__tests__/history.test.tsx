@@ -1,3 +1,4 @@
+import type { PackV2ModelCard, PackV2SmokeTest } from "../../api/pack-v2";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -40,6 +41,10 @@ function renderPage(ui: ReactElement) {
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>);
+}
+
+function activateOwnerFixture() {
+  vi.mocked(api.settings).mockResolvedValue(activeSettings);
 }
 
 const summary = {
@@ -126,7 +131,7 @@ const eligibleDigest: PostGameDigest = {
   feature_contract_version: "loltrends-parity-v2",
   personal_history_eligibility: "eligible",
   features: {
-    cs10: 150,
+    cs10: 75,
     level10: 9.5,
     gold_diff_10: 0,
     team_gold_diff_15m: 0,
@@ -136,7 +141,7 @@ const eligibleDigest: PostGameDigest = {
     unseen_recall_share_by_15m: 0.5,
     unseen_recall_share_by_20m: 0.5,
     first_dragon_by_20m_s: 600,
-    first_riftherald_by_20m_s: 800,
+    first_riftherald_by_20m_s: 900,
     first_baron_by_20m_s: 0,
     early_fight_participation_rate: 0.5,
     plates_taken_by_14m: 7.5,
@@ -156,7 +161,7 @@ const availableWhatIfResponse: WhatIfResponse = {
   baseline_probability: 0.5,
   adjusted_features: eligibleDigest.features as Record<string, number>,
   model_version: "personal-what-if-v2",
-  pack_version: "v4",
+  pack_version: "v5",
   rejected_fields: [],
   reason: null,
 };
@@ -175,8 +180,20 @@ describe("HistoryPage", () => {
     expect(within(table).getByText("JUNGLE")).toBeInTheDocument();
     expect(within(table).getByText("56.7%")).toBeInTheDocument(); // 34/60
   });
-  it("mounts one Journal simulator with declared controls and clears stale results", async () => {
-    vi.mocked(api.settings).mockResolvedValue(activeSettings);
+  it("preserves the required smoke vector on the TypeScript model-card mirror", () => {
+    const card = makePack().models?.personal_what_if?.model_card;
+    expect(card).not.toBeNull();
+    if (!card) throw new Error("fixture model card is unavailable");
+    const smokeTest: PackV2SmokeTest = card.smoke_test;
+    const mirroredCard: PackV2ModelCard = card;
+    expect(smokeTest.features).toHaveLength(mirroredCard.feature_order.length);
+    expect(smokeTest.expected).toBeGreaterThanOrEqual(0);
+    expect(smokeTest.expected).toBeLessThanOrEqual(1);
+    expect(smokeTest.tolerance).toBeGreaterThanOrEqual(0);
+  });
+
+  it("seeds model controls from Personal History and shows model scope and caveats", async () => {
+    activateOwnerFixture();
     vi.mocked(api.pack).mockResolvedValue(makePack());
     vi.mocked(api.postgameLatest).mockResolvedValue(eligibleDigest);
     vi.mocked(api.whatIf).mockResolvedValue(availableWhatIfResponse);
@@ -184,14 +201,141 @@ describe("HistoryPage", () => {
 
     const panel = await screen.findByTestId("what-if-panel");
     expect(screen.getAllByTestId("what-if-panel")).toHaveLength(1);
-    const control = await within(panel).findByTestId("what-if-control-unseen_recall_share_by_20m");
+    await within(panel).findByTestId("what-if-model-scope");
     await waitFor(() => expect(within(panel).getByTestId("what-if-run")).not.toBeDisabled());
-    fireEvent.change(control, { target: { value: "0.75" } });
+    const safeRecall = within(panel).getByTestId("what-if-control-unseen_recall_share_by_20m");
+    const bankedGold = within(panel).getByTestId("what-if-control-avg_banked_gold_at_recall_by_20m");
+    expect(within(panel).queryByTestId("what-if-control-plates_taken_by_14m")).toBeNull();
+    expect(bankedGold).toHaveValue("700");
+    expect(within(panel).getByTestId("what-if-plate-baseline")).toHaveTextContent(
+      "Personal History plate value: 7.5 platesRead-only input to this model; this app does not offer plate adjustments.",
+    );
+    expect(within(panel).getByTestId("what-if-plate-evidence")).toHaveTextContent(
+      "Population evidence: a-lite; weak, era-sensitive review context only.",
+    );
+    expect(within(panel).getByTestId("what-if-model-scope")).toHaveTextContent(
+      "Model personal-what-if-v2 · Pack v5 · supported patches 14.17–16.17",
+    );
+    fireEvent.change(safeRecall, { target: { value: "0.75" } });
     fireEvent.click(within(panel).getByTestId("what-if-run"));
-    await waitFor(() => expect(api.whatIf).toHaveBeenCalledWith({ unseen_recall_share_by_20m: 0.75 }));
+    await waitFor(() =>
+      expect(api.whatIf).toHaveBeenCalledWith({
+        unseen_recall_share_by_20m: 0.75,
+        avg_banked_gold_at_recall_by_20m: 700,
+      }),
+    );
     await waitFor(() => expect(within(panel).getByTestId("what-if-prediction")).toHaveTextContent("60.0%"));
-    fireEvent.change(control, { target: { value: "0.25" } });
+    expect(within(panel).getByTestId("what-if-provenance")).toHaveTextContent(
+      "Model personal-what-if-v2 · Pack v5",
+    );
+    expect(within(panel).getByTestId("what-if-caption")).toHaveTextContent(
+      "Association model; not a causal guarantee.",
+    );
+    expect(within(panel).getByTestId("what-if-caption")).toHaveTextContent(
+      "Inputs are accepted only from the declared bounded feature contract.",
+    );
+    fireEvent.change(safeRecall, { target: { value: "0.25" } });
     await waitFor(() => expect(within(panel).getByTestId("what-if-prediction")).toHaveTextContent("Unavailable"));
+  });
+  it("never exposes plates without population habit evidence", async () => {
+    activateOwnerFixture();
+    const pack = structuredClone(makePack());
+    pack.habits = pack.habits.filter((habit) => habit.feature !== "plates_taken_by_14m");
+    vi.mocked(api.pack).mockResolvedValue(pack);
+    vi.mocked(api.postgameLatest).mockResolvedValue(eligibleDigest);
+    renderPage(<HistoryPage />);
+
+    const panel = await screen.findByTestId("what-if-panel");
+    await waitFor(() => expect(within(panel).getByTestId("what-if-run")).not.toBeDisabled());
+    expect(within(panel).queryByTestId("what-if-control-plates_taken_by_14m")).toBeNull();
+    expect(within(panel).getByTestId("what-if-plate-baseline")).toHaveTextContent(
+      "Personal History plate value: 7.5 platesRead-only input to this model; this app does not offer plate adjustments.",
+    );
+    expect(within(panel).getByTestId("what-if-plate-evidence")).toHaveTextContent(
+      "Population evidence for plates is unavailable; no population comparison is shown.",
+    );
+    fireEvent.click(within(panel).getByTestId("what-if-run"));
+    await waitFor(() => expect(api.whatIf).toHaveBeenCalledWith({
+      unseen_recall_share_by_20m: 0.5,
+      avg_banked_gold_at_recall_by_20m: 700,
+    }));
+  });
+
+  it("does not claim a plate model input while the model is withheld", async () => {
+    activateOwnerFixture();
+    const pack = structuredClone(makePack());
+    const declaration = pack.models?.personal_what_if;
+    if (!declaration) throw new Error("fixture model declaration is unavailable");
+    declaration.release_status = "withheld";
+    declaration.model_card = null;
+    declaration.release_reason = "Model release is withheld for review.";
+    vi.mocked(api.pack).mockResolvedValue(pack);
+    vi.mocked(api.postgameLatest).mockResolvedValue(eligibleDigest);
+    renderPage(<HistoryPage />);
+
+    const panel = await screen.findByTestId("what-if-panel");
+    const plateBaseline = await within(panel).findByTestId("what-if-plate-baseline");
+    expect(plateBaseline).toHaveTextContent(
+      "Personal History plate value: 7.5 platesNot used by a What-If model while its model card is unavailable.",
+    );
+    expect(within(panel).getByTestId("what-if-plate-evidence")).toHaveTextContent(
+      "Population evidence: a-lite; weak, era-sensitive review context only.",
+    );
+    expect(within(panel).getByTestId("what-if-plate-evidence")).not.toHaveTextContent(
+      /model-card input|model.*adjustable/i,
+    );
+    expect(within(panel).getByTestId("what-if-run")).toBeDisabled();
+  });
+  it("keeps noncausal copy when a signed model card omits it and withholds a-lite plates", async () => {
+    activateOwnerFixture();
+    const pack = structuredClone(makePack());
+    const declaration = pack.models?.personal_what_if;
+    if (!declaration?.model_card) throw new Error("fixture model card is unavailable");
+    declaration.model_card.caveats = ["A future signed-card caveat without causal wording."];
+    vi.mocked(api.pack).mockResolvedValue(pack);
+    vi.mocked(api.postgameLatest).mockResolvedValue(eligibleDigest);
+    vi.mocked(api.whatIf).mockResolvedValue(availableWhatIfResponse);
+    renderPage(<HistoryPage />);
+
+    const panel = await screen.findByTestId("what-if-panel");
+    await waitFor(() => expect(within(panel).getByTestId("what-if-run")).not.toBeDisabled());
+    expect(within(panel).queryByTestId("what-if-control-plates_taken_by_14m")).toBeNull();
+    fireEvent.click(within(panel).getByTestId("what-if-run"));
+    await waitFor(() => expect(api.whatIf).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(within(panel).getByTestId("what-if-prediction")).toHaveTextContent("60.0%"),
+    );
+    expect(within(panel).getByTestId("what-if-current")).toHaveTextContent("50.0%");
+    expect(within(panel).getByTestId("what-if-caption")).toHaveTextContent(
+      "A future signed-card caveat without causal wording.",
+    );
+    expect(within(panel).getByTestId("what-if-caption")).toHaveTextContent(
+      "Association only; not causal.",
+    );
+  });
+
+
+  it("suppresses controls when the personal seed is outside model-card bounds", async () => {
+    activateOwnerFixture();
+    vi.mocked(api.pack).mockResolvedValue(makePack());
+    vi.mocked(api.postgameLatest).mockResolvedValue({
+      ...eligibleDigest,
+      features: { ...eligibleDigest.features, unseen_recall_share_by_20m: 1.1 },
+    });
+    renderPage(<HistoryPage />);
+    const panel = await screen.findByTestId("what-if-panel");
+    await within(panel).findByTestId("what-if-model-scope");
+    await waitFor(() =>
+      expect(within(panel).getByText("This Personal History value is outside the declared model domain.")).toBeInTheDocument(),
+    );
+    expect(within(panel).getByText("This Personal History value is outside the declared model domain.")).toBeInTheDocument();
+    expect(within(panel).queryByTestId("what-if-control-unseen_recall_share_by_20m")).toBeNull();
+    expect(within(panel).getByTestId("what-if-run")).toBeDisabled();
+    expect(within(panel).getByTestId("what-if-current")).toHaveTextContent("Unavailable");
+    expect(within(panel).getByTestId("what-if-prediction")).toHaveTextContent("Unavailable");
+    expect(within(panel).getByTestId("what-if-caption")).toHaveTextContent(
+      "complete finite baseline inside the model-card domains",
+    );
   });
 
   it("dresses the screen in the design system shells and pill buttons", async () => {

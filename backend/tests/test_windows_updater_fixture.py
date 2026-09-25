@@ -119,10 +119,10 @@ def test_fixture_serves_exact_valid_then_mismatched_artifacts(fixture_server) ->
     corrupt_signature = _get(port, "/findings-pack-corrupt-manifest.json.sig")
     corrupt_packed = _get(port, "/findings-pack-corrupt.zip")
     pack_state = state["findings_pack"]
-    assert manifest["pack_version"] == "v4"
+    assert manifest["pack_version"] == "v5"
     assert corrupt_manifest["pack_version"] == state["corrupt_manifest_pack_version"]
     assert corrupt_manifest["pack_version"] != state["pack_version"]
-    assert corrupt_manifest["pack_version"] == "v5-smoke-invalid-129"
+    assert corrupt_manifest["pack_version"] == "v6-smoke-invalid-129"
     assert corrupt_manifest["smoke_only_invalid_candidate"] is True
     assert corrupt_manifest["size"] == len(corrupt_packed) == pack_state["corrupt_size"]
     assert (

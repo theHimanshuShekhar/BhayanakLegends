@@ -54,10 +54,10 @@ def _state_routes(path: Path) -> tuple[set[str], dict[str, str]]:
         if not isinstance(value, dict) or not isinstance(value.get("artifact_route"), str):
             raise SystemExit(f"fixture state is missing the {phase} artifact route")
         routes.add(value["artifact_route"])
-    if state.get("pack_version") != "v4":
-        raise SystemExit("fixture canonical pack version must remain v4")
+    if state.get("pack_version") != "v5":
+        raise SystemExit("fixture canonical pack version must remain v5")
     corrupt_version = state.get("corrupt_manifest_pack_version")
-    if corrupt_version != "v5-smoke-invalid-129":
+    if corrupt_version != "v6-smoke-invalid-129":
         raise SystemExit("fixture corrupt manifest must use the smoke-only newer version")
     findings_pack = state.get("findings_pack")
     required = (

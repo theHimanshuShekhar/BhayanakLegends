@@ -291,7 +291,7 @@ test.describe("active Live Companion replay", () => {
     expect(initial.inference.status).toBe("available");
     expect(initial.inference.probability).toEqual(expect.any(Number));
     expect(initial.inference.model_version).toBe("live-wp-v2");
-    expect(initial.inference.pack_version).toBe("v4");
+    expect(initial.inference.pack_version).toBe("v5");
     expect(initial.event_deltas.every((delta) => delta.suppression_status !== "available" && delta.delta_probability === null)).toBe(true);
     await expectLiveDataContractDetector(page, initial);
     await expectNoHorizontalClipping(page);
@@ -551,7 +551,7 @@ test.describe("active Live Companion replay", () => {
       expect(initial.inference.status).toBe("available");
       expect(initial.inference.probability).toEqual(expect.any(Number));
       expect(initial.inference.model_version).toBe("live-wp-v2");
-      expect(initial.inference.pack_version).toBe("v4");
+      expect(initial.inference.pack_version).toBe("v5");
       await expect(page.getByTestId("wp-value")).toHaveText(/\d+(?:\.\d+)?%/);
       await expect(page.getByTestId("wp-status")).toHaveText("available");
       await expectNoHorizontalClipping(page);
@@ -566,7 +566,7 @@ test.describe("active Live Companion replay", () => {
       const updated = await readIngame(request);
       expect(updated.inference.status).toBe("available");
       expect(updated.inference.model_version).toBe("live-wp-v2");
-      expect(updated.inference.pack_version).toBe("v4");
+      expect(updated.inference.pack_version).toBe("v5");
       expect(
         updated.event_deltas.some(
           (delta) =>

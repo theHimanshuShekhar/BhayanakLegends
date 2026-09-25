@@ -2,10 +2,10 @@
 """Exercise canonical Findings Pack activation and corrupt-candidate recovery.
 
 This smoke helper intentionally uses a fresh PackStore with no active pack. The
-first signed candidate is the exact canonical v4 payload served by the Windows
+first signed candidate is the exact canonical v5 payload served by the Windows
 fixture, so its pack identity is not fabricated or rewritten. A second signed
 manifest is manifest-only and declares the smoke-only newer version
-``v5-smoke-invalid-129`` while pointing to a ZIP whose Findings Pack JSON is
+``v6-smoke-invalid-129`` while pointing to a ZIP whose Findings Pack JSON is
 unloadable. Both candidates travel through the real ReleaseChannel validation
 and PackStore activation path; the corrupt follow-up receives the retained
 active version exactly as production startup does. Separate verifier

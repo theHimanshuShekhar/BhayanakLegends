@@ -44,7 +44,7 @@ const validWhatIf = {
   baseline_probability: 0.5,
   adjusted_features: { unseen_recall_share_by_20m: 0.75 },
   model_version: "personal-what-if-v2",
-  pack_version: "v4",
+  pack_version: "v5",
   rejected_fields: [],
   reason: null,
 };

@@ -296,7 +296,7 @@ def test_release_tag_version_flows_into_findings_pack_manifest(tmp_path: Path):
     assert result.returncode == 0, result.stderr
     payload = json.loads(manifest.read_text(encoding="utf-8"))
     assert payload["min_app_version"] == "1.0.0"
-    assert payload["pack_version"] == "v4"
+    assert payload["pack_version"] == "v5"
 
 
 def test_release_draft_is_verified_before_promotion():

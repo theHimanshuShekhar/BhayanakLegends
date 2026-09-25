@@ -75,7 +75,7 @@ def test_pack_corrupt_manifest_is_manifest_only_newer_and_sidecar_executes_all_m
     fixture = FIXTURE.read_text(encoding="utf-8")
     powershell = POWERSHELL.read_text(encoding="utf-8")
     node = NODE.read_text(encoding="utf-8")
-    assert 'corrupt_manifest_payload["pack_version"] = "v5-smoke-invalid-129"' in fixture
+    assert 'corrupt_manifest_payload["pack_version"] = "v6-smoke-invalid-129"' in fixture
     assert "canonical pack" in fixture
     assert "corrupt_manifest_pack_version" in fixture
     assert "assertModelInventory" in node
