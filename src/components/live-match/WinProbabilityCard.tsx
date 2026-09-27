@@ -77,7 +77,7 @@ export function WinProbabilityCard({
     inferenceProvenanceReady &&
     liveInference.status === "available" &&
     liveInference.probability != null;
-  const provenanceMismatch = liveInference != null && !inferenceProvenanceReady;
+  const provenanceMismatch = liveInference?.status === "available" && !inferenceProvenanceReady;
   const value = available
     ? formatRate(liveInference.probability)
     : formatUnavailable(

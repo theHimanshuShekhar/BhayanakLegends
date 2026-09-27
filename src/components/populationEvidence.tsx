@@ -731,7 +731,12 @@ function normalizeTierRow(item: unknown): TierEvidenceRow | null {
     ? (row.rank_band as TierEvidenceRow["rankBand"])
     : null;
   const minimumGames = row.minimum_games === 500 ? 500 : null;
-  const metadata = readMetadata(row, { sampleRequired: false });
+  const metadata = readMetadata({
+    ...row,
+    metric_kind: "win_rate",
+    unit: "rate",
+    sample: games,
+  });
   if (
     !champion ||
     !role ||

@@ -299,6 +299,7 @@ jobs:
             python tools/check_windows_smoke_fixture.py `
               "$env:SMOKE_DIAGNOSTICS\updater-fixture.requests.jsonl" `
               --state-file "$env:SMOKE_FIXTURE_STATE" `
+              --smoke-state "$env:SMOKE_DIAGNOSTICS\smoke-state.json" `
               --require-security
           }
 

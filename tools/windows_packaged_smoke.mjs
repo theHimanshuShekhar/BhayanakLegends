@@ -1,6 +1,6 @@
 import { chromium } from "@playwright/test";
 import http from "node:http";
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 // Packaged-smoke webview assertions for the signed-updater proof pipeline.
@@ -27,16 +27,18 @@ const expectedVersion = args.get("--expected-version");
 const expectedPackVersion = args.get("--expected-pack-version");
 const diagnosticsDir = args.get("--diagnostics-dir");
 const importDir = args.get("--import-dir");
+const diagnosticResultPath = args.get("--diagnostic-result");
 if (
   !["update-available", "updated", "invalid"].includes(phase) ||
   !debugPort ||
   !expectedVersion ||
   !expectedPackVersion ||
   !diagnosticsDir ||
-  !importDir
+  !importDir ||
+  !diagnosticResultPath
 ) {
   throw new Error(
-    "usage: windows_packaged_smoke.mjs --phase update-available|updated|invalid --debug-port PORT --expected-version VERSION --expected-pack-version PACK_VERSION --diagnostics-dir DIR --import-dir DIR",
+    "usage: windows_packaged_smoke.mjs --phase update-available|updated|invalid --debug-port PORT --expected-version VERSION --expected-pack-version PACK_VERSION --diagnostics-dir DIR --import-dir DIR --diagnostic-result PATH",
   );
 }
 if ((phase === "update-available" || phase === "invalid") && !expectedVersion) {
@@ -45,6 +47,24 @@ if ((phase === "update-available" || phase === "invalid") && !expectedVersion) {
 
 const endpoint = `http://127.0.0.1:${debugPort}`;
 const UPDATER_TESTID = "updater-status";
+let diagnosticStage = "startup";
+let lastUiState = { state: null, error_kind: null, locator: "unknown" };
+
+function diagnosticCode(error) {
+  const allowed = new Set([
+    "target-exited",
+    "updater-state-timeout",
+    "sidecar-unavailable",
+    "assertion-failed",
+  ]);
+  return allowed.has(error?.code) ? error.code : "assertion-failed";
+}
+
+function writeDiagnosticResult(result) {
+  const temporary = `${diagnosticResultPath}.tmp`;
+  writeFileSync(temporary, `${JSON.stringify(result)}\n`, "utf8");
+  renameSync(temporary, diagnosticResultPath);
+}
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -222,20 +242,59 @@ async function debugPortAlive() {
   }
 }
 
+async function updaterUiState(page) {
+  try {
+    const updater = page.getByTestId(UPDATER_TESTID);
+    return {
+      state: await updater.getAttribute("data-updater-state"),
+      errorKind: await updater.getAttribute("data-updater-error-kind"),
+      text: await updater.innerText(),
+      locator: "available",
+    };
+  } catch {
+    return { state: null, errorKind: null, text: null, locator: "unavailable" };
+  }
+}
+
 async function waitUpdaterText(page, pattern, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   let last = "";
   while (Date.now() < deadline) {
-    try {
-      last = await page.getByTestId(UPDATER_TESTID).innerText();
+    const ui = await updaterUiState(page);
+    if (ui.text !== null) {
+      last = ui.text;
       if (pattern.test(last)) return last;
-    } catch {
-      // The page/target can be torn down mid-poll if the app is exiting.
+    } else if (!(await debugPortAlive())) {
       return null;
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  throw new Error(`timed out waiting for updater status matching ${pattern}; last saw: ${JSON.stringify(last)}`);
+  throw new Error(`timed out waiting for updater status; last state: ${JSON.stringify(last)}`);
+}
+
+async function waitUpdaterFailure(page, expectedKind, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  let last = { state: null, errorKind: null, text: null, locator: "unavailable" };
+  while (Date.now() < deadline) {
+    last = await updaterUiState(page);
+    lastUiState = {
+      state: last.state,
+      error_kind: last.errorKind,
+      locator: last.locator,
+    };
+    if (last.state === "failed" && last.errorKind === expectedKind) return last;
+    if (last.locator === "unavailable" && !(await debugPortAlive())) {
+      const error = new Error("packaged app target exited before updater rejection was rendered");
+      error.code = "target-exited";
+      error.lastUiState = last;
+      throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  const error = new Error("timed out waiting for semantic updater rejection");
+  error.code = "updater-state-timeout";
+  error.lastUiState = last;
+  throw error;
 }
 
 async function assertSidecarConnected(page) {
@@ -577,17 +636,27 @@ async function runInvalidPhase(page) {
   const sidecarInfo = await assertSidecarConnected(page);
   const packProof = await assertPackContract(page, sidecarInfo);
 
-  await waitUpdaterText(page, new RegExp(`^Version ${escapeRegExp(expectedVersion)} is available\\.(?:\\r?\\nInstall update)?$`), 30_000);
+  await waitUpdaterText(
+    page,
+    new RegExp(`^Version ${escapeRegExp(expectedVersion)} is available\\.`),
+    30_000,
+  );
   await page.getByRole("button", { name: "Install update" }).click();
 
-  const failureText = await waitUpdaterText(page, /signature could not be verified/i, 120_000);
-  if (!failureText) {
-    throw new Error("app exited instead of rejecting the mismatched-signature update");
+  const failure = await waitUpdaterFailure(page, "signature", 120_000);
+  if (!/Update unavailable\./i.test(failure.text ?? "")) {
+    throw new Error("semantic signature rejection did not render safe failure copy");
   }
+  await page.getByRole("button", { name: "Try again" }).waitFor({ state: "visible" });
 
-  // The rejection must not have torn down the process or the sidecar.
   await assertSidecarConnected(page);
-  return { sidecar_port: sidecarInfo.port, sidecar_status: sidecarInfo.status, ...packProof, rejected_message: failureText };
+  return {
+    sidecar_port: sidecarInfo.port,
+    sidecar_status: sidecarInfo.status,
+    ...packProof,
+    rejected_state: failure.state,
+    rejected_kind: failure.errorKind,
+  };
 }
 
 async function waitForAppPage(browser, deadlineMs) {
@@ -615,14 +684,18 @@ async function waitForAppPage(browser, deadlineMs) {
 // First launch can be slow (WebView2 host creation, SmartScan); the PS1
 // harness watches the app process and kills this script early if the app
 // itself dies, so a long wait here only costs time when progress is real.
-const browser = await waitForCdp(120_000);
+let browser = null;
 let diagnosticToken = null;
 try {
+  browser = await waitForCdp(120_000);
+  diagnosticStage = "connect-webview";
   const page = await waitForAppPage(browser, 30_000);
 
+  diagnosticStage = "wait-updater-ui";
   await page.getByTestId(UPDATER_TESTID).waitFor({ state: "visible", timeout: 15_000 });
 
   let result;
+  diagnosticStage = phase;
   if (phase === "update-available") {
     const sidecarInfo = await assertSidecarConnected(page);
     diagnosticToken = sidecarInfo.token;
@@ -641,8 +714,18 @@ try {
     result = { ...securityProof, ...await runInvalidPhase(page) };
   }
 
+  writeDiagnosticResult({ phase, stage: "complete", code: "ok", last_ui_state: lastUiState, cdp_alive: true });
   console.log(JSON.stringify({ phase, ...result }));
+} catch (error) {
+  writeDiagnosticResult({
+    phase,
+    stage: diagnosticStage,
+    code: diagnosticCode(error),
+    last_ui_state: lastUiState,
+    cdp_alive: await debugPortAlive(),
+  });
+  throw new Error(`packaged smoke assertion failed (${diagnosticStage}/${diagnosticCode(error)})`);
 } finally {
   if (diagnosticToken) assertDiagnosticsSafe(diagnosticToken);
-  await browser.close().catch(() => {});
+  if (browser) await browser.close().catch(() => {});
 }

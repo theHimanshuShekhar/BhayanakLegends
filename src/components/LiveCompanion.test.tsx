@@ -105,6 +105,35 @@ describe("LiveCompanion", () => {
     expect(resetToggle).toHaveAttribute("aria-expanded", "false");
   });
 
+  it("keeps expansion through an inactive partial state until departure is confirmed", async () => {
+    liveStatusData = inGameStatus;
+    const view = render(<LiveCompanion />);
+    const toggle = await screen.findByRole("button", { name: "Expand Live Companion" });
+    fireEvent.click(toggle);
+
+    liveStatusData = {
+      ...inGameStatus,
+      ingame: { ...inGameStatus.ingame, active: false },
+    };
+    view.rerender(<LiveCompanion />);
+
+    expect(await screen.findByRole("button", { name: "Collapse Live Companion" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+
+    // A full coarse status clears game_id only after departure is confirmed.
+    liveStatusData = idleStatus;
+    view.rerender(<LiveCompanion />);
+    expect(await screen.findByTestId("live-companion-mode")).toHaveTextContent("idle");
+    liveStatusData = inGameStatus;
+    view.rerender(<LiveCompanion />);
+    expect(await screen.findByRole("button", { name: "Expand Live Companion" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+
   it("stays idle without claiming live activity before any source succeeds", () => {
     const view = render(<LiveCompanion />);
     expect(screen.getByTestId("live-companion-mode")).toHaveTextContent("idle");

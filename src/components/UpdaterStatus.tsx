@@ -2,12 +2,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updater";
 
+export type UpdaterErrorKind =
+  | "signature"
+  | "version"
+  | "platform"
+  | "metadata"
+  | "network"
+  | "download"
+  | "unknown";
+
 export type UpdaterState =
   | { status: "current" }
   | { status: "available"; version: string }
   | { status: "downloading"; version: string; progress: number | null }
   | { status: "ready-to-restart"; version: string }
-  | { status: "failed"; message: string };
+  | { status: "failed"; kind: UpdaterErrorKind; message: string };
 
 export type UpdaterRuntime = {
   check: () => Promise<Pick<Update, "version" | "downloadAndInstall"> | null>;
@@ -39,13 +48,18 @@ function errorText(error: unknown): string {
   if (typeof error === "string") return error;
   return "";
 }
-
 export function updaterStateForError(error: unknown): Extract<UpdaterState, { status: "failed" }> {
   const detail = errorText(error).toLowerCase();
+  let kind: UpdaterErrorKind = "unknown";
   let message =
     "The update could not be installed. Your current install is still runnable; try again later.";
 
-  if (detail.includes("signature") || detail.includes("public key")) {
+  if (
+    detail.includes("signature") ||
+    detail.includes("public key") ||
+    detail.includes("pubkey")
+  ) {
+    kind = "signature";
     message =
       "The release signature could not be verified. Your current install is still runnable; try again later.";
   } else if (
@@ -53,23 +67,24 @@ export function updaterStateForError(error: unknown): Extract<UpdaterState, { st
     detail.includes("downgrade") ||
     detail.includes("older")
   ) {
+    kind = "version";
     message =
-      "The release version is not compatible with this install. Your current install is still runnable; try again later.";
+      "The offered version is not compatible with this install. Your current install is unchanged.";
   } else if (
     detail.includes("platform") ||
     detail.includes("architecture") ||
     detail.includes("target")
   ) {
-    message =
-      "This release is not available for this platform or architecture. Your current install is still runnable; try again later.";
+    kind = "platform";
+    message = "This update does not support the current platform or architecture.";
   } else if (
     detail.includes("json") ||
     detail.includes("metadata") ||
     detail.includes("manifest") ||
     detail.includes("parse")
   ) {
-    message =
-      "The release metadata is malformed. Your current install is still runnable; try again later.";
+    kind = "metadata";
+    message = "The release metadata is malformed. Your current install is unchanged.";
   } else if (
     detail.includes("network") ||
     detail.includes("timeout") ||
@@ -77,19 +92,20 @@ export function updaterStateForError(error: unknown): Extract<UpdaterState, { st
     detail.includes("fetch") ||
     detail.includes("http")
   ) {
-    message =
-      "The update check could not reach the release server. Your current install is still runnable; try again later.";
+    kind = "network";
+    message = "The app could not reach the release server. Try again when the connection is stable.";
   } else if (
     detail.includes("download") ||
     detail.includes("interrupted") ||
     detail.includes("aborted")
   ) {
-    message =
-      "The update download was interrupted. Your current install is still runnable; try again later.";
+    kind = "download";
+    message = "The update download was interrupted. Your current install is unchanged.";
   }
 
-  return { status: "failed", message };
+  return { status: "failed", kind, message };
 }
+
 
 function statusText(state: UpdaterState): string {
   switch (state.status) {
@@ -177,6 +193,8 @@ export function UpdaterStatus({ runtime = tauriRuntime }: { runtime?: UpdaterRun
       aria-label="Application updates"
       aria-live="polite"
       data-testid="updater-status"
+      data-updater-state={state.status}
+      data-updater-error-kind={state.status === "failed" ? state.kind : undefined}
       style={{
         maxWidth: 460,
         color: "var(--color-dim)",

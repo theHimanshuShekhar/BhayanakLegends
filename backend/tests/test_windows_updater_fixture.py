@@ -109,6 +109,8 @@ def test_fixture_serves_exact_valid_then_mismatched_artifacts(fixture_server) ->
     assert second["version"] == "0.1.2"
     assert _get(port, str(second_platform["url"]).split(f"127.0.0.1:{port}", 1)[1]) == invalid_bytes
     assert first_platform["signature"] == second_platform["signature"]
+    assert state["invalid"]["artifact_bytes_differ"] is True
+    assert state["invalid"]["signature_reused"] is True
     manifest = json.loads(_get(port, "/findings-pack-manifest.json"))
     packed = _get(port, "/findings-pack.zip")
     assert manifest["pack_version"] == state["pack_version"]
@@ -260,3 +262,37 @@ def test_fixture_fails_closed_for_missing_or_empty_artifact_inputs(tmp_path: Pat
     result = subprocess.run(command, cwd=REPO_ROOT, capture_output=True, text=True, check=False)
     assert result.returncode != 0
     assert "artifact cannot be read" in result.stderr
+
+
+@pytest.mark.parametrize("same_bytes,reuse_signature", [(True, True), (False, False)])
+def test_fixture_requires_changed_bytes_with_reused_signature(
+    tmp_path: Path, same_bytes: bool, reuse_signature: bool
+) -> None:
+    state_path = tmp_path / "state.json"
+    valid = tmp_path / "valid.exe"
+    invalid = tmp_path / "invalid.exe"
+    valid_sig = tmp_path / "valid.sig"
+    invalid_sig = tmp_path / "invalid.sig"
+    valid.write_bytes(b"valid updater")
+    invalid.write_bytes(valid.read_bytes() if same_bytes else b"changed updater")
+    valid_sig.write_text("valid-signature\n", encoding="utf-8")
+    invalid_sig.write_text(
+        valid_sig.read_text(encoding="utf-8") if reuse_signature else "different-signature\n",
+        encoding="utf-8",
+    )
+    command = [
+        sys.executable,
+        str(FIXTURE),
+        "--state-file", str(state_path),
+        "--current-version", "0.1.0",
+        "--valid-version", "0.1.1",
+        "--valid-artifact", str(valid),
+        "--valid-signature", str(valid_sig),
+        "--invalid-version", "0.1.2",
+        "--invalid-artifact", str(invalid),
+        "--invalid-signature", str(invalid_sig),
+    ]
+    result = subprocess.run(command, cwd=REPO_ROOT, capture_output=True, text=True, check=False)
+    assert result.returncode != 0
+    expected = "bytes must differ" if same_bytes else "reuse the valid detached signature"
+    assert expected in result.stderr

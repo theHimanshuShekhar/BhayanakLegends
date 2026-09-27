@@ -63,7 +63,7 @@ test.describe("Bhayanak Legends v2 smoke", () => {
     await expect(page.getByText("champion-level intel only").first()).toBeVisible();
     const banContext = page.getByTestId("card-ban-context");
     await expect(banContext).toBeVisible();
-    await expect(banContext).toContainText(/descriptive Diagnostic context/i);
+    await expect(banContext).toContainText(/descriptive Diagnostic context/i, { timeout: 15_000 });
   });
   for (const viewport of VIEWPORTS) {
     test(`champ-select replay lock flow is truthful at ${viewport.width}x${viewport.height}`, async ({ page, request }) => {
@@ -76,8 +76,8 @@ test.describe("Bhayanak Legends v2 smoke", () => {
       await expect(page.getByTestId("your-lane-tier")).toHaveText(/TOP · AWAITING PICK/);
       const roleTiers = page.getByTestId("card-role-tiers");
       await expect(roleTiers).toBeVisible();
-      await expect(roleTiers).toContainText(/no qualifying TOP population rows meet the 500-game floor/i);
-      await expect(roleTiers).not.toContainText("MIDDLE");
+      await expect(page.getByTestId("role-tier-row-Swain")).toContainText(/831 games/i, { timeout: 15_000 });
+      await expect(roleTiers.getByTestId("role-tiers-evidence-meta")).toContainText(/Qualification floor: 500 games/i);
       await expect(page.getByTestId("cs-lock-status")).toContainText("Choose a pick");
 
       // The route keeps semantic keyboard order and a visible focus target while

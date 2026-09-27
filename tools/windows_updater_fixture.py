@@ -146,8 +146,12 @@ def main() -> int:
     valid_signature = _read_signature(args.valid_signature, "valid")
     invalid_artifact = _read_artifact(args.invalid_artifact, "invalid")
     invalid_signature = _read_signature(args.invalid_signature, "invalid")
-    if valid_artifact == invalid_artifact and valid_signature == invalid_signature:
-        raise SystemExit("invalid updater inputs must not repeat the valid artifact/signature pair")
+    artifact_bytes_differ = valid_artifact != invalid_artifact
+    signature_reused = valid_signature == invalid_signature
+    if not artifact_bytes_differ:
+        raise SystemExit("invalid updater artifact bytes must differ from the valid artifact")
+    if not signature_reused:
+        raise SystemExit("invalid updater must reuse the valid detached signature")
 
     requests_file = args.state_file.with_suffix(".requests.jsonl")
     pack_dir = args.pack_dir or Path(__file__).resolve().parents[1] / "pack"
@@ -329,6 +333,8 @@ def main() -> int:
                 "artifact_route": invalid_route,
                 "artifact_sha256": hashlib.sha256(invalid_artifact).hexdigest(),
                 "signature_sha256": hashlib.sha256(invalid_signature.encode("utf-8")).hexdigest(),
+                "artifact_bytes_differ": artifact_bytes_differ,
+                "signature_reused": signature_reused,
             },
         },
     )

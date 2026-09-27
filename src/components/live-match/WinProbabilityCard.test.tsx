@@ -91,4 +91,28 @@ describe("WinProbabilityCard event deltas", () => {
     );
     expect(screen.getByTestId("wp-event-deltas")).not.toHaveTextContent("+0.0 pp");
   });
+  it("distinguishes a frozen live observation from a model provenance mismatch", () => {
+    const view = render(
+      <WinProbabilityCard
+        pack={readyPack}
+        clockS={30}
+        active
+        packVersion="fixture-pack-v1"
+        inference={{ ...inference, status: "stale", probability: null, model_version: null, pack_version: null, reason: "live observation stream is stale" }}
+      />,
+    );
+    expect(screen.getByTestId("wp-status")).toHaveTextContent("stale");
+    expect(screen.getByTestId("wp-value")).toHaveTextContent("Unavailable: live observation stream is stale");
+    view.rerender(
+      <WinProbabilityCard
+        pack={readyPack}
+        clockS={30}
+        active
+        packVersion="fixture-pack-v1"
+        inference={{ ...inference, model_version: "other-model" }}
+      />,
+    );
+    expect(screen.getByTestId("wp-status")).toHaveTextContent("incompatible");
+    expect(screen.getByTestId("wp-value")).toHaveTextContent("Unavailable: live result provenance differs from active model");
+  });
 });

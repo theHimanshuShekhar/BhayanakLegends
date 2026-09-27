@@ -34,24 +34,28 @@ describe("updater state transitions", () => {
   });
 
   it("turns updater failure categories into safe, actionable copy", () => {
-    expect(updaterStateForError(new Error("signature verification failed")).status).toBe("failed");
-    expect(updaterStateForError(new Error("signature verification failed")).message).toMatch(
-      /signature.*verified/i,
-    );
-    expect(updaterStateForError(new Error("unsupported target architecture")).message).toMatch(
-      /platform or architecture/i,
-    );
-    expect(updaterStateForError(new Error("malformed JSON metadata")).message).toMatch(
-      /metadata is malformed/i,
-    );
-    expect(updaterStateForError(new Error("version is older than current install")).message).toMatch(
-      /version is not compatible/i,
-    );
-    expect(updaterStateForError(new Error("download interrupted")).message).toMatch(
-      /download was interrupted/i,
-    );
-    expect(updaterStateForError(new Error("network timeout")).message).toMatch(
-      /reach the release server/i,
-    );
+    const signature = updaterStateForError(new Error("pubkey verification failed"));
+    expect(signature).toMatchObject({ status: "failed", kind: "signature" });
+    expect(signature.message).toMatch(/signature.*verified/i);
+    expect(updaterStateForError(new Error("unsupported target architecture"))).toMatchObject({
+      kind: "platform",
+      message: expect.stringMatching(/platform or architecture/i),
+    });
+    expect(updaterStateForError(new Error("malformed JSON metadata"))).toMatchObject({
+      kind: "metadata",
+      message: expect.stringMatching(/metadata is malformed/i),
+    });
+    expect(updaterStateForError(new Error("version is older than current install"))).toMatchObject({
+      kind: "version",
+      message: expect.stringMatching(/version is not compatible/i),
+    });
+    expect(updaterStateForError(new Error("download interrupted"))).toMatchObject({
+      kind: "download",
+      message: expect.stringMatching(/download was interrupted/i),
+    });
+    expect(updaterStateForError(new Error("network timeout"))).toMatchObject({
+      kind: "network",
+      message: expect.stringMatching(/reach the release server/i),
+    });
   });
 });

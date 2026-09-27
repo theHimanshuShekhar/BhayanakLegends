@@ -246,6 +246,7 @@ test.describe("Personal History What-If sidecar replay", () => {
     const unseenRecall = page.getByTestId("what-if-control-unseen_recall_share_by_20m");
     await recallGold.fill("900");
     await unseenRecall.fill("0.75");
+
     const browserResponsePromise = page.waitForResponse(
       (response) => response.request().method() === "POST" && response.url().endsWith("/history/what-if"),
     );
@@ -265,6 +266,7 @@ test.describe("Personal History What-If sidecar replay", () => {
     });
     expect(browserBody.probability).toEqual(expect.any(Number));
     expect(browserBody.baseline_probability).toEqual(expect.any(Number));
+
     await expect(
       page.getByTestId("what-if-current"),
       `What-If response: ${browserResponse.status()} ${JSON.stringify(browserBody)}`,
