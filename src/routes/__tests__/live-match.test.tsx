@@ -196,21 +196,21 @@ describe("LiveMatchPage", () => {
     expect(screen.getByTestId("event-feed")).toHaveTextContent("7 events");
   });
 
-  it("keeps the v4 release label for schema-v2 updates and rejects non-v2 frames", async () => {
-    vi.mocked(api.pack).mockResolvedValueOnce(makePack({ pack_version: "v4" }));
+  it("keeps the v5 release label for schema-v2 updates and rejects non-v2 frames", async () => {
+    vi.mocked(api.pack).mockResolvedValueOnce(makePack({ pack_version: "v5" }));
     renderPage();
-    expect(await screen.findByText("Findings Pack v4")).toBeInTheDocument();
+    expect(await screen.findByText("Findings Pack v5")).toBeInTheDocument();
     const packCallsBeforeUpdate = vi.mocked(api.pack).mock.calls.length;
-    act(() => pushSse!({ type: "pack.updated", ts: "now", data: { schema_version: 2, pack_version: "v4" } }));
+    act(() => pushSse!({ type: "pack.updated", ts: "now", data: { schema_version: 2, pack_version: "v5" } }));
     await waitFor(() =>
       expect(vi.mocked(api.pack).mock.calls.length).toBeGreaterThan(packCallsBeforeUpdate),
     );
-    await waitFor(() => expect(screen.getByText("Findings Pack v4")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Findings Pack v5")).toBeInTheDocument());
 
     act(() => {
       pushSse!({ type: "pack.updated", ts: "old", data: { schema_version: 1, pack_version: "v1" } } as never);
-      pushSse!({ type: "pack.updated", ts: "bad", data: { schema_version: 3, pack_version: "v4" } } as never);
+      pushSse!({ type: "pack.updated", ts: "bad", data: { schema_version: 3, pack_version: "v5" } } as never);
     });
-    expect(screen.getByText("Findings Pack v4")).toBeInTheDocument();
+    expect(screen.getByText("Findings Pack v5")).toBeInTheDocument();
   });
 });

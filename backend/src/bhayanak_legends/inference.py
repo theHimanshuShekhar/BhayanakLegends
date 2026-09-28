@@ -10,10 +10,12 @@ from typing import Any
 from .model_runtime import ModelRuntimeError, load_onnx_session, run_model
 from .models import LiveInference, WhatIfResponse
 from .pack import PackError, PackStore
+from .extract_v2 import V2_FEATURE_ORDER
 from .live_features import FEATURE_ORDER, LIVE_WP_CONTRACT_VERSION, LiveFeatureVector
 from .pack_v2 import (
     EXECUTABLE_MODEL_KEYS,
     FindingsPackV2,
+    PERSONAL_MODEL_ADJUSTABLE_FEATURES,
     PERSONAL_MODEL_CONTRACT_VERSION,
     PERSONAL_MODEL_ID,
     WITHHELD_MODEL_KEYS,
@@ -328,8 +330,23 @@ class InferenceRuntime:
                 pack_version=pack.pack_version,
                 reason="Personal History inputs must be objects",
             )
-        expected = {feature.name for feature in card.features}
-        adjustable = {feature.name for feature in card.features if feature.adjustable}
+        expected = set(card.feature_order)
+        if any(not isinstance(name, str) for name in adjustments):
+            return WhatIfResponse(
+                status="rejected",
+                model_version=card.model_version,
+                pack_version=pack.pack_version,
+                reason="adjustment feature names must be strings",
+            )
+        if any(not isinstance(name, str) for name in baseline):
+            return WhatIfResponse(
+                status="rejected",
+                model_version=card.model_version,
+                pack_version=pack.pack_version,
+                reason="Personal History feature names must be strings",
+            )
+        expected_set = set(expected)
+        adjustable = {feature.name for feature in card.features if feature.adjustable} & PERSONAL_MODEL_ADJUSTABLE_FEATURES
         rejected = sorted(set(adjustments) - adjustable)
         if rejected:
             return WhatIfResponse(
@@ -339,12 +356,12 @@ class InferenceRuntime:
                 rejected_fields=rejected,
                 reason="only model-card-declared adjustable features may change",
             )
-        if set(baseline) != expected:
+        if set(baseline) != expected_set:
             return WhatIfResponse(
                 status="rejected",
                 model_version=card.model_version,
                 pack_version=pack.pack_version,
-                rejected_fields=sorted(set(baseline) ^ expected),
+                rejected_fields=sorted(set(baseline) ^ expected_set),
                 reason="Personal History baseline does not match the model feature contract",
             )
         feature_by_name = {feature.name: feature for feature in card.features}
@@ -552,12 +569,34 @@ class InferenceRuntime:
             )
         if not isinstance(features, Mapping):
             return WhatIfResponse(
-                status="suppressed",
+                status="rejected",
                 model_version=card.model_version,
                 pack_version=pack.pack_version,
-                reason="Personal History feature projection is unavailable",
+                reason="Personal History feature projection must be an object",
             )
-        baseline = {feature.name: features.get(feature.name) for feature in card.features}
+        if any(not isinstance(name, str) for name in features):
+            return WhatIfResponse(
+                status="rejected",
+                model_version=card.model_version,
+                pack_version=pack.pack_version,
+                rejected_fields=sorted(str(name) for name in features if not isinstance(name, str)),
+                reason="Personal History feature names must be strings",
+            )
+        extractor_fields = set(V2_FEATURE_ORDER)
+        provided = set(features)
+        if provided != extractor_fields:
+            return WhatIfResponse(
+                status="rejected",
+                model_version=card.model_version,
+                pack_version=pack.pack_version,
+                rejected_fields=sorted(provided ^ extractor_fields),
+                reason="Personal History seed does not exactly match the extractor contract",
+            )
+        # The Personal History extractor contract is a superset of the model
+        # projection (notably, it also records unavailable smite-contest
+        # fields). Keep only the model-card-ordered inputs; never synthesize or
+        # substitute a missing model value.
+        baseline = {feature.name: features[feature.name] for feature in card.features}
         if any(not self._finite(value) for value in baseline.values()):
             return WhatIfResponse(
                 status="suppressed",

@@ -171,8 +171,8 @@ def main() -> int:
     )
     # This version exists only in the invalid smoke manifest. The corrupt ZIP
     # still carries malformed JSON and can never activate; the canonical pack
-    # payload and its v4 manifest remain byte-for-byte untouched.
-    corrupt_manifest_payload["pack_version"] = "v5-smoke-invalid-129"
+    # payload and its v5 manifest remain byte-for-byte untouched.
+    corrupt_manifest_payload["pack_version"] = "v6-smoke-invalid-129"
     corrupt_manifest_payload["smoke_only_invalid_candidate"] = True
     corrupt_manifest_payload["notes"] = "smoke-only manifest version; payload is intentionally unloadable"
     pack_version = str(manifest_payload["pack_version"])

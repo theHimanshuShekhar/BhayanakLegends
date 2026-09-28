@@ -9,7 +9,7 @@ import statistics
 from collections.abc import Mapping
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from .models import (
     BenchmarkResponse,
@@ -130,6 +130,36 @@ def _v2_features(raw_features: Mapping[str, Any]) -> dict[str, Any]:
     features = raw_features.get("features")
     return features if isinstance(features, dict) else {}
 
+def _compatible_team_state(
+    raw_features: Mapping[str, Any],
+    feature_values: Mapping[str, Any],
+    feature_contract_version: str | None,
+) -> TeamState | None:
+    """Return the exact validated 15-minute team state, never a flat proxy."""
+    if feature_contract_version != PARITY_V2_VERSION:
+        return None
+    raw_team_state = raw_features.get("team_state")
+    if not isinstance(raw_team_state, Mapping):
+        return None
+    try:
+        team_state = TeamState.model_validate(raw_team_state)
+    except ValueError:
+        return None
+    flat_value = feature_values.get("team_gold_diff_15m")
+    nested_value = team_state.team_gold_diff_15m
+    if (
+        team_state.feature_contract_version != feature_contract_version
+        or team_state.observed_through_s is None
+        or team_state.observed_through_s < 900.0
+        or team_state.non_surrendered is not True
+        or not _finite_number(flat_value)
+        or nested_value is None
+        or float(flat_value) != nested_value
+    ):
+        return None
+    return team_state
+
+
 def _latest_row(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
     return max(rows, key=lambda row: (row.get("played_at") or "", row.get("match_id") or "")) if rows else None
 
@@ -245,30 +275,13 @@ def postgame_latest(request: Request) -> dict | None:
         for key, value in candidate_features.items()
         if _finite_number(value)
     }
-    team_state = raw_features.get("team_state")
-    try:
-        parsed_team_state = (
-            TeamState.model_validate(team_state)
-            if feature_contract_version is not None and isinstance(team_state, dict)
-            else None
-        )
-    except ValueError:
-        parsed_team_state = None
+    parsed_team_state = _compatible_team_state(
+        raw_features, numeric_features, feature_contract_version
+    )
     if parsed_team_state is None:
-        # A flat team feature is not a substitute for the required nested
-        # TeamState declaration.  Keep unrelated v2 fields, but suppress the
-        # team comparison when its declaration is absent or malformed.
+        # A flat team feature is never a substitute for a compatible nested
+        # TeamState declaration at the strict, non-surrendered 15-minute horizon.
         numeric_features.pop("team_gold_diff_15m", None)
-    else:
-        flat_team_value = numeric_features.get("team_gold_diff_15m")
-        nested_team_value = parsed_team_state.team_gold_diff_15m
-        if (
-            flat_team_value is None
-            or nested_team_value is None
-            or flat_team_value != nested_team_value
-        ):
-            numeric_features.pop("team_gold_diff_15m", None)
-            parsed_team_state = None
     checkpoints = {
         "gold_diff_10": numeric_features.get("gold_diff_10"),
         "gold_diff_15": None,
@@ -290,7 +303,33 @@ def postgame_latest(request: Request) -> dict | None:
         team_state=parsed_team_state,
     ).model_dump(exclude_none=True)
 
-@router.post("/history/what-if", response_model=WhatIfResponse)
+async def _reject_nonfinite_what_if_json(request: Request) -> None:
+    # FastAPI parses JSON before resolving dependencies. Its default validation
+    # response echoes invalid input, which cannot serialize NaN or Infinity.
+    if not await request.body():
+        return
+    content_type = request.headers.get("content-type", "")
+    media_type = content_type.split(";", 1)[0].strip().lower()
+    if media_type and media_type != "application/json" and not media_type.endswith("+json"):
+        return
+    pending = [await request.json()]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, dict):
+            pending.extend(value.values())
+        elif isinstance(value, list):
+            pending.extend(value)
+        elif isinstance(value, float) and not math.isfinite(value):
+            raise HTTPException(
+                status_code=422, detail="What-If JSON numbers must be finite"
+            )
+
+
+@router.post(
+    "/history/what-if",
+    response_model=WhatIfResponse,
+    dependencies=[Depends(_reject_nonfinite_what_if_json)],
+)
 def history_what_if(request: Request, body: WhatIfRequest) -> dict:
     _scope, rows = _owner_rows(request)
     latest = _latest_row(rows)
@@ -318,6 +357,15 @@ def history_what_if(request: Request, body: WhatIfRequest) -> dict:
             reason="Personal History patch is unavailable",
         ).model_dump()
     personal_features = _v2_features(features)
+    team_state = _compatible_team_state(
+        features, personal_features, features.get("feature_contract_version")
+    )
+    if team_state is None:
+        return WhatIfResponse(
+            status="suppressed",
+            reason="Personal History 15-minute team state is missing or incompatible",
+        ).model_dump()
+
     result = runtime.what_if_from_personal_features(
         body.adjustments,
         personal_features,

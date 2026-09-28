@@ -19,8 +19,8 @@ def _write_fixture_state(path: Path) -> None:
     path.write_text(
         json.dumps(
             {
-                "pack_version": "v4",
-                "corrupt_manifest_pack_version": "v5-smoke-invalid-129",
+                "pack_version": "v5",
+                "corrupt_manifest_pack_version": "v6-smoke-invalid-129",
                 "findings_pack": {
                     "valid_manifest_route": "/findings-pack-manifest.json",
                     "corrupt_manifest_route": "/findings-pack-corrupt-manifest.json",

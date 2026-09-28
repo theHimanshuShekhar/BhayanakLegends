@@ -349,17 +349,28 @@ PERSONAL_MODEL_FEATURE_ORDER = (
     "unseen_recall_share_by_20m",
     "first_dragon_by_20m_s",
     "first_riftherald_by_20m_s",
-    "first_baron_by_20m_s",
     "early_fight_participation_rate",
     "plates_taken_by_14m",
 )
-PERSONAL_MODEL_ADJUSTABLE_FEATURES = frozenset(
+
+
+
+
+
+PERSONAL_MODEL_CARD_ADJUSTABLE_FEATURES = frozenset(
     {
         "unseen_recall_share_by_20m",
         "avg_banked_gold_at_recall_by_20m",
         "plates_taken_by_14m",
     }
 )
+PERSONAL_MODEL_POPULATION_EVIDENCE_TIERS = {"plates_taken_by_14m": "a-lite"}
+PERSONAL_MODEL_ADJUSTABLE_FEATURES = frozenset(
+    feature
+    for feature in PERSONAL_MODEL_CARD_ADJUSTABLE_FEATURES
+    if PERSONAL_MODEL_POPULATION_EVIDENCE_TIERS.get(feature) != "a-lite"
+)
+
 PERSONAL_MODEL_FEATURE_UNITS = {
     "cs10": "minions",
     "level10": "levels",
@@ -372,7 +383,6 @@ PERSONAL_MODEL_FEATURE_UNITS = {
     "unseen_recall_share_by_20m": "share",
     "first_dragon_by_20m_s": "seconds",
     "first_riftherald_by_20m_s": "seconds",
-    "first_baron_by_20m_s": "seconds",
     "early_fight_participation_rate": "share",
     "plates_taken_by_14m": "plates",
 }
@@ -388,7 +398,6 @@ PERSONAL_MODEL_FEATURE_SOURCES = {
     "unseen_recall_share_by_20m": "loltrends-parity-v2 extractor: bounded recall visibility through 1200s",
     "first_dragon_by_20m_s": "loltrends-parity-v2 extractor: objective events through 1200s",
     "first_riftherald_by_20m_s": "loltrends-parity-v2 extractor: objective events through 1200s",
-    "first_baron_by_20m_s": "loltrends-parity-v2 extractor: objective events through 1200s",
     "early_fight_participation_rate": "loltrends-parity-v2 extractor: fights before 840s",
     "plates_taken_by_14m": "loltrends-parity-v2 extractor: turret plates through 840s",
 }
@@ -1421,7 +1430,7 @@ def _validate_strict_model_card(model_key: str, card: PackV2ModelCard) -> None:
         raise ValueError(f"model {model_key!r} validation gates are not exact and satisfied")
     if strict_personal:
         expected_order = PERSONAL_MODEL_FEATURE_ORDER
-        expected_adjustable = PERSONAL_MODEL_ADJUSTABLE_FEATURES
+        expected_adjustable = PERSONAL_MODEL_CARD_ADJUSTABLE_FEATURES
         expected_units = PERSONAL_MODEL_FEATURE_UNITS
         expected_sources = PERSONAL_MODEL_FEATURE_SOURCES
         expected_bounds = None
@@ -1453,10 +1462,18 @@ def _validate_strict_model_card(model_key: str, card: PackV2ModelCard) -> None:
             expected_min, expected_max = expected_bounds[feature.name]
             if feature.bounds.min != expected_min or feature.bounds.max != expected_max:
                 raise ValueError(f"model {model_key!r} bounds are malformed for {feature.name!r}")
-    if strict_personal and {
-        feature.name for feature in card.features if feature.adjustable
-    } != expected_adjustable:
-        raise ValueError("Personal model adjustable controls are not exact")
+    if strict_personal:
+        if {feature.name for feature in card.features if feature.adjustable} != expected_adjustable:
+            raise ValueError("Personal model adjustable controls are not exact")
+        if PERSONAL_MODEL_ADJUSTABLE_FEATURES != frozenset(
+            expected_adjustable
+            - {
+                feature_name
+                for feature_name, tier in PERSONAL_MODEL_POPULATION_EVIDENCE_TIERS.items()
+                if tier == "a-lite"
+            }
+        ):
+            raise ValueError("Personal model controls conflict with weaker population evidence")
     for step, expected_name in zip(card.preprocessing, expected_order, strict=True):
         if step.feature != expected_name:
             raise ValueError("strict model preprocessing feature order is not exact")

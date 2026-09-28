@@ -78,7 +78,7 @@ def test_pack_matches_canonical_schema_and_strict_model(generator):
 
     assert SCHEMA == generator.build_schema()
     assert model.schema_version == 2
-    assert model.pack_version == "v4"
+    assert model.pack_version == "v5"
     assert model.dataset.eligible_matches > 0
 
 
@@ -494,7 +494,7 @@ def test_generator_fails_closed_on_incompatible_upstream_shape(tmp_path: Path):
 
 def test_header_and_release_contract_fields_are_v2_only():
     assert PACK["schema_version"] == 2
-    assert PACK["pack_version"] == "v4"
+    assert PACK["pack_version"] == "v5"
     assert PACK["feature_contracts"]["personal_history"] == "loltrends-parity-v2"
     assert set(PACK) == {
         "schema_version",

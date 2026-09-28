@@ -211,10 +211,10 @@ describe("ProgressPage", () => {
   it("renders loaded population habit evidence with directional effects", async () => {
     renderPage(<ProgressPage />);
 
-    await screen.findByText("Findings Pack v4");
+    await screen.findByText("Findings Pack v5");
     const lever = screen.getByTestId("lever-adoption");
 
-    expect(lever).toHaveTextContent("Findings Pack v4");
+    expect(lever).toHaveTextContent("Findings Pack v5");
     expect(lever).toHaveTextContent("Higher safe-recall share");
     expect(lever).toHaveTextContent("Later first-dragon timing");
     expect(lever).toHaveTextContent("More banked gold at recall");
