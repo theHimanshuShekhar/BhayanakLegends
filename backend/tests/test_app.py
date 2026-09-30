@@ -16,20 +16,38 @@ from bhayanak_legends.pack import PackError
 from bhayanak_legends.routers_events import event_stream
 from bhayanak_legends.sse import Hub
 
-@pytest.fixture
-def client(tmp_path: Path):
+def _app_client(tmp_path: Path, *, canonical: bool = False):
+    from pack_fixture_helpers import minimal_pack, canonical_model_assets, write_assets
+    import shutil
+
+    pack_dir = tmp_path / "pack"
+    if canonical:
+        shutil.copytree(Path(__file__).resolve().parents[2] / "pack", pack_dir)
+    else:
+        pack = minimal_pack()
+        pack_dir.mkdir()
+        (pack_dir / "findings-pack.v2.json").write_text(json.dumps(pack))
+        shutil.copy2(Path(__file__).resolve().parents[2] / "pack/pack.schema.json", pack_dir)
+        write_assets(pack_dir, canonical_model_assets(pack))
     config = SidecarConfig(
         port=23110,
         token="test-token-123456789012345678901234",
         data_dir=tmp_path / "data",
-        pack_dir=None,
+        pack_dir=pack_dir,
     )
-    # point pack dir at repo pack/ if present, else tests skip pack-dependent asserts
-    repo_pack = Path(__file__).resolve().parents[2] / "pack"
-    if repo_pack.exists():
-        config.pack_dir = repo_pack
-    app = create_app(config, credential_store=InMemoryCredentialStore())
-    return TestClient(app)
+    return TestClient(create_app(config, credential_store=InMemoryCredentialStore()))
+
+
+@pytest.fixture
+def client(tmp_path: Path):
+    # Transport/account tests exercise a real validated pack without the
+    # unrelated full population tables. Population endpoint proof stays exact.
+    return _app_client(tmp_path)
+
+
+@pytest.fixture
+def canonical_client(tmp_path: Path):
+    return _app_client(tmp_path, canonical=True)
 
 
 AUTH = {
@@ -65,8 +83,8 @@ def test_health_requires_auth(client):
     assert "pack_version" in body
 
 
-def test_pack_endpoint_serves_expanded_habit_headlines(client):
-    response = client.get("/pack", headers=AUTH)
+def test_pack_endpoint_serves_expanded_habit_headlines(canonical_client):
+    response = canonical_client.get("/pack", headers=AUTH)
     assert response.status_code == 200
     rows = {row["key"]: row for row in response.json()["habits"]}
 

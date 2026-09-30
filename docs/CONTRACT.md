@@ -313,7 +313,7 @@ interface WhatIfResponse {
 | `live.status` | `LiveStatus` (coarse health) |
 | `pack.updated` | `{schema_version, pack_version}` |
 | `hello` | `{app_version, pack_version}` (sent on connect) |
-## Findings Pack schema dispatch and v2 contract (current release v5)
+## Findings Pack schema dispatch and v2 contract (current release v6)
 `GET /pack` returns a discriminated `FindingsPackV1 | FindingsPackV2`
 payload. `schema_version` is the discriminator and the filename must agree:
 `findings-pack.v1.json` is parsed only by the historical v1 model, while
@@ -344,7 +344,7 @@ atomically from the bundled seed on first startup; an existing active pack
 wins over a changed bundled seed.
 
 The v2 root has `schema_version: 2`; the current Findings Pack release is
-`pack_version: "v5"`. Its patch range is `14.17` through `16.17`, and it has
+`pack_version: "v6"`. Its patch range is `14.17` through `16.17`, and it has
 the following discriminated evidence collections: `findings`, `habits`,
 `objectives`, `comeback_odds`, `ban_context`, `tier_list`, `matchup_examples`,
 `checkpoints`, `route_archetypes`, and `build_evidence`. Every row has patch
@@ -456,11 +456,12 @@ reason and no executable fields. Model cards contain an explicit
 `feature_contract_version` (predictive personal cards must declare
 `loltrends-cutoff-v2`), exact ordered `float32` inputs, units, sources,
 adjustable flags, bounds, preprocessing, patch scope, validation gates,
-caveats, and a smoke-test vector. The shipped `live_wp` card is validated for
-patches `14.18` through `15.18`; the v5 pack may contain newer evidence, but
-live inference outside that card scope (including v5's `16.17` upper bound) is
-truthfully returned as `unsupported-patch` until a card with matching evidence
-is shipped. Runtime inference accepts only finite values
+caveats, and a smoke-test vector. The v6 `live_wp` declaration is withheld
+because grouped holdout and era totals contradict, and measured calibration
+bins and a reproducible training cohort are unavailable. It has no executable
+artifact or model card; live inference reports `suppressed`. The retained v5
+`personal_what_if` artifact remains available with its original card and
+supported patch scope. Runtime inference accepts only finite values
 matching the card exactly, rejects unknown or missing fields and out-of-domain
 values, and never loads pickle artifacts. Available artifact paths, hashes,
 sizes, and card files are verified before activation; model directories cannot

@@ -300,7 +300,7 @@ def test_what_if_authorized_success_uses_exact_personal_history_seed(tmp_path: P
     assert body["probability"] is not None
     assert body["baseline_probability"] is not None
     assert body["model_version"] == "personal-what-if-v2"
-    assert body["pack_version"] == "v5"
+    assert body["pack_version"] == "v6"
     assert body["adjusted_features"]["unseen_recall_share_by_20m"] == 0.75
     assert body["adjusted_features"]["cs10"] == 75.0
     assert body["adjusted_features"]["avg_banked_gold_at_recall_by_20m"] == 700.0

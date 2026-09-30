@@ -88,7 +88,6 @@ def test_empty_history_summary_shape(client_factory=None):
             port=23110,
             token="local-sidecar-development-token-32chars",
             data_dir=Path(td) / "data",
-            pack_dir=REPO_ROOT / "pack",
         )
         app = create_app(config)
         headers = {"X-BL-Token": config.token, "Host": "127.0.0.1:23110"}

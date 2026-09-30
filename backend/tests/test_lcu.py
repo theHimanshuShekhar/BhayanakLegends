@@ -797,9 +797,6 @@ def _client(tmp_path: Path):
         data_dir=tmp_path / "data",
         pack_dir=None,
     )
-    repo_pack = Path(__file__).resolve().parents[2] / "pack"
-    if repo_pack.exists():
-        config.pack_dir = repo_pack
     return TestClient(create_app(config))
 
 

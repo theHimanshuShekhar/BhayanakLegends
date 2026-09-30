@@ -411,7 +411,6 @@ def test_live_route_exposes_service_probability(tmp_path: Path, monkeypatch) -> 
         port=23110,
         token=token,
         data_dir=tmp_path / "data",
-        pack_dir=Path(__file__).resolve().parents[2] / "pack",
     )
 
     with TestClient(

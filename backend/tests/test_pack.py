@@ -30,12 +30,12 @@ def test_pack_checkout_attributes_pin_text_and_binary_assets():
     text_assets = (
         "pack/findings-pack.v2.json",
         "pack/pack.schema.json",
-        "pack/models/live-wp-v2.model-card.json",
+        "backend/tests/fixtures/available_live_v5/live-wp-v2.model-card.json",
         "pack/models/personal-what-if-v2.model-card.json",
     )
     binary_assets = (
-        "pack/models/live-wp-v2.onnx",
         "pack/models/personal-what-if-v2.onnx",
+        "backend/tests/fixtures/available_live_v5/live-wp-v2.onnx",
         "pack/findings-pack.v2.zip",
     )
     paths = text_assets + binary_assets
@@ -78,7 +78,7 @@ def test_pack_matches_canonical_schema_and_strict_model(generator):
 
     assert SCHEMA == generator.build_schema()
     assert model.schema_version == 2
-    assert model.pack_version == "v5"
+    assert model.pack_version == "v6"
     assert model.dataset.eligible_matches > 0
 
 
@@ -494,7 +494,7 @@ def test_generator_fails_closed_on_incompatible_upstream_shape(tmp_path: Path):
 
 def test_header_and_release_contract_fields_are_v2_only():
     assert PACK["schema_version"] == 2
-    assert PACK["pack_version"] == "v5"
+    assert PACK["pack_version"] == "v6"
     assert PACK["feature_contracts"]["personal_history"] == "loltrends-parity-v2"
     assert set(PACK) == {
         "schema_version",
@@ -525,3 +525,21 @@ def test_v2_header_fields_cannot_be_downgraded(field: str):
 
     with pytest.raises(PydanticValidationError):
         FindingsPackV2.model_validate(broken)
+
+
+def test_canonical_release_withholds_live_artifacts_and_runtime(tmp_path):
+    from bhayanak_legends.inference import InferenceRuntime
+    import shutil
+
+    declaration = PACK["models"]["live_wp"]
+    assert declaration["release_status"] == "withheld"
+    assert declaration.get("artifact") is None
+    assert declaration.get("model_card") is None
+    assert declaration["release_reason"]
+    assert not (PACK_DIR / "models/live-wp-v2.onnx").exists()
+    assert not (PACK_DIR / "models/live-wp-v2.model-card.json").exists()
+    active = tmp_path / "pack"
+    shutil.copytree(PACK_DIR, active)
+    result = InferenceRuntime(PackStore(active)).predict("live_wp", {"elapsed_time_s": 600.0}, patch="15.18")
+    assert result.status == "suppressed"
+    assert result.probability is None

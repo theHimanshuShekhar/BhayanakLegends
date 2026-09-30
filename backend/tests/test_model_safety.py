@@ -39,8 +39,8 @@ ROOT = Path(__file__).resolve().parents[2]
 PACK_DIR = ROOT / "pack"
 SCHEMA_PATH = PACK_DIR / "pack.schema.json"
 
-SEED_PACK_VERSION = "v5"
-CANDIDATE_PACK_VERSION = "v6"
+SEED_PACK_VERSION = "v6"
+CANDIDATE_PACK_VERSION = "v7"
 
 def _constant_onnx_bytes(value: float) -> bytes:
     onnx = pytest.importorskip("onnx")
@@ -565,8 +565,9 @@ def test_surrender_runtime_gate_runs_before_session_loading(tmp_path: Path, monk
     assert result.reason == "Surrender Advisor is unavailable"
 
 def test_live_model_card_strict_registry_mutations_are_rejected() -> None:
-    source = json.loads((PACK_DIR / "findings-pack.v2.json").read_text(encoding="utf-8"))
-    card = copy.deepcopy(source["models"]["live_wp"]["model_card"])
+    source = json.loads((PACK_DIR / "findings-pack.v2.json").read_text())
+    declaration = json.loads((Path(__file__).parent / "fixtures/available_live_v5/live-wp-v2.declaration.json").read_text())
+    card = declaration["model_card"]
     mutations = {
         "order": lambda payload: payload["feature_order"].__setitem__(0, "team_kills_diff"),
         "name": lambda payload: payload["features"][0].__setitem__("name", "wrong_feature"),
@@ -579,7 +580,7 @@ def test_live_model_card_strict_registry_mutations_are_rejected() -> None:
         broken = copy.deepcopy(card)
         mutation(broken)
         candidate = copy.deepcopy(source)
-        candidate["models"]["live_wp"]["model_card"] = broken
+        candidate["models"]["live_wp"] = {**declaration, "model_card": broken}
         with pytest.raises(PydanticValidationError):
             FindingsPackV2.model_validate(candidate)
 
@@ -659,3 +660,20 @@ def test_personal_model_card_keeps_a_lite_population_plate_separate_from_produce
     assert plate_habit["era_stability"] == "sensitive"
     assert plate_habit["review_context_only"] is True
     assert plate_feature.name not in PERSONAL_MODEL_ADJUSTABLE_FEATURES
+
+
+@pytest.mark.parametrize("explicit_time", [None, 601.0])
+def test_direct_live_prediction_retains_official_observation_time(tmp_path: Path, monkeypatch, explicit_time) -> None:
+    root, _pack, _artifact, _card_payload = _fixture_pack(tmp_path)
+    runtime = InferenceRuntime(PackStore(root))
+    card = SimpleNamespace(model_version="live-fixture", patch_scope=None)
+    declaration = SimpleNamespace(model_card=card)
+    monkeypatch.setattr(runtime, "_declaration", lambda _key: (SimpleNamespace(pack_version="fixture"), declaration, None))
+    monkeypatch.setattr(runtime, "_features", lambda *_args: ({"elapsed_time_s": 600.0}, [], None))
+    monkeypatch.setattr(runtime, "_session", lambda *_args: (object(), card))
+    monkeypatch.setattr("bhayanak_legends.inference.run_model", lambda *_args: 0.25)
+
+    result = runtime.predict("live_wp", {"elapsed_time_s": 600.0}, observed_game_time_s=explicit_time)
+
+    assert result.status == "available"
+    assert result.observed_game_time_s == (600.0 if explicit_time is None else explicit_time)

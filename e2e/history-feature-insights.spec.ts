@@ -220,7 +220,7 @@ test.describe("Personal History What-If sidecar replay", () => {
     expect(directBody).toMatchObject({
       status: "available",
       model_version: "personal-what-if-v2",
-      pack_version: "v5",
+      pack_version: "v6",
       reason: null,
     });
     expect(directBody.probability).toEqual(expect.any(Number));
@@ -261,7 +261,7 @@ test.describe("Personal History What-If sidecar replay", () => {
     expect(browserBody).toMatchObject({
       status: "available",
       model_version: "personal-what-if-v2",
-      pack_version: "v5",
+      pack_version: "v6",
       reason: null,
     });
     expect(browserBody.probability).toEqual(expect.any(Number));
@@ -273,7 +273,7 @@ test.describe("Personal History What-If sidecar replay", () => {
     ).toHaveText(/\d+(?:\.\d+)?%/);
     await expect(page.getByTestId("what-if-prediction")).toHaveText(/\d+(?:\.\d+)?%/);
     await expect(page.getByTestId("what-if-provenance")).toHaveText(
-      "Model personal-what-if-v2 · Pack v5",
+      "Model personal-what-if-v2 · Pack v6",
     );
     expect(browserMutation.headers()["x-bl-token"]).toBe(AUTH["X-BL-Token"]);
     const mutationPayload = browserMutation.postDataJSON();

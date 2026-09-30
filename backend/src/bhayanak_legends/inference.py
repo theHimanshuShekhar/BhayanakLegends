@@ -261,6 +261,8 @@ class InferenceRuntime:
                 observed_game_time_s=observed_game_time_s,
                 reason=error,
             )
+        if model_key == "live_wp" and observed_game_time_s is None:
+            observed_game_time_s = vector["elapsed_time_s"]
         try:
             session, session_card = self._session(
                 model_key,

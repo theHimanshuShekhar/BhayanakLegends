@@ -39,14 +39,14 @@ catalog or Feature Store export. The fixture signs a deterministic manifest
 key over the exact canonical pack bytes and serves the manifest, detached
 signature, and payload. It also serves a separately signed manifest for a ZIP
 whose `findings-pack.v2.json` is deliberately unloadable. That invalid
-manifest declares `v6-smoke-invalid-129` only so the follow-up is newer than
-the retained canonical `v5`; the ZIP itself still contains the malformed JSON,
-can never activate, and does not rewrite the canonical pack or its v5
+manifest declares `v7-smoke-invalid-129` only so the follow-up is newer than
+the retained canonical `v6`; the ZIP itself still contains the malformed JSON,
+can never activate, and does not rewrite the canonical pack or its v6
 manifest. The smoke-only `tools/windows_pack_corrupt_smoke.py` uses a new
 isolated `PackStore`, activates the exact canonical signed payload through the
 real `ReleaseChannel`, executes every available model declaration against its
-model-card smoke vector/expected value/tolerance (including `live_wp` and
-`personal_what_if`), and then offers the signed corrupt candidate through
+model-card smoke vector/expected value/tolerance (currently `personal_what_if`;
+`live_wp` is withheld), and then offers the signed corrupt candidate through
 `check_and_activate(retained_version)`. Independent verifier subprocesses
 rebuild `PackStore` before and after rejection and require the generation
 pointer, canonical `pack_version`, archive hash, and all-model smoke proof to

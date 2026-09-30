@@ -32,15 +32,31 @@ test.describe("Bhayanak Legends v2 smoke", () => {
     const pack = await packResponse.json();
     expect(pack).toMatchObject({
       schema_version: 2,
-      pack_version: "v5",
+      pack_version: "v6",
       patch_range: { min: "14.17", max: "16.17" },
       dataset: { eligible_matches: 125_031, participant_performances: 1_250_310 },
     });
     await page.goto("/live");
     await expect(page.getByTestId("sidecar-dot")).toBeVisible();
     await expect(
-      page.getByText("Findings Pack v5 · 125,031 matches · 14.17–16.17", { exact: true }),
+      page.getByText("Findings Pack v6 · 125,031 matches · 14.17–16.17", { exact: true }),
     ).toBeVisible({ timeout: 15_000 });
+  });
+
+  test("canonical release withholds live inference and publishes no executable live model", async ({ page, request }) => {
+    const response = await request.get(`${SIDECAR}/pack`, { headers: AUTH });
+    const pack = await response.json();
+    expect(pack.models.live_wp.release_status).toBe("withheld");
+    expect(pack.models.live_wp.artifact).toBeFalsy();
+    expect(pack.models.live_wp.model_card).toBeFalsy();
+    await setScenario(request, "in-game");
+    await request.post("http://127.0.0.1:23124/control", { data: { scenario: "in-game" } });
+    await page.goto("/live");
+    await expect(page.getByTestId("wp-status")).toHaveText("unavailable");
+    await expect(page.getByTestId("wp-value")).not.toHaveText(/\d+(?:\.\d+)?%/);
+    const snapshot = await request.get(`${SIDECAR}/live/ingame`, { headers: AUTH });
+    expect((await snapshot.json()).inference).toMatchObject({ status: "suppressed", probability: null });
+    await setScenario(request, "idle");
   });
 
   test("post-game suppresses comeback rate for the replayed mild deficit", async ({ page }) => {

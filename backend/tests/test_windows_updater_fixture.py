@@ -121,10 +121,10 @@ def test_fixture_serves_exact_valid_then_mismatched_artifacts(fixture_server) ->
     corrupt_signature = _get(port, "/findings-pack-corrupt-manifest.json.sig")
     corrupt_packed = _get(port, "/findings-pack-corrupt.zip")
     pack_state = state["findings_pack"]
-    assert manifest["pack_version"] == "v5"
+    assert manifest["pack_version"] == "v6"
     assert corrupt_manifest["pack_version"] == state["corrupt_manifest_pack_version"]
     assert corrupt_manifest["pack_version"] != state["pack_version"]
-    assert corrupt_manifest["pack_version"] == "v6-smoke-invalid-129"
+    assert corrupt_manifest["pack_version"] == "v7-smoke-invalid-129"
     assert corrupt_manifest["smoke_only_invalid_candidate"] is True
     assert corrupt_manifest["size"] == len(corrupt_packed) == pack_state["corrupt_size"]
     assert (
@@ -194,12 +194,10 @@ def test_pack_rollback_helper_activates_exact_pack_and_retains_it_after_corrupt_
     assert proof["result"] == "passed"
     assert proof["pack_version"] == state["pack_version"]
     assert proof["valid_archive_sha256"] == state["pack_sha256"]
-    assert set(proof["model"]["available_model_keys"]) == {"live_wp", "personal_what_if"}
-    assert set(proof["model"]["models"]) == {"live_wp", "personal_what_if"}
-    assert proof["model"]["models"]["live_wp"]["status"] == "available"
+    assert set(proof["model"]["available_model_keys"]) == {"personal_what_if"}
+    assert set(proof["model"]["models"]) == {"personal_what_if"}
     assert proof["model"]["models"]["personal_what_if"]["what_if_status"] == "available"
     assert set(proof["after_rejection_restart"]["model"]["available_model_keys"]) == {
-        "live_wp",
         "personal_what_if",
     }
     assert proof["restart_retained_version"] is True

@@ -161,7 +161,7 @@ const availableWhatIfResponse: WhatIfResponse = {
   baseline_probability: 0.5,
   adjusted_features: eligibleDigest.features as Record<string, number>,
   model_version: "personal-what-if-v2",
-  pack_version: "v5",
+  pack_version: "v6",
   rejected_fields: [],
   reason: null,
 };
@@ -214,7 +214,7 @@ describe("HistoryPage", () => {
       "Population evidence: a-lite; weak, era-sensitive review context only.",
     );
     expect(within(panel).getByTestId("what-if-model-scope")).toHaveTextContent(
-      "Model personal-what-if-v2 · Pack v5 · supported patches 14.17–16.17",
+      "Model personal-what-if-v2 · Pack v6 · supported patches 14.17–16.17",
     );
     fireEvent.change(safeRecall, { target: { value: "0.75" } });
     fireEvent.click(within(panel).getByTestId("what-if-run"));
@@ -226,7 +226,7 @@ describe("HistoryPage", () => {
     );
     await waitFor(() => expect(within(panel).getByTestId("what-if-prediction")).toHaveTextContent("60.0%"));
     expect(within(panel).getByTestId("what-if-provenance")).toHaveTextContent(
-      "Model personal-what-if-v2 · Pack v5",
+      "Model personal-what-if-v2 · Pack v6",
     );
     expect(within(panel).getByTestId("what-if-caption")).toHaveTextContent(
       "Association model; not a causal guarantee.",

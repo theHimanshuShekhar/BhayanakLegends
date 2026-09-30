@@ -60,7 +60,6 @@ def build_app(tmp_path: Path):
         port=23110,
         token="local-sidecar-development-token-32chars",
         data_dir=tmp_path / "data",
-        pack_dir=REPO / "pack" if (REPO / "pack").exists() else None,
         allow_import=True,
         import_roots=[tmp_path],
     )

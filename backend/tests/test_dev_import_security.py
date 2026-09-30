@@ -42,7 +42,6 @@ def make_app(
         port=23110,
         token="local-sidecar-development-token-32chars",
         data_dir=tmp_path / "data",
-        pack_dir=Path(__file__).resolve().parents[2] / "pack",
         allow_import=allow_import,
         import_roots=import_roots or [],
     )

@@ -80,7 +80,7 @@ def test_pack_corrupt_manifest_is_manifest_only_newer_and_sidecar_executes_all_m
     fixture = FIXTURE.read_text(encoding="utf-8")
     helper = HELPER.read_text(encoding="utf-8")
     node = NODE.read_text(encoding="utf-8")
-    assert 'corrupt_manifest_payload["pack_version"] = "v6-smoke-invalid-129"' in fixture
+    assert 'corrupt_manifest_payload["pack_version"] = "v7-smoke-invalid-129"' in fixture
     assert "canonical pack" in fixture
     assert "corrupt_manifest_pack_version" in fixture
     assert '"smoke_only_invalid_candidate"' in fixture

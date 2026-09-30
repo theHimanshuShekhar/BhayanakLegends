@@ -107,7 +107,6 @@ def build_openapi() -> dict[str, Any]:
             port=23110,
             token="local-sidecar-development-token-32chars",
             data_dir=base / "data",
-            pack_dir=REPO_ROOT / "pack",
         )
         app = create_app(config)
         return app.openapi()

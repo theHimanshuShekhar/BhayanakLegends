@@ -20,6 +20,7 @@ sys.path.insert(0, str(BACKEND / "src"))
 LCU_PORT = 23123
 LIVE_PORT = 23124
 SIDECAR_PORT = 23122
+LIVE_FIXTURE_PORT = 23125
 TOKEN = "local-sidecar-development-token-32chars"
 
 
@@ -30,7 +31,7 @@ def port_answers(port: int) -> bool:
 
 
 def wait_for_port(port: int, process: subprocess.Popen[bytes], label: str) -> None:
-    deadline = time.monotonic() + 15
+    deadline = time.monotonic() + 45
     while time.monotonic() < deadline:
         if process.poll() is not None:
             raise RuntimeError(f"{label} exited with {process.returncode}")
@@ -160,7 +161,7 @@ def seed_personal_history(data_dir: Path) -> None:
 
 
 def main() -> int:
-    occupied = [port for port in (LCU_PORT, LIVE_PORT, SIDECAR_PORT) if port_answers(port)]
+    occupied = [port for port in (LCU_PORT, LIVE_PORT, SIDECAR_PORT, LIVE_FIXTURE_PORT) if port_answers(port)]
     if occupied:
         print(f"replay refuses stale process on configured port(s): {occupied}", file=sys.stderr, flush=True)
         return 23
@@ -199,6 +200,39 @@ def main() -> int:
             processes.append(process)
             wait_for_port(port, process, f"fake {kind}")
 
+        # Historical model is test-only; canonical sidecar keeps v6 withholding.
+        fixture_data = temp_dir / "available-live-fixture"
+        fixture_pack = fixture_data / "pack"
+        shutil.copytree(ROOT / "pack", fixture_pack)
+        source = BACKEND / "tests" / "fixtures" / "available_live_v5"
+        card = json.loads((source / "live-wp-v2.model-card.json").read_text())
+        import hashlib
+        payload_path = fixture_pack / "findings-pack.v2.json"
+        payload = json.loads(payload_path.read_text())
+        artifact = (source / "live-wp-v2.onnx").read_bytes()
+        card_bytes = (source / "live-wp-v2.model-card.json").read_bytes()
+        payload["pack_version"] = "v6-live-test-fixture"
+        payload["feature_contracts"]["models"]["live_wp"] = "live-wp-v2"
+        payload["models"]["live_wp"] = {
+            "model_id": "live-wp-v2", "release_status": "available",
+            "model_card": card,
+            "artifact": {"path": "models/live-wp-v2.onnx", "format": "onnx",
+                         "sha256": hashlib.sha256(artifact).hexdigest(), "size": len(artifact),
+                         "model_card_path": "models/live-wp-v2.model-card.json",
+                         "model_card_sha256": hashlib.sha256(card_bytes).hexdigest(),
+                         "model_card_size": len(card_bytes)},
+        }
+        payload_path.write_text(json.dumps(payload))
+        shutil.copy2(source / "live-wp-v2.onnx", fixture_pack / "models")
+        shutil.copy2(source / "live-wp-v2.model-card.json", fixture_pack / "models")
+        seed_champion_cache(fixture_data)
+        seed_personal_history(fixture_data)
+        fixture_env = {**env, "BHAYANAK_PORT": str(LIVE_FIXTURE_PORT),
+                       "BHAYANAK_DATA_DIR": str(fixture_data), "BHAYANAK_PACK_DIR": str(fixture_pack)}
+        fixture_sidecar = subprocess.Popen(
+            ["uv", "run", "python", "-m", "bhayanak_legends.sidecar"], cwd=BACKEND, env=fixture_env)
+        processes.append(fixture_sidecar)
+        wait_for_port(LIVE_FIXTURE_PORT, fixture_sidecar, "test-only available live sidecar")
         sidecar = subprocess.Popen(
             ["uv", "run", "python", "-m", "bhayanak_legends.sidecar"],
             cwd=BACKEND,
