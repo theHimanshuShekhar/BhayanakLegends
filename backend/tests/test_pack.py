@@ -31,10 +31,10 @@ def test_pack_checkout_attributes_pin_text_and_binary_assets():
         "pack/findings-pack.v2.json",
         "pack/pack.schema.json",
         "backend/tests/fixtures/available_live_v5/live-wp-v2.model-card.json",
-        "pack/models/personal-what-if-v2.model-card.json",
+        "backend/tests/fixtures/available_personal_v6/personal-what-if-v2.model-card.json",
     )
     binary_assets = (
-        "pack/models/personal-what-if-v2.onnx",
+        "backend/tests/fixtures/available_personal_v6/personal-what-if-v2.onnx",
         "backend/tests/fixtures/available_live_v5/live-wp-v2.onnx",
         "pack/findings-pack.v2.zip",
     )
@@ -78,7 +78,7 @@ def test_pack_matches_canonical_schema_and_strict_model(generator):
 
     assert SCHEMA == generator.build_schema()
     assert model.schema_version == 2
-    assert model.pack_version == "v6"
+    assert model.pack_version == "v7"
     assert model.dataset.eligible_matches > 0
 
 
@@ -414,7 +414,7 @@ def test_bootstrap_copies_checked_in_diagnostic_seed(tmp_path: Path):
 
 def test_generator_rejects_bare_json_with_available_models(tmp_path: Path):
     artifact = tmp_path / "findings-pack.v2.json"
-    artifact_bytes = (PACK_DIR / "findings-pack.v2.json").read_bytes()
+    artifact_bytes = (REPO_ROOT / "backend/tests/fixtures/synthetic_personal_v3/findings-pack.v2.json").read_bytes()
     artifact.write_bytes(artifact_bytes)
     output_dir = tmp_path / "output"
 
@@ -494,7 +494,7 @@ def test_generator_fails_closed_on_incompatible_upstream_shape(tmp_path: Path):
 
 def test_header_and_release_contract_fields_are_v2_only():
     assert PACK["schema_version"] == 2
-    assert PACK["pack_version"] == "v6"
+    assert PACK["pack_version"] == "v7"
     assert PACK["feature_contracts"]["personal_history"] == "loltrends-parity-v2"
     assert set(PACK) == {
         "schema_version",

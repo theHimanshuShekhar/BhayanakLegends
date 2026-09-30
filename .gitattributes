@@ -9,3 +9,8 @@
 # Historical live assets are test-only and retain exact bytes on Windows.
 /backend/tests/fixtures/available_live_v5/*.json text eol=lf
 /backend/tests/fixtures/available_live_v5/*.onnx binary -text
+
+/backend/tests/fixtures/available_personal_v6/*.json text eol=lf
+/backend/tests/fixtures/available_personal_v6/*.onnx binary -text
+/backend/tests/fixtures/synthetic_personal_v3/**/*.json text eol=lf
+/backend/tests/fixtures/synthetic_personal_v3/**/*.onnx binary -text

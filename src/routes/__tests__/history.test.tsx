@@ -7,7 +7,7 @@ import type { SseMessage } from "../../api/sse";
 import type { PostGameDigest, WhatIfResponse } from "../../api/types";
 import { HistoryPage } from "../history";
 import { api } from "../../api/client";
-import { makePack } from "./fixtures";
+import { makeAvailablePersonalPack as makePack, makePack as makeCanonicalPack } from "./fixtures";
 let sseHandler: ((msg: SseMessage) => void) | undefined;
 
 vi.mock("../../api/client", () => ({
@@ -160,8 +160,8 @@ const availableWhatIfResponse: WhatIfResponse = {
   probability: 0.6,
   baseline_probability: 0.5,
   adjusted_features: eligibleDigest.features as Record<string, number>,
-  model_version: "personal-what-if-v2",
-  pack_version: "v6",
+  model_version: "synthetic-recall-v3-test-fixture",
+  pack_version: "v7-personal-test-fixture",
   rejected_fields: [],
   reason: null,
 };
@@ -214,7 +214,7 @@ describe("HistoryPage", () => {
       "Population evidence: a-lite; weak, era-sensitive review context only.",
     );
     expect(within(panel).getByTestId("what-if-model-scope")).toHaveTextContent(
-      "Model personal-what-if-v2 · Pack v6 · supported patches 14.17–16.17",
+      "Model synthetic-recall-v3-test-fixture · Pack v7-personal-test-fixture · supported patches 14.17–16.17",
     );
     fireEvent.change(safeRecall, { target: { value: "0.75" } });
     fireEvent.click(within(panel).getByTestId("what-if-run"));
@@ -226,7 +226,7 @@ describe("HistoryPage", () => {
     );
     await waitFor(() => expect(within(panel).getByTestId("what-if-prediction")).toHaveTextContent("60.0%"));
     expect(within(panel).getByTestId("what-if-provenance")).toHaveTextContent(
-      "Model personal-what-if-v2 · Pack v6",
+      "Model synthetic-recall-v3-test-fixture · Pack v7-personal-test-fixture",
     );
     expect(within(panel).getByTestId("what-if-caption")).toHaveTextContent(
       "Association model; not a causal guarantee.",
@@ -472,4 +472,25 @@ describe("HistoryPage", () => {
     });
     await waitFor(() => expect(bar.className).toContain("bg-teal"));
   });
+});
+
+it("withholds canonical personal controls", async () => {
+  activateOwnerFixture();
+  vi.mocked(api.pack).mockResolvedValue(makeCanonicalPack());
+  vi.mocked(api.postgameLatest).mockResolvedValue(eligibleDigest);
+  renderPage(<HistoryPage />);
+  await waitFor(() => expect(screen.getByTestId("what-if-run")).toBeDisabled());
+  expect(screen.queryByTestId("what-if-control-unseen_recall_share_by_20m")).toBeNull();
+});
+
+it("disables inference for an installed obsolete recall model contract", async () => {
+  activateOwnerFixture();
+  const historical = structuredClone(makePack());
+  historical.feature_contracts.models!.personal_what_if = "loltrends-cutoff-v2";
+  historical.models!.personal_what_if.model_card!.feature_contract_version = "loltrends-cutoff-v2";
+  vi.mocked(api.pack).mockResolvedValue(historical);
+  vi.mocked(api.postgameLatest).mockResolvedValue(eligibleDigest);
+  renderPage(<HistoryPage />);
+  await waitFor(() => expect(screen.getByTestId("what-if-run")).toBeDisabled());
+  expect(api.whatIf).not.toHaveBeenCalled();
 });

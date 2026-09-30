@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Collection
 import hashlib
+import json
 import sqlite3
 import threading
 from pathlib import Path
@@ -588,11 +589,26 @@ class Store:
         with self._lock, self._conn:
             for mid in match_ids:
                 known = self._conn.execute(
-                    "SELECT 1 FROM matches WHERE owner_key = ? AND match_id = ?",
+                    "SELECT features_json FROM matches WHERE owner_key = ? AND match_id = ?",
                     (key, mid),
                 ).fetchone()
                 if known:
-                    continue
+                    from .extract_v2 import RECALL_FEATURE_REVISION
+                    try:
+                        payload = json.loads(known["features_json"] or "{}")
+                    except (TypeError, ValueError):
+                        payload = {}
+                    if (
+                        isinstance(payload, dict)
+                        and payload.get("recall_feature_revision") == RECALL_FEATURE_REVISION
+                    ):
+                        continue
+                    # Explicit sync refreshes obsolete recall measurements. Keep
+                    # the previous owner-scoped row until completion succeeds.
+                    self._conn.execute(
+                        "DELETE FROM sync_queue WHERE owner_key = ? AND match_id = ? AND state IN ('done', 'failed')",
+                        (key, mid),
+                    )
                 cur = self._conn.execute(
                     "INSERT OR IGNORE INTO sync_queue "
                     "(owner_key, match_id, region_route, priority, state, added_at) "
@@ -600,6 +616,22 @@ class Store:
                     (key, mid, region_route, priority, now),
                 )
                 added += cur.rowcount
+        return added
+
+    def enqueue_obsolete_recalls(self, *, owner_key: str, region_route: str) -> int:
+        """Refresh persisted owner history, including matches outside discovery."""
+        added = 0
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT m.match_id, q.region_route FROM matches m LEFT JOIN sync_queue q "
+                "ON m.owner_key = q.owner_key AND m.match_id = q.match_id WHERE m.owner_key = ?",
+                (owner_key,),
+            ).fetchall()
+        for row in rows:
+            added += self.enqueue(
+                [row["match_id"]], priority=100000, owner_key=owner_key,
+                region_route=row["region_route"] or region_route,
+            )
         return added
 
     def claim_next_pending(

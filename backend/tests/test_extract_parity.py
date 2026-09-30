@@ -237,3 +237,63 @@ def test_inconsistent_or_missing_participant_surrender_flags_are_unknown(
     )
     assert values["personal_history_eligibility"] == "unknown"
     assert values["team_state"]["non_surrendered"] is None
+
+@pytest.mark.parametrize("cutoff", [15, 20])
+@pytest.mark.parametrize("suffix", ["death", "missing_events"])
+def test_recall_bounded_suffix_invariance_in_personal_history(cutoff: int, suffix: str) -> None:
+    timeline = timeline_for("regular")
+    timeline["info"]["frames"] = [f for f in timeline["info"]["frames"] if f["timestamp"] <= cutoff * 60000]
+    before = parse_personal_history_v2(timeline, LOCAL_PUUID, PARTICIPANTS, detail=detail())
+    departure = copy.deepcopy(timeline["info"]["frames"][-1])
+    departure["timestamp"] = (cutoff + 1) * 60000
+    departure["participantFrames"]["1"]["position"] = {"x": 2500, "y": 11500}
+    arrival = copy.deepcopy(departure)
+    arrival["timestamp"] += 60000
+    arrival["participantFrames"]["1"]["position"] = {"x": 700, "y": 700}
+    if suffix == "death":
+        departure["events"] = [{"type": "CHAMPION_KILL", "victimId": 1}]
+    else:
+        arrival.pop("events")
+    timeline["info"]["frames"].extend([departure, arrival])
+    after = parse_personal_history_v2(timeline, LOCAL_PUUID, PARTICIPANTS, detail=detail())
+    for field in (f"avg_banked_gold_at_recall_by_{cutoff}m", f"unseen_recall_share_by_{cutoff}m"):
+        assert before[field] is not None
+        assert after[field] == before[field]
+    assert before["recalls_before_15m"] is not None
+    assert after["recalls_before_15m"] == before["recalls_before_15m"]
+
+@pytest.mark.parametrize("kind", ["death", "missing_events", "purchase"])
+def test_recall_fifteen_window_survives_twenty_window_ambiguity(kind: str) -> None:
+    timeline = timeline_for("regular")
+    baseline = parse_personal_history_v2(timeline, LOCAL_PUUID, PARTICIPANTS, detail=detail())
+    departure = copy.deepcopy(timeline["info"]["frames"][-1])
+    departure.update(timestamp=16 * 60000, events=[])
+    departure["participantFrames"]["1"]["position"] = {"x": 2500, "y": 11500}
+    arrival = copy.deepcopy(departure)
+    arrival["timestamp"] = 17 * 60000
+    arrival["participantFrames"]["1"]["position"] = {"x": 700, "y": 700}
+    if kind == "missing_events":
+        arrival.pop("events")
+    else:
+        arrival["events"] = [{"type": "CHAMPION_KILL" if kind == "death" else "ITEM_PURCHASED", "victimId": 1}]
+    timeline["info"]["frames"].extend([departure, arrival])
+    values = parse_personal_history_v2(timeline, LOCAL_PUUID, PARTICIPANTS, detail=detail())
+    for field in ("recalls_before_15m", "avg_banked_gold_at_recall_by_15m", "unseen_recall_share_by_15m"):
+        assert values[field] == baseline[field]
+    assert values["avg_banked_gold_at_recall_by_20m"] is None
+
+@pytest.mark.parametrize("cutoff", [15, 20])
+def test_recall_exact_cutoff_ambiguity_excluded(cutoff: int) -> None:
+    timeline = timeline_for("regular")
+    baseline = parse_recall_features_v2(timeline, 1, PARTICIPANTS)
+    boundary = copy.deepcopy(timeline["info"]["frames"][-1])
+    boundary.update(timestamp=cutoff * 60000, events=[{"type": "CHAMPION_KILL", "victimId": 1}])
+    boundary["participantFrames"]["1"]["position"] = {"x": 700, "y": 700}
+    timeline["info"]["frames"].append(boundary)
+    for frame in timeline["info"]["frames"]:
+        if frame["timestamp"] < cutoff * 60000:
+            frame["events"].extend([{"type": "CHAMPION_KILL", "victimId": 1, "timestamp": cutoff * 60000}, {"type": "ITEM_PURCHASED", "timestamp": (cutoff + 1) * 60000}])
+    timeline["info"]["frames"].reverse()
+    values = parse_recall_features_v2(timeline, 1, PARTICIPANTS)
+    for field in (f"avg_banked_gold_at_recall_by_{cutoff}m", f"unseen_recall_share_by_{cutoff}m"):
+        assert values[field] == baseline[field]

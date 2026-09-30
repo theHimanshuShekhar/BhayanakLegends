@@ -101,6 +101,7 @@ def personal_feature_payload(eligibility: str) -> str:
     return json.dumps(
         {
             "feature_contract_version": "loltrends-parity-v2",
+            "recall_feature_revision": "loltrends-cutoff-v3",
             "personal_history_eligibility": eligibility,
             "features": features,
             "feature_status": {
@@ -200,10 +201,11 @@ def main() -> int:
             processes.append(process)
             wait_for_port(port, process, f"fake {kind}")
 
-        # Historical model is test-only; canonical sidecar keeps v6 withholding.
+        # Historical model is test-only; canonical sidecar keeps v7 withholding.
         fixture_data = temp_dir / "available-live-fixture"
         fixture_pack = fixture_data / "pack"
         shutil.copytree(ROOT / "pack", fixture_pack)
+        (fixture_pack / "models").mkdir(exist_ok=True)
         source = BACKEND / "tests" / "fixtures" / "available_live_v5"
         card = json.loads((source / "live-wp-v2.model-card.json").read_text())
         import hashlib
@@ -222,6 +224,11 @@ def main() -> int:
                          "model_card_sha256": hashlib.sha256(card_bytes).hexdigest(),
                          "model_card_size": len(card_bytes)},
         }
+        synthetic = BACKEND / "tests/fixtures/synthetic_personal_v3"
+        personal = json.loads((synthetic / "findings-pack.v2.json").read_text())
+        payload["models"]["personal_what_if"] = personal["models"]["personal_what_if"]
+        payload["feature_contracts"]["models"]["personal_what_if"] = "loltrends-cutoff-v3"
+        shutil.copytree(synthetic / "models", fixture_pack / "models", dirs_exist_ok=True)
         payload_path.write_text(json.dumps(payload))
         shutil.copy2(source / "live-wp-v2.onnx", fixture_pack / "models")
         shutil.copy2(source / "live-wp-v2.model-card.json", fixture_pack / "models")

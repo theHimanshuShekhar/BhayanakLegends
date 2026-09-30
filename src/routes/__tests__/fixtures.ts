@@ -3,6 +3,7 @@ import type { FindingsPackV1 } from "../../api/pack-v1";
 import type { FindingsPackV2 } from "../../api/pack-v2";
 import shippedLegacyFindingsPack from "../../../backend/tests/fixtures/findings-pack.v1.json";
 import shippedFindingsPack from "../../../pack/findings-pack.v2.json";
+import syntheticPersonalPack from "../../../backend/tests/fixtures/synthetic_personal_v3/findings-pack.v2.json";
 export const idleStatus: LiveStatus = {
   champ_select: { active: false, phase: null },
   ingame: { active: false, game_id: null, mode: null, clock_s: 0 },
@@ -138,4 +139,8 @@ export function makePack(overrides: Record<string, unknown> = {}): FindingsPackV
     ...shippedPack,
     ...overrides,
   } as FindingsPackV2;
+}
+
+export function makeAvailablePersonalPack(overrides: Record<string, unknown> = {}): FindingsPackV2 {
+  return makePack({ models: syntheticPersonalPack.models, feature_contracts: syntheticPersonalPack.feature_contracts, pack_version: syntheticPersonalPack.pack_version, ...overrides });
 }

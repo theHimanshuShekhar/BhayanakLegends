@@ -936,3 +936,43 @@ async def test_resolve_owner_uses_fallback_and_keeps_selected_route(tmp_path: Pa
     assert store._puuid_for_owner(scope["owner_key"]) == "sea-fallback-puuid"
     assert store.get_setting("region_route") in (None, "sea")
     assert tried[:2] == ["sea", "asia"]
+
+def test_obsolete_recall_refresh_is_owner_scoped_retryable_and_current_is_noop(tmp_path: Path):
+    from bhayanak_legends.extract_v2 import RECALL_FEATURE_REVISION
+    store = Store(tmp_path / "refresh.db")
+    owner = activate_owner(store)
+    old = json.dumps({"feature_contract_version": "loltrends-parity-v2", "features": {"recalls_before_15m": 2}})
+    store.upsert_match("m", "2026-01-01", "16.7", "TOP", "Garen", True, 1800, old, owner_key=owner)
+    assert store.enqueue(["m"], owner_key=owner) == 1
+    assert store.claim_next_pending(owner_key=owner)["match_id"] == "m"
+    store.fail_queue_item("m", owner_key=owner)
+    assert store.all_matches(owner_key=owner)[0]["features_json"] == old
+    assert store.enqueue(["m"], owner_key=owner) == 1
+    assert store.claim_next_pending(owner_key=owner)["match_id"] == "m"
+    current = json.dumps({"recall_feature_revision": RECALL_FEATURE_REVISION})
+    assert store.complete_match("m", "2026-01-01", "16.7", "TOP", "Garen", True, 1800, current, owner_key=owner)
+    assert store.enqueue(["m"], owner_key=owner) == 0
+    assert store.enqueue(["m"], owner_key="different-owner") == 1
+
+
+def test_obsolete_recall_values_masked_without_mutating_other_features():
+    from bhayanak_legends.routers_data import _v2_features
+    payload = {"feature_contract_version": "loltrends-parity-v2", "features": {"recalls_before_15m": 2, "team_gold_diff_15m": 500, "cs10": 80}}
+    values = _v2_features(payload)
+    assert values["recalls_before_15m"] is None
+    assert values["team_gold_diff_15m"] == 500
+    assert values["cs10"] == 80
+    assert payload["features"]["recalls_before_15m"] == 2
+
+def test_explicit_sync_refreshes_obsolete_matches_outside_discovery(tmp_path: Path):
+    store = Store(tmp_path / "old-history.db")
+    owner = activate_owner(store)
+    store.enqueue(["older-than-discovery"], owner_key=owner, region_route="americas")
+    store.claim_next_pending(owner_key=owner)
+    store.complete_match("older-than-discovery", "2024-01-01", "14.17", "TOP", "Garen", True, 1800, "{}", owner_key=owner)
+    assert store.enqueue_obsolete_recalls(owner_key=owner, region_route="sea") == 1
+    store.enqueue(["freshly-discovered"], priority=0, owner_key=owner)
+    assert store.claim_next_pending(owner_key=owner)["match_id"] == "freshly-discovered"
+    pending = store.claim_next_pending(owner_key=owner)
+    assert pending["match_id"] == "older-than-discovery"
+    assert pending["region_route"] == "americas"

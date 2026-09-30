@@ -14,13 +14,16 @@ AUTH = {
     "Host": "127.0.0.1:23110",
 }
 REPO = Path(__file__).resolve().parents[2]
-SHIPPED_PACK = json.loads(
-    (REPO / "pack" / "findings-pack.v2.json").read_text(encoding="utf-8")
-)
+AVAILABLE_PERSONAL_PACK = json.loads((REPO / "pack/findings-pack.v2.json").read_text(encoding="utf-8"))
+CANONICAL_PACK = deepcopy(AVAILABLE_PERSONAL_PACK)
+_SYNTHETIC = json.loads((REPO / "backend/tests/fixtures/synthetic_personal_v3/findings-pack.v2.json").read_text())
+AVAILABLE_PERSONAL_PACK["models"] = _SYNTHETIC["models"]
+AVAILABLE_PERSONAL_PACK["feature_contracts"]["models"] = _SYNTHETIC["feature_contracts"]["models"]
+AVAILABLE_PERSONAL_PACK["pack_version"] = _SYNTHETIC["pack_version"]
 
 
 def _pack_without_released_models() -> dict:
-    pack = deepcopy(SHIPPED_PACK)
+    pack = deepcopy(AVAILABLE_PERSONAL_PACK)
     for declaration in (pack.get("models") or {}).values():
         if declaration.get("release_status") != "available":
             continue
@@ -43,7 +46,7 @@ def build_client(tmp_path: Path, pack: dict | None = None) -> TestClient:
                 continue
             artifact = declaration["artifact"]
             for field in ("path", "model_card_path"):
-                source = REPO / "pack" / artifact[field]
+                source = REPO / "backend/tests/fixtures/synthetic_personal_v3" / artifact[field]
                 target = pack_dir / artifact[field]
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, target)
@@ -235,6 +238,7 @@ def test_trajectories_rolling_window_math(tmp_path: Path):
 def _v2_features(**values: object) -> dict:
     features = {
         "feature_contract_version": "loltrends-parity-v2",
+        "recall_feature_revision": "loltrends-cutoff-v3",
         "personal_history_eligibility": "eligible",
         "features": values,
         "team_state": {
@@ -278,7 +282,7 @@ def _personal_features(
 
 
 def test_what_if_authorized_success_uses_exact_personal_history_seed(tmp_path: Path):
-    client = build_client(tmp_path, pack=SHIPPED_PACK)
+    client = build_client(tmp_path, pack=AVAILABLE_PERSONAL_PACK)
     seed(
         client.app.state.store,
         "eligible-seed",
@@ -299,8 +303,8 @@ def test_what_if_authorized_success_uses_exact_personal_history_seed(tmp_path: P
     assert body["status"] == "available"
     assert body["probability"] is not None
     assert body["baseline_probability"] is not None
-    assert body["model_version"] == "personal-what-if-v2"
-    assert body["pack_version"] == "v6"
+    assert body["model_version"] == "synthetic-recall-v3-test-fixture"
+    assert body["pack_version"] == "v7-personal-test-fixture"
     assert body["adjusted_features"]["unseen_recall_share_by_20m"] == 0.75
     assert body["adjusted_features"]["cs10"] == 75.0
     assert body["adjusted_features"]["avg_banked_gold_at_recall_by_20m"] == 700.0
@@ -325,7 +329,7 @@ def test_what_if_authorized_success_uses_exact_personal_history_seed(tmp_path: P
 def test_what_if_rejects_raw_nonfinite_json_before_inference(
     tmp_path: Path, invalid_number: str, caplog: pytest.LogCaptureFixture
 ) -> None:
-    client = build_client(tmp_path, pack=SHIPPED_PACK)
+    client = build_client(tmp_path, pack=AVAILABLE_PERSONAL_PACK)
     seed(client.app.state.store, "eligible-seed", features=_personal_features())
 
     def unexpected_inference(*args: object, **kwargs: object) -> None:
@@ -361,7 +365,7 @@ def test_what_if_rejects_raw_nonfinite_json_before_inference(
 def test_what_if_retains_default_validation_for_non_json_requests(
     tmp_path: Path, content: bytes, content_type: str
 ) -> None:
-    client = build_client(tmp_path, pack=SHIPPED_PACK)
+    client = build_client(tmp_path, pack=AVAILABLE_PERSONAL_PACK)
     with TestClient(client.app, raise_server_exceptions=False) as actual_client:
         response = actual_client.post(
             "/history/what-if",
@@ -384,7 +388,7 @@ def test_what_if_retains_default_validation_for_non_json_requests(
 def test_what_if_suppresses_incompatible_nested_team_state(
     tmp_path: Path, team_state: dict[str, object]
 ) -> None:
-    client = build_client(tmp_path, pack=SHIPPED_PACK)
+    client = build_client(tmp_path, pack=AVAILABLE_PERSONAL_PACK)
     seed(
         client.app.state.store,
         "contradictory-team-state",
@@ -416,7 +420,7 @@ def test_what_if_suppresses_incompatible_nested_team_state(
 def test_what_if_rejects_non_adjustable_nonfinite_and_out_of_domain(
     tmp_path: Path, adjustments: dict[str, object], status: str
 ):
-    client = build_client(tmp_path, pack=SHIPPED_PACK)
+    client = build_client(tmp_path, pack=AVAILABLE_PERSONAL_PACK)
     seed(client.app.state.store, "eligible-seed", features=_personal_features())
 
     with client:
@@ -432,7 +436,7 @@ def test_what_if_rejects_non_adjustable_nonfinite_and_out_of_domain(
 
 
 def test_what_if_out_of_domain_baseline_returns_contract_valid_response(tmp_path: Path):
-    client = build_client(tmp_path, pack=SHIPPED_PACK)
+    client = build_client(tmp_path, pack=AVAILABLE_PERSONAL_PACK)
     seed(
         client.app.state.store,
         "out-of-domain-seed",
@@ -457,7 +461,7 @@ def test_what_if_out_of_domain_baseline_returns_contract_valid_response(tmp_path
 
 
 def test_what_if_never_falls_back_from_newer_ineligible_personal_history_seed(tmp_path: Path):
-    client = build_client(tmp_path, pack=SHIPPED_PACK)
+    client = build_client(tmp_path, pack=AVAILABLE_PERSONAL_PACK)
     store = client.app.state.store
     seed(
         store,
@@ -595,3 +599,13 @@ def test_benchmarks_pack_failure_returns_503(tmp_path: Path):
         response = client.get("/benchmarks", headers=AUTH)
     assert response.status_code == 503
     assert response.json() == {"detail": "Findings Pack validation failed"}
+
+def test_canonical_personal_model_withheld_with_complete_current_history(tmp_path: Path):
+    client = build_client(tmp_path, pack=CANONICAL_PACK)
+    seed(client.app.state.store, "current-complete", features=_personal_features())
+    with client:
+        response = client.post("/history/what-if", json={"adjustments": {}}, headers=AUTH)
+    assert response.status_code == 200
+    assert response.json()["status"] == "suppressed"
+    assert response.json()["probability"] is None
+    assert "retraining" in response.json()["reason"]

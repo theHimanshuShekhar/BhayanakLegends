@@ -39,8 +39,8 @@ ROOT = Path(__file__).resolve().parents[2]
 PACK_DIR = ROOT / "pack"
 SCHEMA_PATH = PACK_DIR / "pack.schema.json"
 
-SEED_PACK_VERSION = "v6"
-CANDIDATE_PACK_VERSION = "v7"
+SEED_PACK_VERSION = "v7"
+CANDIDATE_PACK_VERSION = "v8"
 
 def _constant_onnx_bytes(value: float) -> bytes:
     onnx = pytest.importorskip("onnx")
@@ -94,7 +94,7 @@ def _fixture_values(value: float = 0.25) -> dict[str, float]:
 
 
 def _card() -> dict:
-    source = json.loads((PACK_DIR / "findings-pack.v2.json").read_text(encoding="utf-8"))
+    source = json.loads((ROOT / "backend/tests/fixtures/synthetic_personal_v3/findings-pack.v2.json").read_text(encoding="utf-8"))
     card = copy.deepcopy(source["models"]["personal_what_if"]["model_card"])
     card["model_version"] = "fixture-1"
     card["smoke_test"] = {
@@ -115,7 +115,7 @@ def _fixture_pack(tmp_path: Path, *, artifact: bytes | None = None) -> tuple[Pat
 
     card = PackV2ModelCard.model_validate(raw_card).model_dump(mode="json")
     card_bytes = json.dumps(card, separators=(",", ":"), ensure_ascii=False).encode()
-    pack["feature_contracts"]["models"]["personal_what_if"] = "loltrends-cutoff-v2"
+    pack["feature_contracts"]["models"]["personal_what_if"] = "loltrends-cutoff-v3"
     pack["models"]["personal_what_if"] = {
         "model_id": "personal-what-if-v2",
         "release_status": "available",
@@ -586,7 +586,7 @@ def test_live_model_card_strict_registry_mutations_are_rejected() -> None:
 
 
 def test_personal_model_card_rejects_non_actionable_or_extractor_unknown_inputs() -> None:
-    source = json.loads((PACK_DIR / "findings-pack.v2.json").read_text(encoding="utf-8"))
+    source = json.loads((ROOT / "backend/tests/fixtures/synthetic_personal_v3/findings-pack.v2.json").read_text(encoding="utf-8"))
     card = copy.deepcopy(source["models"]["personal_what_if"]["model_card"])
     mutations = (
         lambda payload: payload["features"][3].__setitem__("name", "first_dragon_s"),
@@ -640,13 +640,13 @@ def test_personal_inference_requires_exact_extractor_seed(tmp_path: Path) -> Non
     ]
     assert incomplete.probability is None
 def test_personal_model_card_keeps_a_lite_population_plate_separate_from_producer_control() -> None:
-    source = json.loads((PACK_DIR / "findings-pack.v2.json").read_text(encoding="utf-8"))
+    source = json.loads((ROOT / "backend/tests/fixtures/synthetic_personal_v3/findings-pack.v2.json").read_text(encoding="utf-8"))
     card = PackV2ModelCard.model_validate(source["models"]["personal_what_if"]["model_card"])
     plate_feature = next(
         feature for feature in card.features if feature.name == "plates_taken_by_14m"
     )
     plate_habit = next(
-        habit for habit in source["habits"] if habit["feature"] == plate_feature.name
+        habit for habit in json.loads((PACK_DIR / "findings-pack.v2.json").read_text())["habits"] if habit["feature"] == plate_feature.name
     )
     assert plate_feature.adjustable is True
     assert PERSONAL_MODEL_CARD_ADJUSTABLE_FEATURES == {
@@ -677,3 +677,29 @@ def test_direct_live_prediction_retains_official_observation_time(tmp_path: Path
 
     assert result.status == "available"
     assert result.observed_game_time_s == (600.0 if explicit_time is None else explicit_time)
+
+def test_runtime_rejects_historical_recall_model_card(tmp_path: Path) -> None:
+    root = tmp_path / "historical"
+    root.mkdir()
+    historical = ROOT / "backend/tests/fixtures/available_personal_v6"
+    shutil.copy2(historical / "findings-pack.v2.json", root)
+    shutil.copy2(SCHEMA_PATH, root)
+    (root / "models").mkdir()
+    for path in historical.glob("personal*"):
+        shutil.copy2(path, root / "models")
+    runtime = InferenceRuntime(PackStore(root))
+    _, declaration, reason = runtime._declaration("personal_what_if")
+    assert declaration is None
+    assert reason and "incompatible" in reason
+    public = runtime.what_if({}, _fixture_values(), patch="16.7")
+    assert public.status == "suppressed"
+    assert public.probability is None
+    assert public.baseline_probability is None
+    assert "incompatible" in (public.reason or "")
+
+def test_synthetic_personal_failed_parity_still_rejected():
+    from bhayanak_legends.pack_v2 import validate_pack_v2_semantics
+    payload = json.loads((ROOT / "backend/tests/fixtures/synthetic_personal_v3/findings-pack.v2.json").read_text())
+    payload["models"]["personal_what_if"]["model_card"]["validation"]["parity"]["passed"] = False
+    with pytest.raises(ValueError):
+        validate_pack_v2_semantics(FindingsPackV2.model_validate(payload))

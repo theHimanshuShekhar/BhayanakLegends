@@ -66,15 +66,18 @@ class ReplayState:
         else:
             eligible_played_at = "2026-02-01T00:00:00Z"
             ineligible_played_at = "2026-03-01T00:00:00Z"
-        with sqlite3.connect(self.data_dir / "app.db", timeout=5.0) as connection:
-            connection.execute(
-                "UPDATE matches SET played_at = ? WHERE match_id = ?",
-                (eligible_played_at, "what-if-eligible"),
-            )
-            connection.execute(
-                "UPDATE matches SET played_at = ? WHERE match_id = ?",
-                (ineligible_played_at, "what-if-ineligible"),
-            )
+        for database in (self.data_dir / "app.db", self.data_dir / "available-live-fixture/app.db"):
+            if not database.is_file():
+                continue
+            with sqlite3.connect(database, timeout=5.0) as connection:
+                connection.execute(
+                    "UPDATE matches SET played_at = ? WHERE match_id = ?",
+                    (eligible_played_at, "what-if-eligible"),
+                )
+                connection.execute(
+                    "UPDATE matches SET played_at = ? WHERE match_id = ?",
+                    (ineligible_played_at, "what-if-ineligible"),
+                )
 
 
     def _local_cell(self) -> dict:

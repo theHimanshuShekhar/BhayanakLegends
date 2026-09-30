@@ -26,7 +26,7 @@ export function WhatIfPanel({ pack, digest = null }: WhatIfPanelProps) {
   const [submittedSnapshot, setSubmittedSnapshot] = useState<string | null>(null);
   const packV2 = isFindingsPackV2(pack) ? pack : null;
   const modelContractReady =
-    packV2?.feature_contracts.models?.personal_what_if === "loltrends-cutoff-v2";
+    packV2?.feature_contracts.models?.personal_what_if === "loltrends-cutoff-v3";
   const declaration = packV2?.models?.personal_what_if;
   const modelCard =
     declaration?.release_status === "available" ? declaration.model_card : null;

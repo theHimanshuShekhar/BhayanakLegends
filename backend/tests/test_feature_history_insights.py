@@ -33,7 +33,7 @@ def payload(index: int | None, *, version: str = VERSION) -> str:
     }
     if index is None:
         values["first_dragon_by_20m_s"] = None
-    return json.dumps({"feature_contract_version": version, "features": values})
+    return json.dumps({"feature_contract_version": version, "recall_feature_revision": "loltrends-cutoff-v3", "features": values})
 
 
 def row(
@@ -173,3 +173,20 @@ def test_aggregate_insights_adds_empty_feature_arrays_for_empty_history() -> Non
 
     assert result["feature_insights"] == []
     assert result["feature_trajectories"] == []
+
+def test_obsolete_recall_values_excluded_from_insight_aggregates():
+    rows = [row(f"m-{index}", index, played_at=f"2026-01-01T00:{index:02d}:00Z") for index in range(6)]
+    current = aggregate_feature_insights(rows)
+    recall = next(value for value in current if value["feature_key"] == "avg_banked_gold_at_recall_by_15m")
+    assert recall["current_value"] == 350
+    assert recall["sample_size"] == 5
+    for item in rows:
+        data = json.loads(item["features_json"])
+        data.pop("recall_feature_revision")
+        item["features_json"] = json.dumps(data)
+    obsolete = aggregate_feature_insights(rows)
+    recall = next(value for value in obsolete if value["feature_key"] == "avg_banked_gold_at_recall_by_15m")
+    assert recall["current_value"] is None
+    assert recall["sample_size"] == 0
+    early = next(value for value in obsolete if value["feature_key"] == "early_fight_participation_rate")
+    assert early["current_value"] == .35

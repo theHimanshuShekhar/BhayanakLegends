@@ -104,7 +104,26 @@ def _model_proof(store: PackStore) -> dict[str, object]:
         if isinstance(declaration, dict) and declaration.get("release_status") == "available"
     }
     if not available:
-        raise RuntimeError("canonical Findings Pack has no available models")
+        proof = {}
+        for model_key in ("personal_what_if", "live_wp"):
+            declaration = models.get(model_key)
+            if (
+                not isinstance(declaration, dict)
+                or declaration.get("release_status") != "withheld"
+                or not declaration.get("release_reason")
+                or "artifact" in declaration
+                or "model_card" in declaration
+            ):
+                raise RuntimeError("canonical model withholding declaration is invalid")
+            prediction = runtime.predict(model_key, {})
+            if prediction.status != "suppressed" or prediction.probability is not None:
+                raise RuntimeError("withheld canonical model produced an executable result")
+            proof[model_key] = {"status": "suppressed", "probability": None}
+        personal = runtime.what_if({}, {})
+        if personal.status != "suppressed" or personal.probability is not None:
+            raise RuntimeError("withheld personal model produced a What-If result")
+        proof["personal_what_if"]["what_if_status"] = "suppressed"
+        return {"available_model_keys": [], "models": proof}
     results: dict[str, dict[str, object]] = {}
     baselines: dict[str, tuple[dict[str, float], str, float, float]] = {}
     for model_key, declaration in available.items():

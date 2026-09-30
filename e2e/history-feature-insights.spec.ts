@@ -186,7 +186,20 @@ test.describe("Personal History feature insights", () => {
   });
 });
 
-test.describe("Personal History What-If sidecar replay", () => {
+test.describe("Personal History What-If synthetic sidecar replay", () => {
+  const SIDECAR = "http://127.0.0.1:23125";
+  const AUTH = { "X-BL-Token": "local-sidecar-development-token-32chars", Host: "127.0.0.1:23125" };
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      const rewrite = (url: string) => url.replace("127.0.0.1:23122", "127.0.0.1:23125");
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = (input, init) => originalFetch(typeof input === "string" ? rewrite(input) : input, init);
+      const OriginalEventSource = window.EventSource;
+      window.EventSource = class extends OriginalEventSource {
+        constructor(url: string | URL, options?: EventSourceInit) { super(rewrite(String(url)), options); }
+      };
+    });
+  });
   test("uses the authenticated eligible seed, declared controls, provenance, stale clearing, and ineligible suppression", async ({ page, request }) => {
     test.setTimeout(90_000);
     await setHistorySeed(request, "eligible");
@@ -219,8 +232,8 @@ test.describe("Personal History What-If sidecar replay", () => {
     const directBody = (await directAvailable.json()) as WhatIfBody;
     expect(directBody).toMatchObject({
       status: "available",
-      model_version: "personal-what-if-v2",
-      pack_version: "v6",
+      model_version: "synthetic-recall-v3-test-fixture",
+      pack_version: "v6-live-test-fixture",
       reason: null,
     });
     expect(directBody.probability).toEqual(expect.any(Number));
@@ -260,8 +273,8 @@ test.describe("Personal History What-If sidecar replay", () => {
     ).toBeTruthy();
     expect(browserBody).toMatchObject({
       status: "available",
-      model_version: "personal-what-if-v2",
-      pack_version: "v6",
+      model_version: "synthetic-recall-v3-test-fixture",
+      pack_version: "v6-live-test-fixture",
       reason: null,
     });
     expect(browserBody.probability).toEqual(expect.any(Number));
@@ -273,7 +286,7 @@ test.describe("Personal History What-If sidecar replay", () => {
     ).toHaveText(/\d+(?:\.\d+)?%/);
     await expect(page.getByTestId("what-if-prediction")).toHaveText(/\d+(?:\.\d+)?%/);
     await expect(page.getByTestId("what-if-provenance")).toHaveText(
-      "Model personal-what-if-v2 · Pack v6",
+      "Model synthetic-recall-v3-test-fixture · Pack v6-live-test-fixture",
     );
     expect(browserMutation.headers()["x-bl-token"]).toBe(AUTH["X-BL-Token"]);
     const mutationPayload = browserMutation.postDataJSON();
@@ -341,4 +354,16 @@ test.describe("Personal History What-If sidecar replay", () => {
     );
     await expect(page.getByTestId("what-if-run")).toBeDisabled();
   });
+});
+
+test("canonical personal model stays withheld with complete current history", async ({ page, request }) => {
+  const response = await request.post("http://127.0.0.1:23122/history/what-if", {
+    headers: { "X-BL-Token": "local-sidecar-development-token-32chars", Host: "127.0.0.1:23122" },
+    data: { adjustments: {} },
+  });
+  expect(response.ok()).toBeTruthy();
+  expect(await response.json()).toMatchObject({ status: "suppressed", probability: null });
+  await page.goto("/history");
+  await expect(page.getByTestId("what-if-run")).toBeDisabled();
+  await expect(page.getByTestId("what-if-current")).toHaveText("Unavailable");
 });

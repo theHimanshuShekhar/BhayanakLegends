@@ -313,7 +313,7 @@ interface WhatIfResponse {
 | `live.status` | `LiveStatus` (coarse health) |
 | `pack.updated` | `{schema_version, pack_version}` |
 | `hello` | `{app_version, pack_version}` (sent on connect) |
-## Findings Pack schema dispatch and v2 contract (current release v6)
+## Findings Pack schema dispatch and v2 contract (current release v7)
 `GET /pack` returns a discriminated `FindingsPackV1 | FindingsPackV2`
 payload. `schema_version` is the discriminator and the filename must agree:
 `findings-pack.v1.json` is parsed only by the historical v1 model, while
@@ -344,7 +344,7 @@ atomically from the bundled seed on first startup; an existing active pack
 wins over a changed bundled seed.
 
 The v2 root has `schema_version: 2`; the current Findings Pack release is
-`pack_version: "v6"`. Its patch range is `14.17` through `16.17`, and it has
+`pack_version: "v7"`. Its patch range is `14.17` through `16.17`, and it has
 the following discriminated evidence collections: `findings`, `habits`,
 `objectives`, `comeback_odds`, `ban_context`, `tier_list`, `matchup_examples`,
 `checkpoints`, `route_archetypes`, and `build_evidence`. Every row has patch
@@ -454,14 +454,15 @@ samples; it never becomes a personal fallback.
 with an ONNX artifact and matching model card, or suppressed with a release
 reason and no executable fields. Model cards contain an explicit
 `feature_contract_version` (predictive personal cards must declare
-`loltrends-cutoff-v2`), exact ordered `float32` inputs, units, sources,
+`loltrends-cutoff-v3`), exact ordered `float32` inputs, units, sources,
 adjustable flags, bounds, preprocessing, patch scope, validation gates,
-caveats, and a smoke-test vector. The v6 `live_wp` declaration is withheld
+caveats, and a smoke-test vector. The v7 `live_wp` declaration is withheld
 because grouped holdout and era totals contradict, and measured calibration
 bins and a reproducible training cohort are unavailable. It has no executable
-artifact or model card; live inference reports `suppressed`. The retained v5
-`personal_what_if` artifact remains available with its original card and
-supported patch scope. Runtime inference accepts only finite values
+artifact or model card; live inference reports `suppressed`. The v7 `personal_what_if` declaration is also withheld: bounded recall measurements
+now use independent windows under `loltrends-cutoff-v3`, and corrected retraining
+and validation are pending. Historical v6 cards remain readable as obsolete
+evidence; runtime inference rejects their cutoff-v2 recall semantics. Runtime inference accepts only finite values
 matching the card exactly, rejects unknown or missing fields and out-of-domain
 values, and never loads pickle artifacts. Available artifact paths, hashes,
 sizes, and card files are verified before activation; model directories cannot
@@ -543,3 +544,19 @@ identity; no ownerless fallback is permitted.
 - API access only via `src/api/client.ts`; live only via `src/api/sse.ts`. No direct fetch elsewhere.
 - Route paths: `/champ-select`, `/live`, `/postgame`, `/progress`, `/champions`, `/history`.
 - Phrasing discipline (ADR-0003): actionable findings may instruct; diagnostic stats describe ("You were X", never "Do X").
+
+
+### Recall measurement revision and refresh
+
+The Personal History wire fields and `loltrends-parity-v2` team-state sub-contract
+remain stable. Persisted rows separately declare `recall_feature_revision:
+"loltrends-cutoff-v3"`. Each recall window requires its own populated horizon
+(900 or 1200 seconds), and scans only strictly earlier frames and events.
+Ambiguity within that window suppresses its values; later observations cannot
+alter either values or availability. Legacy stored recall fields are unavailable
+until successful re-extraction, while unaffected checkpoints and team evidence
+remain readable. Explicit Riot sync refreshes obsolete owner-scoped persisted
+matches, including those outside recent discovery, using their stored region
+route when present. Import refreshes matches present in the approved local folder;
+it does not fetch missing historical inputs. Failed refreshes retain the previous
+row and may be retried explicitly. Current revision rows are not requeued.

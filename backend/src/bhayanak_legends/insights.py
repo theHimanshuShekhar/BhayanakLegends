@@ -15,7 +15,7 @@ from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from typing import Any, Literal
 
-from .extract_v2 import PARITY_V2_VERSION
+from .extract_v2 import PARITY_V2_VERSION, RECALL_FEATURE_REVISION, RECALL_FEATURES
 
 Role = Literal["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY", "UNKNOWN"]
 FeatureStatus = Literal["available", "insufficient-sample", "unavailable"]
@@ -88,6 +88,11 @@ def _feature_values(row: Mapping[str, Any], feature_key: FeatureKey) -> tuple[fl
             "Observation unavailable: the persisted row does not declare "
             f"{PARITY_V2_VERSION}. {FEATURE_CAVEATS[feature_key]}"
         )
+    if (
+        feature_key in RECALL_FEATURES
+        and payload.get("recall_feature_revision") != RECALL_FEATURE_REVISION
+    ):
+        return None, "Recall observation unavailable: resync under the current cutoff revision."
     nested = payload.get("features")
     if not isinstance(nested, Mapping):
         return None, (

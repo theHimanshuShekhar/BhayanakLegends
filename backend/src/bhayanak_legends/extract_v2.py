@@ -16,7 +16,15 @@ from typing import Any
 
 PARITY_V2_VERSION = "loltrends-parity-v2"
 
-# Persisted feature names match the cutoff-v2 model cards.
+# Field names are stable; recall measurement revisions invalidate old values.
+RECALL_FEATURE_REVISION = "loltrends-cutoff-v3"
+RECALL_FEATURES = frozenset({
+    "recalls_before_15m",
+    "avg_banked_gold_at_recall_by_15m",
+    "avg_banked_gold_at_recall_by_20m",
+    "unseen_recall_share_by_15m",
+    "unseen_recall_share_by_20m",
+})
 V2_FEATURE_ORDER = (
     "cs10",
     "level10",
@@ -389,14 +397,30 @@ def _recall_observations(
     timeline: Mapping[str, Any] | None,
     participant_id: int,
     participants: list[dict[str, Any]] | None,
+    cutoff_ms: int,
 ) -> tuple[list[dict[str, Any]], bool, str]:
     """Infer conservative recall observations and their data status."""
-    event_status = _event_array_status(timeline)
+    ordered = [row for row in _ordered_frames(timeline) if row[0] < cutoff_ms]
+    window_frames = []
+    for timestamp, order, frame in ordered:
+        events = frame.get("events")
+        if isinstance(events, list):
+            # Source event time takes precedence when it is available. Missing
+            # timestamps keep conservative frame-local ambiguity semantics.
+            frame = {**frame, "events": [
+                event for event in events
+                if not isinstance(event, Mapping)
+                or _number(event.get("timestamp")) is None
+                or float(event["timestamp"]) < cutoff_ms
+            ]}
+        window_frames.append((timestamp, order, frame))
+    ordered = window_frames
+    bounded_timeline = {"info": {"frames": [frame for _, _, frame in ordered]}}
+    event_status = _event_array_status(bounded_timeline)
     if event_status in {EVENTS_MISSING, EVENTS_UNUSABLE}:
         return [], False, event_status
-    # The contract evaluates early behavior only on matches whose timeline has
-    # reached the 20-minute observation horizon.  No final-frame proxy is used.
-    if not _has_populated_frame_at_or_after(timeline, TWENTY_MINUTE_MS):
+    # Coverage is independent for each strictly-before observation window.
+    if not _has_populated_frame_at_or_after(timeline, cutoff_ms):
         return [], False, EVENTS_UNUSABLE
 
     records, records_valid = _participant_records(participants)
@@ -416,7 +440,6 @@ def _recall_observations(
     if not enemy_ids:
         return [], False, EVENTS_UNUSABLE
 
-    ordered = _ordered_frames(timeline)
     observations: list[dict[str, Any]] = []
     for index, (timestamp, _, frame) in enumerate(ordered):
         if index == 0 or timestamp < MIN_RECALL_FRAME_MS:
@@ -478,32 +501,24 @@ def parse_recall_features_v2(
     participant_id: int,
     participants: list[dict[str, Any]] | None,
 ) -> dict[str, Any]:
-    observations, usable, event_status = _recall_observations(
-        timeline, participant_id, participants
-    )
     values: dict[str, Any] = {
         "recalls_before_15m": None,
         "avg_banked_gold_at_recall_by_15m": None,
         "avg_banked_gold_at_recall_by_20m": None,
         "unseen_recall_share_by_15m": None,
         "unseen_recall_share_by_20m": None,
-        "recall_observation_status": event_status,
+        "recall_observation_status": EVENTS_UNUSABLE,
     }
-    if not usable:
-        return values
-
-    before_15m = [
-        observation
-        for observation in observations
-        if observation["timestamp_ms"] < FIFTEEN_MINUTE_MS
-    ]
-    before_20m = [
-        observation
-        for observation in observations
-        if observation["timestamp_ms"] < TWENTY_MINUTE_MS
-    ]
-    values["recalls_before_15m"] = len(before_15m)
-    for suffix, selected in (("15m", before_15m), ("20m", before_20m)):
+    for cutoff, suffix in ((FIFTEEN_MINUTE_MS, "15m"), (TWENTY_MINUTE_MS, "20m")):
+        selected, usable, event_status = _recall_observations(
+            timeline, participant_id, participants, cutoff
+        )
+        if suffix == "20m":
+            values["recall_observation_status"] = event_status
+        if not usable:
+            continue
+        if suffix == "15m":
+            values["recalls_before_15m"] = len(selected)
         if not selected:
             continue
         visibility = [observation["enemy_seen"] for observation in selected]
@@ -897,6 +912,7 @@ def parse_personal_history_v2(
     surrender_flags = _surrender_flags(detail, participant_list)
     values: dict[str, Any] = {
         "feature_contract_version": PARITY_V2_VERSION,
+        "recall_feature_revision": RECALL_FEATURE_REVISION,
         "personal_history_eligibility": personal_history_eligibility(
             detail, participant_list
         ),

@@ -28,7 +28,7 @@ from .models import (
     WhatIfRequest,
     WhatIfResponse,
 )
-from .extract_v2 import PARITY_V2_VERSION
+from .extract_v2 import PARITY_V2_VERSION, RECALL_FEATURE_REVISION, RECALL_FEATURES
 from .insights import aggregate_insights
 from .pack import PackError
 
@@ -128,7 +128,13 @@ def _v2_features(raw_features: Mapping[str, Any]) -> dict[str, Any]:
     if raw_features.get("feature_contract_version") != PARITY_V2_VERSION:
         return {}
     features = raw_features.get("features")
-    return features if isinstance(features, dict) else {}
+    if not isinstance(features, dict):
+        return {}
+    values = dict(features)
+    if raw_features.get("recall_feature_revision") != RECALL_FEATURE_REVISION:
+        for feature in RECALL_FEATURES:
+            values[feature] = None
+    return values
 
 def _compatible_team_state(
     raw_features: Mapping[str, Any],

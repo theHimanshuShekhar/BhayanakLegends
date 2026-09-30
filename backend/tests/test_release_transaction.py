@@ -40,8 +40,8 @@ TEST_PUBLIC_KEY = TEST_PRIVATE_KEY.public_key().public_bytes_raw()
 TOKEN = "test-token-123456789012345678901234"
 AUTH = {"X-BL-Token": TOKEN, "Host": "127.0.0.1:23110"}
 
-SEED_PACK_VERSION = "v6"
-CANDIDATE_PACK_VERSION = "v7"
+SEED_PACK_VERSION = "v7"
+CANDIDATE_PACK_VERSION = "v8"
 
 
 def _asset(*, extra_artifact: bool = False) -> bytes:

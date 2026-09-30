@@ -10,13 +10,12 @@ from typing import Any
 from .model_runtime import ModelRuntimeError, load_onnx_session, run_model
 from .models import LiveInference, WhatIfResponse
 from .pack import PackError, PackStore
-from .extract_v2 import V2_FEATURE_ORDER
+from .extract_v2 import V2_FEATURE_ORDER, RECALL_FEATURE_REVISION
 from .live_features import FEATURE_ORDER, LIVE_WP_CONTRACT_VERSION, LiveFeatureVector
 from .pack_v2 import (
     EXECUTABLE_MODEL_KEYS,
     FindingsPackV2,
     PERSONAL_MODEL_ADJUSTABLE_FEATURES,
-    PERSONAL_MODEL_CONTRACT_VERSION,
     PERSONAL_MODEL_ID,
     WITHHELD_MODEL_KEYS,
 )
@@ -71,8 +70,10 @@ class InferenceRuntime:
             return pack, None, "Surrender Advisor is unavailable"
         if model_key not in EXECUTABLE_MODEL_KEYS:
             return pack, None, "model declaration unavailable"
+        if declaration.release_status != "available":
+            return pack, None, declaration.release_reason or "model is not released"
         canonical_identity = {
-            "personal_what_if": (PERSONAL_MODEL_ID, PERSONAL_MODEL_CONTRACT_VERSION),
+            "personal_what_if": (PERSONAL_MODEL_ID, RECALL_FEATURE_REVISION),
             "live_wp": ("live-wp-v2", "live-wp-v2"),
         }.get(model_key)
         if canonical_identity is not None:
@@ -85,8 +86,6 @@ class InferenceRuntime:
                 or card.feature_contract_version != contract
             ):
                 return pack, None, "model declaration identity is incompatible"
-        if declaration.release_status != "available":
-            return pack, None, declaration.release_reason or "model is not released"
         if declaration.artifact is None or declaration.model_card is None:
             return pack, None, "model artifact or card unavailable"
         expected_contract = (pack.feature_contracts.models or {}).get(model_key)

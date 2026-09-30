@@ -24,10 +24,10 @@ from bhayanak_legends.release_channel import (
     _manifest,
 )
 from pack_fixture_helpers import (
-    canonical_model_assets,
-    minimal_pack,
+    declared_model_assets,
+    minimal_pack as canonical_minimal_pack,
     model_manifest_pins,
-    write_canonical_pack,
+    write_assets,
 )
 
 TEST_PRIVATE_KEY = Ed25519PrivateKey.generate()
@@ -35,6 +35,16 @@ TEST_PUBLIC_KEY = TEST_PRIVATE_KEY.public_key().public_bytes_raw()
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = ROOT / "pack" / "pack.schema.json"
+
+SYNTHETIC_PERSONAL = ROOT / "backend/tests/fixtures/synthetic_personal_v3"
+
+def minimal_pack() -> dict:
+    """Release-integrity tests explicitly require synthetic executable assets."""
+    payload = json.loads((SYNTHETIC_PERSONAL / "findings-pack.v2.json").read_text())
+    return canonical_minimal_pack(payload)
+
+def canonical_model_assets(pack: dict | None = None) -> dict[str, bytes]:
+    return declared_model_assets(pack or minimal_pack(), SYNTHETIC_PERSONAL)
 
 def _asset(tmp_path: Path, *, pack_version: str = "v3", schema_version: int = 2) -> bytes:
     del tmp_path
@@ -92,7 +102,10 @@ def _channel(tmp_path: Path, asset: bytes, *, manifest: dict | None = None) -> R
 @pytest.fixture
 def current_pack(tmp_path: Path) -> Path:
     pack_dir = tmp_path / "pack"
-    write_canonical_pack(pack_dir, minimal_pack())
+    pack_dir.mkdir(parents=True, exist_ok=True)
+    (pack_dir / "findings-pack.v2.json").write_text(json.dumps(minimal_pack()))
+    (pack_dir / "pack.schema.json").write_bytes(SCHEMA.read_bytes())
+    write_assets(pack_dir, canonical_model_assets())
     return pack_dir
 
 
@@ -359,7 +372,10 @@ async def test_streaming_without_content_length_stops_at_first_byte_over_cap(
 ) -> None:
     asset = _asset_padded_to(tmp_path, COMPRESSED_ASSET_MAX_BYTES)
     pack_dir = tmp_path / "pack"
-    write_canonical_pack(pack_dir, minimal_pack())
+    pack_dir.mkdir(parents=True, exist_ok=True)
+    (pack_dir / "findings-pack.v2.json").write_text(json.dumps(minimal_pack()))
+    (pack_dir / "pack.schema.json").write_bytes(SCHEMA.read_bytes())
+    write_assets(pack_dir, canonical_model_assets())
     previous_pack = (pack_dir / "findings-pack.v2.json").read_bytes()
     primary_model_path = model_manifest_pins(minimal_pack())[0]["path"]
     (pack_dir / primary_model_path).write_bytes(b"model-previous")

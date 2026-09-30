@@ -43,3 +43,5 @@ _Avoid_: progress chart, trend line
 **Sidecar**:
 The local FastAPI companion process spawned and supervised by the Tauri shell; the webview's only backend.
 _Avoid_: backend, server
+
+**Recall Measurement Revision**: The version of bounded recall observation and missing-data semantics. An obsolete revision cannot supply current recall values or authorize predictive inference.

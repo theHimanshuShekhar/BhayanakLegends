@@ -18,7 +18,12 @@ from pathlib import Path
 from typing import Any
 
 from .extract import parse_match
-from .extract_v2 import PARITY_V2_VERSION, V2_FEATURE_ORDER, parse_personal_history_v2
+from .extract_v2 import (
+    PARITY_V2_VERSION,
+    RECALL_FEATURE_REVISION,
+    V2_FEATURE_ORDER,
+    parse_personal_history_v2,
+)
 from .import_paths import canonical_import_directory
 from .store import StaleOwnerGeneration
 
@@ -571,6 +576,7 @@ class SyncService:
             else:
                 self._set_run_owner(owner_key, puuid, owner_generation)
             self.store.reset_running_items(owner_key)
+            self.store.enqueue_obsolete_recalls(owner_key=owner_key, region_route=region_route)
             ids = await client.match_ids(puuid, BACKFILL_TOTAL)
             if self._cancel.is_set():
                 raise _Cancelled()
@@ -682,6 +688,7 @@ class SyncService:
                 }
                 feature_payload = {
                     "feature_contract_version": PARITY_V2_VERSION,
+                    "recall_feature_revision": RECALL_FEATURE_REVISION,
                     "personal_history_eligibility": v2["personal_history_eligibility"],
                     "features": v2_features,
                     "feature_status": {

@@ -336,7 +336,8 @@ SUPPORTED_PREPROCESSING_OPERATIONS = frozenset(
 )
 
 PERSONAL_MODEL_ID = "personal-what-if-v2"
-PERSONAL_MODEL_CONTRACT_VERSION = "loltrends-cutoff-v2"
+PERSONAL_MODEL_CONTRACT_VERSION = "loltrends-cutoff-v3"
+LEGACY_PERSONAL_MODEL_CONTRACT_VERSION = "loltrends-cutoff-v2"
 PERSONAL_MODEL_FEATURE_ORDER = (
     "cs10",
     "level10",
@@ -1420,7 +1421,11 @@ def _validate_strict_model_card(model_key: str, card: PackV2ModelCard) -> None:
         return
     if card.model_id != canonical_ids[model_key]:
         raise ValueError(f"model {model_key!r} has a noncanonical model ID")
-    if card.feature_contract_version != canonical_contracts[model_key]:
+    readable_contracts = {canonical_contracts[model_key]}
+    if model_key == "personal_what_if":
+        # Historical packs remain readable; InferenceRuntime rejects execution.
+        readable_contracts.add(LEGACY_PERSONAL_MODEL_CONTRACT_VERSION)
+    if card.feature_contract_version not in readable_contracts:
         raise ValueError(f"model {model_key!r} has a noncanonical feature contract")
     strict_personal = model_key == "personal_what_if"
     strict_live = model_key == "live_wp"
@@ -1534,7 +1539,10 @@ def _validate_model_declarations(pack: FindingsPackV2) -> None:
         if key in canonical_ids:
             if model.model_id != canonical_ids[key] or card.model_id != canonical_ids[key]:
                 raise ValueError(f"model {key!r} has a noncanonical model ID")
-            if card.feature_contract_version != canonical_contracts[key]:
+            readable_contracts = {canonical_contracts[key]}
+            if key == "personal_what_if":
+                readable_contracts.add(LEGACY_PERSONAL_MODEL_CONTRACT_VERSION)
+            if card.feature_contract_version not in readable_contracts:
                 raise ValueError(f"model {key!r} has a noncanonical feature contract")
         if card.validation.gates is not None and not all(card.validation.gates.values()):
             raise ValueError(f"model {key!r} validation gates are not satisfied")

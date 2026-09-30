@@ -103,3 +103,22 @@ The row eligibility declaration is descriptive rather than imperative:
   says outcomes are unavailable; it never fabricates a verdict.
 - ADR-0003's tier and phrasing discipline is unchanged: this decision changes
   feature provenance and definitions, not wording rules for findings.
+
+## Recall cutoff repair (2026-09-30)
+
+`loltrends-cutoff-v3` is the separately persisted recall measurement revision.
+Each 15/20-minute window proves its own coverage and reads only observations
+strictly before its cutoff. Later death, teleport, purchase, or malformed event
+arrays cannot change earlier availability. Explicit timestamped events at or after
+the cutoff are excluded even when stored in an earlier frame; untimestamped events
+retain conservative frame-local ambiguity handling. Whole-match diagnostic recall
+features remain whole-match observations in the producer.
+
+The overall Personal History shape and exact team-gold parity-v2 sub-contract are
+unchanged. Obsolete local recall values are masked independently until explicit
+sync or local import regenerates them. Sync includes older persisted owner history,
+with recent discovery prioritized and original region routes preserved. Previous
+rows survive failed refreshes. Pack v7 withholds the affected personal model until
+corrected retraining and validation; installed historical cutoff-v2 cards cannot
+execute. Synthetic availability fixtures are test-only and provide no release
+evidence. Live WP remains withheld.
