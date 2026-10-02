@@ -1,0 +1,1 @@
+Synthetic test-only signed logistic model constructed directly for inventory-v2 runtime and replay mechanics: sigmoid(0.2 * team_barons_diff + 0.02 * team_kills_diff), zero intercept. This gives analytical side symmetry and positive Baron deltas. Fabricated validation metadata is not training, validation, or release evidence. Canonical Pack v7 keeps Live WP withheld.

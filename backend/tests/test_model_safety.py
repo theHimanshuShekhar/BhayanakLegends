@@ -703,3 +703,96 @@ def test_synthetic_personal_failed_parity_still_rejected():
     payload["models"]["personal_what_if"]["model_card"]["validation"]["parity"]["passed"] = False
     with pytest.raises(ValueError):
         validate_pack_v2_semantics(FindingsPackV2.model_validate(payload))
+
+
+@pytest.mark.parametrize("revision", [None, "timeline-inventory-v1", "timeline-inventory-v2"])
+def test_live_runtime_requires_current_inventory_revision(tmp_path, monkeypatch, revision) -> None:
+    from contextlib import nullcontext
+    import bhayanak_legends.inference as inference_module
+    from bhayanak_legends.live_features import FEATURE_ORDER
+
+    # This is a newly constructed synthetic contract with mocked inference.
+    # Historical trained artifacts are never relabeled as current evidence.
+    card = SimpleNamespace(
+        model_id="live-wp-v2", model_version="synthetic-inventory-test",
+        feature_contract_version="live-wp-v2",
+        validation=SimpleNamespace(parity={"inventory_contract_revision": revision}),
+        patch_scope=SimpleNamespace(min="16.17", max="16.17"),
+        feature_order=list(FEATURE_ORDER),
+        features=[SimpleNamespace(name=name, bounds=SimpleNamespace(min=-100000, max=100000))
+                  for name in FEATURE_ORDER],
+    )
+    declaration = SimpleNamespace(model_id="live-wp-v2", release_status="available",
+                                  model_card=card, artifact=object())
+    pack = SimpleNamespace(pack_version="synthetic-only", models={"live_wp": declaration},
+                           feature_contracts=SimpleNamespace(models={"live_wp": "live-wp-v2"}))
+    store = SimpleNamespace(read_transaction=nullcontext, pack_dir=tmp_path)
+    runtime = InferenceRuntime(store)
+    monkeypatch.setattr(runtime, "_pack_v2", lambda: (pack, None))
+    if revision == "timeline-inventory-v2":
+        monkeypatch.setattr(runtime, "_session", lambda *_args: (object(), card))
+        monkeypatch.setattr(inference_module, "run_model", lambda *_args: 0.5)
+    else:
+        monkeypatch.setattr(runtime, "_session", lambda *_args: pytest.fail("obsolete card executed"))
+    result = runtime.predict("live_wp", dict.fromkeys(FEATURE_ORDER, 0.0), patch="16.17")
+    if revision == "timeline-inventory-v2":
+        assert result.status == "available"
+        assert result.probability == 0.5
+    else:
+        assert result.status == "suppressed"
+        assert "inventory measurement revision" in result.reason
+
+
+def test_historical_live_model_remains_readable_but_cannot_execute(tmp_path, monkeypatch) -> None:
+    from contextlib import nullcontext
+    source = json.loads((PACK_DIR / "findings-pack.v2.json").read_text())
+    declaration = json.loads((Path(__file__).parent /
+                             "fixtures/available_live_v5/live-wp-v2.declaration.json").read_text())
+    source["models"]["live_wp"] = declaration
+    pack = FindingsPackV2.model_validate(source)
+    store = SimpleNamespace(read_transaction=nullcontext, pack_dir=tmp_path)
+    runtime = InferenceRuntime(store)
+    monkeypatch.setattr(runtime, "_pack_v2", lambda: (pack, None))
+    monkeypatch.setattr(runtime, "_session", lambda *_args: pytest.fail("historical card executed"))
+    result = runtime.predict("live_wp", {"elapsed_time_s": 600.0}, patch="15.17")
+    assert result.status == "suppressed"
+    assert "inventory measurement revision" in result.reason
+
+
+def test_synthetic_inventory_live_model_executes_with_current_revision(tmp_path) -> None:
+    from bhayanak_legends.live_features import FEATURE_ORDER
+    source = Path(__file__).parent / "fixtures/synthetic_live_inventory_v2"
+    card_bytes = (source / "live-wp-v2.model-card.json").read_bytes()
+    artifact_bytes = (source / "live-wp-v2.onnx").read_bytes()
+    payload = json.loads((PACK_DIR / "findings-pack.v2.json").read_text())
+    payload["pack_version"] = "synthetic-inventory-runtime-test"
+    payload["models"]["live_wp"] = {
+        "model_id": "live-wp-v2", "release_status": "available",
+        "model_card": json.loads(card_bytes),
+        "artifact": {
+            "path": "models/live-wp-v2.onnx", "format": "onnx",
+            "sha256": hashlib.sha256(artifact_bytes).hexdigest(), "size": len(artifact_bytes),
+            "model_card_path": "models/live-wp-v2.model-card.json",
+            "model_card_sha256": hashlib.sha256(card_bytes).hexdigest(),
+            "model_card_size": len(card_bytes),
+        },
+    }
+    write_assets(tmp_path, {"findings-pack.v2.json": json.dumps(payload).encode(),
+                            "models/live-wp-v2.onnx": artifact_bytes,
+                            "models/live-wp-v2.model-card.json": card_bytes})
+    result = InferenceRuntime(PackStore(tmp_path)).predict(
+        "live_wp", {**dict.fromkeys(FEATURE_ORDER, 0.0), "elapsed_time_s": 600.0}, patch="16.17")
+    assert result.status == "available"
+    assert result.probability == 0.5
+    assert result.model_version == "synthetic-live-inventory-v2-logistic"
+    import math
+    runtime = InferenceRuntime(PackStore(tmp_path))
+    positive = runtime.predict("live_wp",
+        {**dict.fromkeys(FEATURE_ORDER, 0.0), "elapsed_time_s": 600.0, "team_barons_diff": 1.0},
+        patch="16.17")
+    negative = runtime.predict("live_wp",
+        {**dict.fromkeys(FEATURE_ORDER, 0.0), "elapsed_time_s": 600.0, "team_barons_diff": -1.0},
+        patch="16.17")
+    assert positive.probability == pytest.approx(1.0 / (1.0 + math.exp(-0.2)))
+    assert negative.probability == pytest.approx(1.0 - positive.probability)
+    assert positive.probability > result.probability

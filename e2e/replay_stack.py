@@ -201,19 +201,19 @@ def main() -> int:
             processes.append(process)
             wait_for_port(port, process, f"fake {kind}")
 
-        # Historical model is test-only; canonical sidecar keeps v7 withholding.
+        # Synthetic signed logistic model is test-only; canonical sidecar keeps v7 withholding.
         fixture_data = temp_dir / "available-live-fixture"
         fixture_pack = fixture_data / "pack"
         shutil.copytree(ROOT / "pack", fixture_pack)
         (fixture_pack / "models").mkdir(exist_ok=True)
-        source = BACKEND / "tests" / "fixtures" / "available_live_v5"
+        source = BACKEND / "tests" / "fixtures" / "synthetic_live_inventory_v2"
         card = json.loads((source / "live-wp-v2.model-card.json").read_text())
         import hashlib
         payload_path = fixture_pack / "findings-pack.v2.json"
         payload = json.loads(payload_path.read_text())
         artifact = (source / "live-wp-v2.onnx").read_bytes()
         card_bytes = (source / "live-wp-v2.model-card.json").read_bytes()
-        payload["pack_version"] = "v6-live-test-fixture"
+        payload["pack_version"] = "synthetic-inventory-live-test-fixture"
         payload["feature_contracts"]["models"]["live_wp"] = "live-wp-v2"
         payload["models"]["live_wp"] = {
             "model_id": "live-wp-v2", "release_status": "available",

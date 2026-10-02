@@ -1,0 +1,439 @@
+{
+  "model_id": "live-wp-v2",
+  "model_version": "synthetic-live-inventory-v2-logistic",
+  "feature_contract_version": "live-wp-v2",
+  "feature_order": [
+    "elapsed_time_s",
+    "team_kills_diff",
+    "team_deaths_diff",
+    "team_assists_diff",
+    "team_cs_diff",
+    "team_levels_diff",
+    "team_inventory_value_diff",
+    "team_turrets_diff",
+    "team_dragons_diff",
+    "team_heralds_diff",
+    "team_barons_diff"
+  ],
+  "input_names": [
+    "features"
+  ],
+  "output_names": [
+    "probability"
+  ],
+  "features": [
+    {
+      "name": "elapsed_time_s",
+      "dtype": "float32",
+      "unit": "seconds",
+      "source": "loltrends.etl.live_features exact LiveParity adapter",
+      "adjustable": false,
+      "bounds": {
+        "min": 0.0,
+        "max": 3600.0
+      }
+    },
+    {
+      "name": "team_kills_diff",
+      "dtype": "float32",
+      "unit": "count",
+      "source": "loltrends.etl.live_features exact LiveParity adapter",
+      "adjustable": false,
+      "bounds": {
+        "min": -100.0,
+        "max": 100.0
+      }
+    },
+    {
+      "name": "team_deaths_diff",
+      "dtype": "float32",
+      "unit": "count",
+      "source": "loltrends.etl.live_features exact LiveParity adapter",
+      "adjustable": false,
+      "bounds": {
+        "min": -100.0,
+        "max": 100.0
+      }
+    },
+    {
+      "name": "team_assists_diff",
+      "dtype": "float32",
+      "unit": "count",
+      "source": "loltrends.etl.live_features exact LiveParity adapter",
+      "adjustable": false,
+      "bounds": {
+        "min": -200.0,
+        "max": 200.0
+      }
+    },
+    {
+      "name": "team_cs_diff",
+      "dtype": "float32",
+      "unit": "minion kills",
+      "source": "loltrends.etl.live_features exact LiveParity adapter",
+      "adjustable": false,
+      "bounds": {
+        "min": -1000.0,
+        "max": 1000.0
+      }
+    },
+    {
+      "name": "team_levels_diff",
+      "dtype": "float32",
+      "unit": "champion levels",
+      "source": "loltrends.etl.live_features exact LiveParity adapter",
+      "adjustable": false,
+      "bounds": {
+        "min": -18.0,
+        "max": 18.0
+      }
+    },
+    {
+      "name": "team_inventory_value_diff",
+      "dtype": "float32",
+      "unit": "gold",
+      "source": "loltrends.etl.live_features exact LiveParity adapter",
+      "adjustable": false,
+      "bounds": {
+        "min": -100000.0,
+        "max": 100000.0
+      }
+    },
+    {
+      "name": "team_turrets_diff",
+      "dtype": "float32",
+      "unit": "count",
+      "source": "loltrends.etl.live_features exact LiveParity adapter",
+      "adjustable": false,
+      "bounds": {
+        "min": -11.0,
+        "max": 11.0
+      }
+    },
+    {
+      "name": "team_dragons_diff",
+      "dtype": "float32",
+      "unit": "count",
+      "source": "loltrends.etl.live_features exact LiveParity adapter",
+      "adjustable": false,
+      "bounds": {
+        "min": -7.0,
+        "max": 7.0
+      }
+    },
+    {
+      "name": "team_heralds_diff",
+      "dtype": "float32",
+      "unit": "count",
+      "source": "loltrends.etl.live_features exact LiveParity adapter",
+      "adjustable": false,
+      "bounds": {
+        "min": -2.0,
+        "max": 2.0
+      }
+    },
+    {
+      "name": "team_barons_diff",
+      "dtype": "float32",
+      "unit": "count",
+      "source": "loltrends.etl.live_features exact LiveParity adapter",
+      "adjustable": false,
+      "bounds": {
+        "min": -2.0,
+        "max": 2.0
+      }
+    }
+  ],
+  "bounds": {
+    "elapsed_time_s": {
+      "min": 0.0,
+      "max": 3600.0
+    },
+    "team_kills_diff": {
+      "min": -100.0,
+      "max": 100.0
+    },
+    "team_deaths_diff": {
+      "min": -100.0,
+      "max": 100.0
+    },
+    "team_assists_diff": {
+      "min": -200.0,
+      "max": 200.0
+    },
+    "team_cs_diff": {
+      "min": -1000.0,
+      "max": 1000.0
+    },
+    "team_levels_diff": {
+      "min": -18.0,
+      "max": 18.0
+    },
+    "team_inventory_value_diff": {
+      "min": -100000.0,
+      "max": 100000.0
+    },
+    "team_turrets_diff": {
+      "min": -11.0,
+      "max": 11.0
+    },
+    "team_dragons_diff": {
+      "min": -7.0,
+      "max": 7.0
+    },
+    "team_heralds_diff": {
+      "min": -2.0,
+      "max": 2.0
+    },
+    "team_barons_diff": {
+      "min": -2.0,
+      "max": 2.0
+    }
+  },
+  "patch_scope": {
+    "max": "16.17",
+    "min": "14.17"
+  },
+  "preprocessing": [
+    {
+      "feature": "elapsed_time_s",
+      "name": "standardize-elapsed_time_s",
+      "operation": "standardize",
+      "parameters": [
+        0.0,
+        1.0
+      ],
+      "runtime_missing_policy": "reject",
+      "imputation": {
+        "fit_scope": "training_only",
+        "strategy": "median",
+        "value": 0.0
+      }
+    },
+    {
+      "feature": "team_kills_diff",
+      "name": "standardize-team_kills_diff",
+      "operation": "standardize",
+      "parameters": [
+        0.0,
+        1.0
+      ],
+      "runtime_missing_policy": "reject",
+      "imputation": {
+        "fit_scope": "training_only",
+        "strategy": "median",
+        "value": 0.0
+      }
+    },
+    {
+      "feature": "team_deaths_diff",
+      "name": "standardize-team_deaths_diff",
+      "operation": "standardize",
+      "parameters": [
+        0.0,
+        1.0
+      ],
+      "runtime_missing_policy": "reject",
+      "imputation": {
+        "fit_scope": "training_only",
+        "strategy": "median",
+        "value": 0.0
+      }
+    },
+    {
+      "feature": "team_assists_diff",
+      "name": "standardize-team_assists_diff",
+      "operation": "standardize",
+      "parameters": [
+        0.0,
+        1.0
+      ],
+      "runtime_missing_policy": "reject",
+      "imputation": {
+        "fit_scope": "training_only",
+        "strategy": "median",
+        "value": 0.0
+      }
+    },
+    {
+      "feature": "team_cs_diff",
+      "name": "standardize-team_cs_diff",
+      "operation": "standardize",
+      "parameters": [
+        0.0,
+        1.0
+      ],
+      "runtime_missing_policy": "reject",
+      "imputation": {
+        "fit_scope": "training_only",
+        "strategy": "median",
+        "value": 0.0
+      }
+    },
+    {
+      "feature": "team_levels_diff",
+      "name": "standardize-team_levels_diff",
+      "operation": "standardize",
+      "parameters": [
+        0.0,
+        1.0
+      ],
+      "runtime_missing_policy": "reject",
+      "imputation": {
+        "fit_scope": "training_only",
+        "strategy": "median",
+        "value": 0.0
+      }
+    },
+    {
+      "feature": "team_inventory_value_diff",
+      "name": "standardize-team_inventory_value_diff",
+      "operation": "standardize",
+      "parameters": [
+        0.0,
+        1.0
+      ],
+      "runtime_missing_policy": "reject",
+      "imputation": {
+        "fit_scope": "training_only",
+        "strategy": "median",
+        "value": 0.0
+      }
+    },
+    {
+      "feature": "team_turrets_diff",
+      "name": "standardize-team_turrets_diff",
+      "operation": "standardize",
+      "parameters": [
+        0.0,
+        1.0
+      ],
+      "runtime_missing_policy": "reject",
+      "imputation": {
+        "fit_scope": "training_only",
+        "strategy": "median",
+        "value": 0.0
+      }
+    },
+    {
+      "feature": "team_dragons_diff",
+      "name": "standardize-team_dragons_diff",
+      "operation": "standardize",
+      "parameters": [
+        0.0,
+        1.0
+      ],
+      "runtime_missing_policy": "reject",
+      "imputation": {
+        "fit_scope": "training_only",
+        "strategy": "median",
+        "value": 0.0
+      }
+    },
+    {
+      "feature": "team_heralds_diff",
+      "name": "standardize-team_heralds_diff",
+      "operation": "standardize",
+      "parameters": [
+        0.0,
+        1.0
+      ],
+      "runtime_missing_policy": "reject",
+      "imputation": {
+        "fit_scope": "training_only",
+        "strategy": "median",
+        "value": 0.0
+      }
+    },
+    {
+      "feature": "team_barons_diff",
+      "name": "standardize-team_barons_diff",
+      "operation": "standardize",
+      "parameters": [
+        0.0,
+        1.0
+      ],
+      "runtime_missing_policy": "reject",
+      "imputation": {
+        "fit_scope": "training_only",
+        "strategy": "median",
+        "value": 0.0
+      }
+    }
+  ],
+  "validation": {
+    "grouped_holdout": {
+      "auc": 0.5,
+      "brier": 0.25,
+      "log_loss": 0.69,
+      "rows": 100.0
+    },
+    "temporal_holdout": {
+      "auc": 0.5,
+      "brier": 0.25,
+      "log_loss": 0.69,
+      "rows": 100.0
+    },
+    "calibration": {
+      "ece": 0.0,
+      "max_abs_error": 0.0,
+      "n_bins": 1.0,
+      "occupied_bins": 1.0,
+      "sample_count": 100.0,
+      "protocol": "grouped_holdout_predictions_excluded_from_fit"
+    },
+    "gates": {
+      "calibration": true,
+      "deterministic_export": true,
+      "era": true,
+      "grouped_auc": true,
+      "grouped_brier": true,
+      "grouped_log_loss": true,
+      "leakage": true,
+      "minimum_grouped_holdout": true,
+      "minimum_matches": true,
+      "onnx_parity": true,
+      "onnx_side_symmetry": true,
+      "sanity": true,
+      "symmetry": true,
+      "temporal_auc": true,
+      "temporal_brier": true,
+      "temporal_log_loss": true
+    },
+    "parity": {
+      "passed": true,
+      "era_passed": true,
+      "gates_passed": true,
+      "leakage_passed": true,
+      "side_symmetry_passed": true,
+      "monotonic_sanity_passed": true,
+      "deterministic_export": true,
+      "vector_count": 2,
+      "max_abs_error": 0.0,
+      "tolerance": 1e-05,
+      "side_symmetry_max_abs_error": 0.0,
+      "inventory_contract_revision": "timeline-inventory-v2",
+      "runtime_available": true
+    }
+  },
+  "caveats": [
+    "SYNTHETIC TEST ONLY: sigmoid(0.2 * team_barons_diff + 0.02 * team_kills_diff); fabricated validation metadata is not release evidence."
+  ],
+  "smoke_test": {
+    "features": [
+      600.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "expected": 0.5,
+    "tolerance": 1e-05
+  }
+}

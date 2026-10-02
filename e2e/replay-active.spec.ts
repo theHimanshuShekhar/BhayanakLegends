@@ -9,7 +9,7 @@ const AUTH = {
   "X-BL-Token": "local-sidecar-development-token-32chars",
   Host: "127.0.0.1:23125",
 };
-// This suite exercises historical available-live behavior on a test-only sidecar.
+// This suite exercises synthetic available-live behavior on a test-only sidecar.
 // Canonical release withholding is covered by smoke.spec.ts on port 23122.
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -364,8 +364,8 @@ test.describe("active Live Companion replay", () => {
     await expect(page.getByTestId("wp-status")).toHaveText("available");
     expect(initial.inference.status).toBe("available");
     expect(initial.inference.probability).toEqual(expect.any(Number));
-    expect(initial.inference.model_version).toBe("live-wp-v2");
-    expect(initial.inference.pack_version).toBe("v6-live-test-fixture");
+    expect(initial.inference.model_version).toBe("synthetic-live-inventory-v2-logistic");
+    expect(initial.inference.pack_version).toBe("synthetic-inventory-live-test-fixture");
     expect(initial.event_deltas.every((delta) => delta.suppression_status !== "available" && delta.delta_probability === null)).toBe(true);
     await expectLiveDataContractDetector(page, initial);
     await expectNoHorizontalClipping(page);
@@ -626,8 +626,8 @@ test.describe("active Live Companion replay", () => {
       await expectLiveDataContractDetector(page, initial);
       expect(initial.inference.status).toBe("available");
       expect(initial.inference.probability).toEqual(expect.any(Number));
-      expect(initial.inference.model_version).toBe("live-wp-v2");
-      expect(initial.inference.pack_version).toBe("v6-live-test-fixture");
+      expect(initial.inference.model_version).toBe("synthetic-live-inventory-v2-logistic");
+      expect(initial.inference.pack_version).toBe("synthetic-inventory-live-test-fixture");
       await expect(page.getByTestId("wp-value")).toHaveText(/\d+(?:\.\d+)?%/);
       await expect(page.getByTestId("wp-status")).toHaveText("available");
       await expectNoHorizontalClipping(page);
@@ -638,8 +638,8 @@ test.describe("active Live Companion replay", () => {
       await expectGameClockAtLeast(page, UPDATE_FIXTURE_CLOCK_SECONDS);
       const updated = await waitForBaronDelta(request);
       expect(updated.inference.status).toBe("available");
-      expect(updated.inference.model_version).toBe("live-wp-v2");
-      expect(updated.inference.pack_version).toBe("v6-live-test-fixture");
+      expect(updated.inference.model_version).toBe("synthetic-live-inventory-v2-logistic");
+      expect(updated.inference.pack_version).toBe("synthetic-inventory-live-test-fixture");
       expect(
         updated.event_deltas.some(
           (delta) =>

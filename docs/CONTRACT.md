@@ -560,3 +560,35 @@ matches, including those outside recent discovery, using their stored region
 route when present. Import refreshes matches present in the approved local folder;
 it does not fetch missing historical inputs. Failed refreshes retain the previous
 row and may be retried explicitly. Current revision rows are not requeued.
+
+## Inventory parity repair (2026-09-30)
+
+`timeline-inventory-v2` independently versions the current inventory producer
+inside the unchanged `live-wp-v2` ordered interface. Inventory value is the
+version-matched shop total of items currently owned, reconstructed per
+participant before team aggregation. Purchase adds one copy; sale and destruction
+(including consumption and upgrade component removal) remove one owned copy.
+Completion is informational. Equal-timestamp events retain source order and
+only events observable at or before the requested cutoff are used. Unknown
+items, unmatched actor removals, malformed undo IDs, or incomplete transaction
+evidence suppress the vector.
+
+Undo is intentionally conservative with a cost-only catalog. Only an inverse of
+the latest witnessed simple purchase or sale is accepted. An undo cannot infer
+recipe membership or restore destroyed components: any prior destruction for
+that participant makes subsequent purchase undo unavailable, even if the later
+purchase was unrelated. Multiple consecutive undos and both-positive replacement
+undos are unavailable because the adapter does not retain a complete transaction
+journal or recipe evidence. Live snapshots use their explicit current inventory.
+
+The registry and vector metadata declare the inventory revision. Persisted live
+training rows must explicitly carry the current revision; missing/old values are
+rejected rather than relabeled. Model cards carry it in `validation.parity`, and
+the producer also embeds it in the exact source registry. Historical cards remain
+historical evidence and cannot execute under the current adapter. The consumer
+keeps historical packs readable but rejects obsolete inventory cards at runtime.
+
+Pack v7 continues to withhold Live WP. This repair does not retrain or release a
+model, change canonical pack bytes, or alter recall cutoff-v3, team-gold parity-v2,
+or population evidence. No ordinary Timeline feature-cache shard uses this live
+inventory producer; persisted live training metadata is its invalidation boundary.

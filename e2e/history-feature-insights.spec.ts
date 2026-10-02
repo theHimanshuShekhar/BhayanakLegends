@@ -233,7 +233,7 @@ test.describe("Personal History What-If synthetic sidecar replay", () => {
     expect(directBody).toMatchObject({
       status: "available",
       model_version: "synthetic-recall-v3-test-fixture",
-      pack_version: "v6-live-test-fixture",
+      pack_version: "synthetic-inventory-live-test-fixture",
       reason: null,
     });
     expect(directBody.probability).toEqual(expect.any(Number));
@@ -274,7 +274,7 @@ test.describe("Personal History What-If synthetic sidecar replay", () => {
     expect(browserBody).toMatchObject({
       status: "available",
       model_version: "synthetic-recall-v3-test-fixture",
-      pack_version: "v6-live-test-fixture",
+      pack_version: "synthetic-inventory-live-test-fixture",
       reason: null,
     });
     expect(browserBody.probability).toEqual(expect.any(Number));
@@ -286,7 +286,7 @@ test.describe("Personal History What-If synthetic sidecar replay", () => {
     ).toHaveText(/\d+(?:\.\d+)?%/);
     await expect(page.getByTestId("what-if-prediction")).toHaveText(/\d+(?:\.\d+)?%/);
     await expect(page.getByTestId("what-if-provenance")).toHaveText(
-      "Model synthetic-recall-v3-test-fixture · Pack v6-live-test-fixture",
+      "Model synthetic-recall-v3-test-fixture · Pack synthetic-inventory-live-test-fixture",
     );
     expect(browserMutation.headers()["x-bl-token"]).toBe(AUTH["X-BL-Token"]);
     const mutationPayload = browserMutation.postDataJSON();

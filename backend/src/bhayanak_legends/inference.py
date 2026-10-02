@@ -11,7 +11,9 @@ from .model_runtime import ModelRuntimeError, load_onnx_session, run_model
 from .models import LiveInference, WhatIfResponse
 from .pack import PackError, PackStore
 from .extract_v2 import V2_FEATURE_ORDER, RECALL_FEATURE_REVISION
-from .live_features import FEATURE_ORDER, LIVE_WP_CONTRACT_VERSION, LiveFeatureVector
+from .live_features import (
+    FEATURE_ORDER, INVENTORY_CONTRACT_REVISION, LIVE_WP_CONTRACT_VERSION, LiveFeatureVector,
+)
 from .pack_v2 import (
     EXECUTABLE_MODEL_KEYS,
     FindingsPackV2,
@@ -88,6 +90,12 @@ class InferenceRuntime:
                 return pack, None, "model declaration identity is incompatible"
         if declaration.artifact is None or declaration.model_card is None:
             return pack, None, "model artifact or card unavailable"
+        if (
+            model_key == "live_wp"
+            and declaration.model_card.validation.parity.get("inventory_contract_revision")
+            != INVENTORY_CONTRACT_REVISION
+        ):
+            return pack, None, "live inventory measurement revision is incompatible"
         expected_contract = (pack.feature_contracts.models or {}).get(model_key)
         if expected_contract != declaration.model_card.feature_contract_version:
             return (
@@ -499,7 +507,10 @@ class InferenceRuntime:
                 observed_game_time_s=observed_game_time_s,
                 reason="live feature vector has no typed contract",
             )
-        if vector.contract_version != LIVE_WP_CONTRACT_VERSION:
+        if (
+            vector.contract_version != LIVE_WP_CONTRACT_VERSION
+            or vector.inventory_contract_revision != INVENTORY_CONTRACT_REVISION
+        ):
             return LiveInference(
                 status="incompatible",
                 observed_game_time_s=observed_game_time_s,

@@ -25,6 +25,7 @@ from typing import Any, Final
 
 
 LIVE_WP_CONTRACT_VERSION: Final[str] = "live-wp-v2"
+INVENTORY_CONTRACT_REVISION: Final[str] = "timeline-inventory-v2"
 LIVE_POLL_INTERVAL_S: Final[float] = 2.0
 # The official Live Client Data API does not expose a source wall-clock
 # capture timestamp.  This bound is therefore only for detecting a locally
@@ -164,6 +165,7 @@ class LiveFeatureRegistry:
         """Return JSON-safe registry metadata without callable implementation details."""
         return {
             "contract_version": self.version,
+            "inventory_contract_revision": INVENTORY_CONTRACT_REVISION,
             "feature_order": list(self.feature_order),
             "features": [
                 {
@@ -266,6 +268,7 @@ class LiveFeatureVector:
     patch: str
     data_dragon_version: str
     values: tuple[float, ...]
+    inventory_contract_revision: str = INVENTORY_CONTRACT_REVISION
 
     @property
     def vector(self) -> tuple[float, ...]:
@@ -277,6 +280,7 @@ class LiveFeatureVector:
     def as_dict(self) -> dict[str, Any]:
         return {
             "contract_version": self.contract_version,
+            "inventory_contract_revision": self.inventory_contract_revision,
             "side": self.side,
             "observed_at_s": self.observed_at_s,
             "patch": self.patch,
@@ -426,7 +430,7 @@ _LIVE_OBJECTIVE_NAMES: Final[dict[str, str]] = {
     "TurretKilled": "team_turrets_diff",
 }
 _ITEM_EVENT_TYPES: Final[frozenset[str]] = frozenset(
-    {"ITEM_PURCHASED", "ITEM_SOLD", "ITEM_UNDO", "ITEM_COMPLETED"}
+    {"ITEM_PURCHASED", "ITEM_SOLD", "ITEM_DESTROYED", "ITEM_UNDO", "ITEM_COMPLETED"}
 )
 
 
@@ -613,7 +617,11 @@ def _timeline_inventory(
     participant_team: Mapping[int, int],
     catalog: DataDragonCatalog,
 ) -> dict[int, float] | None:
-    inventory: dict[int, dict[int, int]] = {side: defaultdict(int) for side in TEAM_IDS}
+    # Ownership matters: a teammate's item cannot satisfy a removal.
+    inventory: dict[int, dict[int, int]] = {pid: defaultdict(int) for pid in participant_team}
+    # A simple undo must invert the latest witnessed transaction for its actor.
+    transactions: dict[int, tuple[str, int, bool]] = {}
+    destroyed: set[int] = set()
     last_timestamp = -1.0
     for timestamp, event in rows:
         if timestamp < last_timestamp:
@@ -621,51 +629,61 @@ def _timeline_inventory(
         last_timestamp = timestamp
         event_type = event.get("type")
         if event_type == "ITEM_COMPLETED":
-            # Completion is informational in Timeline v2.  Purchases already
-            # establish the inventory transition; counting it would duplicate
-            # an item and diverge from Live Client Data.
+            # Informational: the purchase establishes the inventory transition.
             continue
-        if event_type not in {"ITEM_PURCHASED", "ITEM_SOLD", "ITEM_UNDO"}:
+        if event_type not in _ITEM_EVENT_TYPES:
             continue
         participant_id = _strict_int(event.get("participantId"))
         if participant_id is None or participant_id not in participant_team:
             return None
-        team = participant_team[participant_id]
-        if event_type == "ITEM_PURCHASED":
+        owned = inventory[participant_id]
+        if event_type in {"ITEM_PURCHASED", "ITEM_SOLD", "ITEM_DESTROYED"}:
             item = _item_cost(catalog, event.get("itemId"))
             if item is None:
                 return None
-            item_id, _cost = item
-            inventory[team][item_id] += 1
-        elif event_type == "ITEM_SOLD":
-            item = _item_cost(catalog, event.get("itemId"))
-            if item is None:
-                return None
-            item_id, _cost = item
-            if inventory[team][item_id] <= 0:
-                return None
-            inventory[team][item_id] -= 1
+            item_id = item[0]
+            if event_type == "ITEM_PURCHASED":
+                owned[item_id] += 1
+                transactions[participant_id] = ("ITEM_PURCHASED", item_id, participant_id in destroyed)
+            else:
+                if owned[item_id] <= 0:
+                    return None
+                owned[item_id] -= 1
+                transactions[participant_id] = (str(event_type), item_id, False)
+                if event_type == "ITEM_DESTROYED":
+                    # Cost-only catalog cannot prove recipe membership, including
+                    # whether this was consumption rather than an upgrade.
+                    destroyed.add(participant_id)
         elif event_type == "ITEM_UNDO":
             before = _strict_int(event.get("beforeId"))
             after = _strict_int(event.get("afterId"))
-            before_item = _item_cost(catalog, before) if before else None
-            after_item = _item_cost(catalog, after) if after else None
-            if (before_item is None) == (after_item is None):
+            if before is None or after is None or before < 0 or after < 0:
                 return None
-            item_id = before_item[0] if before_item is not None else after_item[0]
-            if before_item is not None:
-                if inventory[team][item_id] <= 0:
+            before_item = _item_cost(catalog, before) if before > 0 else None
+            after_item = _item_cost(catalog, after) if after > 0 else None
+            if (before > 0 and before_item is None) or (after > 0 and after_item is None):
+                return None
+            transaction = transactions.get(participant_id)
+            if before > 0 and after == 0:
+                if transaction != ("ITEM_PURCHASED", before, False) or owned[before] <= 0:
                     return None
-                inventory[team][item_id] -= 1
+                owned[before] -= 1
+            elif before == 0 and after > 0:
+                if transaction != ("ITEM_SOLD", after, False):
+                    return None
+                owned[after] += 1
             else:
-                inventory[team][item_id] += 1
+                # Replacement/component restoration needs transaction evidence
+                # not present in the cost-only catalog. Never invent it.
+                return None
+            transactions.pop(participant_id, None)
     totals = {side: 0.0 for side in TEAM_IDS}
-    for side in TEAM_IDS:
-        for item_id, count in inventory[side].items():
+    for participant_id, owned in inventory.items():
+        for item_id, count in owned.items():
             cost = catalog.cost(item_id)
             if cost is None or count < 0:
                 return None
-            totals[side] += float(count) * cost
+            totals[participant_team[participant_id]] += float(count) * cost
     return totals
 
 
@@ -933,6 +951,7 @@ __all__ = [
     "LIVE_FEATURE_REGISTRY",
     "LIVE_POLL_INTERVAL_S",
     "LIVE_WP_CONTRACT_VERSION",
+    "INVENTORY_CONTRACT_REVISION",
     "LiveFeatureDefinition",
     "LiveFeatureRegistry",
     "LiveFeatureVector",

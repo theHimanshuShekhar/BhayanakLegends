@@ -1069,5 +1069,6 @@
         }
       }
     }
-  ]
+  ],
+  "inventory_contract_revision": "timeline-inventory-v2"
 }
