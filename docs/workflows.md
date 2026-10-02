@@ -18,6 +18,24 @@ separate packaging/release gate; it is not evidence that a local web-view run
 validated Windows or published a release.
 
 
+## Manual Windows installer
+
+`.github/workflows/windows-installer.yml` builds the exact triggering commit on
+manual dispatch or a push to `build/windows-installer-*`. It uses frozen pnpm,
+uv, and Cargo dependencies, the canonical v7 Findings Pack, the shared windowed
+sidecar recipe, and an x64 NSIS installer. A temporary config disables updater
+artifact generation only; the application keeps its production updater public
+key and endpoint. No signing or Riot credentials are needed.
+
+Download the `windows-installer-<commit>` Actions artifact for the installer,
+`SHA256SUMS.txt`, and `build-manifest.json`. The manifest identifies the source
+commit, app version, target, and pack checksum. Artifacts are retained for 14
+days. The installer is unsigned, so Windows may display a publisher or
+SmartScreen prompt during manual installation. This workflow creates no tag or
+GitHub Release and performs no packaged smoke; the artifact is for manual
+installation and testing. The normal release verification and publishing gates
+remain separate.
+
 ## Packaged Windows smoke
 
 `.github/workflows/windows-smoke.yml` is a reusable, non-publishing gate. It
