@@ -434,3 +434,109 @@ def test_live_route_exposes_service_probability(tmp_path: Path, monkeypatch) -> 
 
 async def _versions_only(version: str) -> list[str]:
     return [version]
+
+
+async def test_official_live_lifecycle_refreshes_patch_on_reconnect_clock_reset_and_end():
+    game = deepcopy(load_fixture()["observations"][0]["live"])
+    game["gameData"].pop("gameId", None)
+    game["gameData"].pop("gameVersion", None)
+    snapshots = []
+    for clock in [100, 110, None, 120, 5, 8]:
+        observation = deepcopy(game) if clock is not None else None
+        if observation is not None:
+            observation["gameData"]["gameTime"] = clock
+        snapshots.append(observation)
+
+    class Lcu:
+        version_calls = 0
+        phases = iter(["InProgress"] * 5 + ["EndOfGame", "InProgress"])
+        async def gameflow_phase(self):
+            return next(self.phases)
+        async def client_version(self):
+            self.version_calls += 1
+            return f"16.{self.version_calls}.1"
+
+    class Ingame:
+        observations = iter(snapshots)
+        async def allgamedata(self):
+            return next(self.observations)
+
+    class Provider:
+        last_reason = "fixture suppression"
+        patches = []
+        resets = 0
+        async def prepare(self, raw_game, **kwargs):
+            self.patches.append(kwargs.get("patch"))
+            return None
+        def reset_stream(self):
+            self.resets += 1
+
+    lcu, provider = Lcu(), Provider()
+    service = LiveService(lcu, Ingame(), Hub(), inference=RecordingRuntime(), feature_provider=provider)
+    for _ in range(7):
+        await service.tick()
+        if not service.ingame()["active"]:
+            assert service._discovered_patch is None
+    assert lcu.version_calls == 4
+    assert [patch for patch in provider.patches if patch is not None] == ["16.1.1", "16.1.1", "16.2.1", "16.3.1", "16.4.1"]
+    assert service.status()["ingame"]["game_id"] is None
+
+
+async def test_official_live_patch_retry_is_bounded_and_end_evidence_is_observed(monkeypatch):
+    game = deepcopy(load_fixture()["observations"][0]["live"])
+    game["gameData"].pop("gameId", None)
+    game["gameData"].pop("gameVersion", None)
+    game["gameData"]["gameTime"] = 100
+    game["events"] = {"Events": [{"EventName": "GameEnd", "EventTime": 200}]}
+    receipt = [0.0]
+    monkeypatch.setattr(live_module.time, "monotonic", lambda: receipt[0])
+
+    class Lcu:
+        calls = 0
+        async def gameflow_phase(self):
+            return "InProgress"
+        async def client_version(self):
+            self.calls += 1
+            return None
+
+    class Ingame:
+        async def allgamedata(self):
+            return deepcopy(game)
+
+    lcu = Lcu()
+    service = LiveService(lcu, Ingame(), Hub())
+    for now in [0, 2, 9, 10, 11, 20, 30, 100]:
+        receipt[0] = now
+        await service.tick()
+        assert service.ingame()["active"] is True  # future GameEnd is not evidence
+    assert lcu.calls == 3
+    assert service._discovered_patch is None
+    game["gameData"]["gameTime"] = 200
+    await service.tick()
+    assert service.ingame()["active"] is False
+    assert service._discovered_patch is None
+    await service.tick()
+    assert lcu.calls == 3
+    # A clock reset with no end event is a new observable lifecycle.
+    game["events"] = {"Events": []}
+    game["gameData"]["gameTime"] = 5
+    await service.tick()
+    assert lcu.calls == 4
+
+
+@pytest.mark.parametrize("clock", [None, "invalid", float("nan"), float("inf"), -1, True])
+async def test_malformed_live_clock_does_not_fetch_patch(clock):
+    game = deepcopy(load_fixture()["observations"][0]["live"])
+    game["gameData"]["gameTime"] = clock
+
+    class Lcu:
+        async def gameflow_phase(self):
+            return "InProgress"
+        async def client_version(self):
+            raise AssertionError("malformed observation cannot start patch discovery")
+
+    service = LiveService(Lcu(), FixtureIngame(game), Hub())
+    await service.tick()
+    await service.tick()
+    assert service.ingame()["active"] is False
+    assert service._patch_attempts == 0

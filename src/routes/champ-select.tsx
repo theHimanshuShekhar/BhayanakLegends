@@ -16,9 +16,7 @@ import { BanStrip, championLabel } from "../components/champ-select/BanStrip";
 import { YourLaneCard } from "../components/champ-select/YourLaneCard";
 import { MasteryCard } from "../components/champ-select/MasteryCard";
 import { PopulationRoleTiers } from "../components/champ-select/PopulationRoleTiers";
-import { HowToPlayCard } from "../components/champ-select/HowToPlayCard";
 import { CompReadCard } from "../components/champ-select/CompReadCard";
-import { LoadoutCard } from "../components/champ-select/LoadoutCard";
 import { BanContextCard } from "../components/champ-select/BanContextCard";
 import { YourSideCard } from "../components/champ-select/YourSideCard";
 import { MatchStartCard } from "../components/champ-select/MatchStartCard";
@@ -172,7 +170,6 @@ export function ChampSelectPage() {
             state={sessionView.localCell?.state}
             locked={sessionView.locked}
           />
-          <HowToPlayCard session={sessionView} packState={packState} />
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0, minWidth: 0 }}>
@@ -186,7 +183,7 @@ export function ChampSelectPage() {
             className="champ-select-secondary"
             style={{
               display: "grid",
-              gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
+              gridTemplateColumns: "minmax(0, 1fr)",
               gap: 12,
               flex: 1,
               minHeight: 0,
@@ -194,7 +191,6 @@ export function ChampSelectPage() {
             }}
           >
             <CompReadCard session={sessionView} />
-            <LoadoutCard session={sessionView} packState={packState} />
           </div>
         </div>
 

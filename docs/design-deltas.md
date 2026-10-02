@@ -1,4 +1,6 @@
-# Design ↔ Code Deltas
+# Archived design ↔ code deltas
+
+> Historical artifact from the earlier fidelity port. This table is obsolete and is not a current feature inventory, roadmap, or acceptance specification. It contains superseded corpus counts and bridge/model assumptions. See [v1 acceptance](v1-acceptance.md), [README](../README.md), and [CONTRACT](CONTRACT.md) for the supported product and evidence rules.
 
 Where the claude.design artifact ("Rift Coach" v0.1, `~/downloads/League of Legends companion app.zip`) and the shipped app differ. Compiled after the fidelity port (champ-select, live-match, post-game, champions, progress, history). Discussion list — each item is a decision, not yet a ticket.
 

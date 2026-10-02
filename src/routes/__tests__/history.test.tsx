@@ -10,7 +10,8 @@ import { api } from "../../api/client";
 import { makeAvailablePersonalPack as makePack, makePack as makeCanonicalPack } from "./fixtures";
 let sseHandler: ((msg: SseMessage) => void) | undefined;
 
-vi.mock("../../api/client", () => ({
+vi.mock("../../api/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../api/client")>()),
   classifyApiError: () => "unknown",
   api: {
     health: vi.fn(),
@@ -180,6 +181,13 @@ describe("HistoryPage", () => {
     expect(within(table).getByText("JUNGLE")).toBeInTheDocument();
     expect(within(table).getByText("56.7%")).toBeInTheDocument(); // 34/60
   });
+  it("reports a failed history request without claiming the history is empty", async () => {
+    vi.mocked(api.historySummary).mockRejectedValue(new Error("request failed"));
+    renderPage(<HistoryPage />);
+    expect(await screen.findByTestId("summary-error")).toHaveTextContent("Something went wrong. Check your settings and try again.");
+    expect(screen.getByTestId("summary-error")).not.toHaveTextContent(/import|No local shards/);
+  });
+
   it("preserves the required smoke vector on the TypeScript model-card mirror", () => {
     const card = makePack().models?.personal_what_if?.model_card;
     expect(card).not.toBeNull();
@@ -273,17 +281,11 @@ describe("HistoryPage", () => {
     vi.mocked(api.postgameLatest).mockResolvedValue(eligibleDigest);
     renderPage(<HistoryPage />);
 
-    const panel = await screen.findByTestId("what-if-panel");
-    const plateBaseline = await within(panel).findByTestId("what-if-plate-baseline");
-    expect(plateBaseline).toHaveTextContent(
-      "Personal History plate value: 7.5 platesNot used by a What-If model while its model card is unavailable.",
-    );
-    expect(within(panel).getByTestId("what-if-plate-evidence")).toHaveTextContent(
-      "Population evidence: a-lite; weak, era-sensitive review context only.",
-    );
-    expect(within(panel).getByTestId("what-if-plate-evidence")).not.toHaveTextContent(
-      /model-card input|model.*adjustable/i,
-    );
+    await screen.findByText(/Model release is withheld for review/);
+    const panel = screen.getByTestId("what-if-panel");
+    expect(within(panel).queryByTestId("what-if-plate-baseline")).toBeNull();
+    expect(within(panel).queryByTestId("what-if-plate-evidence")).toBeNull();
+    expect(within(panel).queryByRole("slider")).toBeNull();
     expect(within(panel).getByTestId("what-if-run")).toBeDisabled();
   });
   it("keeps noncausal copy when a signed model card omits it and withholds a-lite plates", async () => {

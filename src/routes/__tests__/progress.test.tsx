@@ -361,15 +361,19 @@ describe("ProgressPage", () => {
     expect(screen.getByText(/shipped population corpus/)).toBeInTheDocument();
   });
 
-  it("replaces the speculative deaths-by-minute roadmap copy with an unavailable reason", async () => {
+  it("points to available personal reviews without promising an unavailable deaths chart", async () => {
     renderPage(<ProgressPage />);
+    expect(await screen.findByRole("link", { name: "Open Improvement Journal" })).toHaveAttribute("href", "/history");
+    expect(screen.getByRole("link", { name: "Explore champion Trajectory" })).toHaveAttribute("href", "/champions");
+    expect(screen.getByRole("link", { name: "Review latest game" })).toHaveAttribute("href", "/postgame");
+    expect(screen.queryByTestId("deaths-panel")).toBeNull();
+    expect(screen.queryByTestId("habit-bar-banked_gold_at_recall")).toBeNull();
+  });
 
-    const panel = await screen.findByTestId("deaths-panel");
-    expect(panel).toHaveTextContent(
-      "Unavailable: timeline features are not in the Findings Pack",
-    );
-    expect(panel).not.toHaveTextContent(/lands|ships/);
-    // Backfill remains the named remediation source.
-    expect(panel).toHaveTextContent(/sync games from the History tab/i);
+  it("reports a failed summary rather than remaining in loading", async () => {
+    vi.mocked(api.historySummary).mockRejectedValue(new Error("request failed"));
+    renderPage(<ProgressPage />);
+    await screen.findByRole("alert");
+    expect(screen.queryByText("Loading Personal History summary")).toBeNull();
   });
 });

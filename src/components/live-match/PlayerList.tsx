@@ -71,9 +71,9 @@ function PlayerRow({ player, side, local }: { player: PlayerLive; side: string; 
 
 /**
  * Real rosters come from the Live Client Data API (:2999 official spectator
- * data); until it is reachable the table stays a visual skeleton.
+ * data). A pending request shows a skeleton; settled idle waits for a game.
  */
-export function PlayerList({ snapshot }: { snapshot: InGameSnapshot | undefined }) {
+export function PlayerList({ snapshot, loading = false }: { snapshot: InGameSnapshot | undefined; loading?: boolean }) {
   const active = !!snapshot?.active;
   const order = snapshot?.teams.order ?? [];
   const chaos = snapshot?.teams.chaos ?? [];
@@ -87,7 +87,7 @@ export function PlayerList({ snapshot }: { snapshot: InGameSnapshot | undefined 
       className="card3b"
       data-testid="player-list"
       aria-labelledby="player-roster-heading"
-      aria-busy={!rosterAvailable}
+      aria-busy={loading}
       style={{ flex: "none", padding: "11px 13px", background: "linear-gradient(180deg,var(--color-surface-2),var(--color-surface))" }}
     >
       <SectionHead
@@ -125,7 +125,9 @@ export function PlayerList({ snapshot }: { snapshot: InGameSnapshot | undefined 
                 </td>
               </tr>
             </tbody>
-          ) : !active ? <SkeletonTableBody /> : (
+          ) : !active ? loading ? <SkeletonTableBody /> : (
+            <tbody><tr><td colSpan={7} style={{ padding: "12px 8px", color: "var(--color-dimmer)", fontSize: 10, textAlign: "center" }}>Waiting for an active game</td></tr></tbody>
+          ) : (
             <>
               <tbody data-testid="team-order">
                 {order.map((p) => (

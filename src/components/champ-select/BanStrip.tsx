@@ -129,7 +129,7 @@ function AllySlot({ cell }: { cell: ChampSelectAllyCell }) {
     <div
       data-testid={`cs-ally-cell-${cell.cell_id}`}
       style={{
-        flex: 1,
+        flex: "1 1 100px",
         minWidth: 0,
         display: "flex",
         alignItems: "center",
@@ -171,7 +171,7 @@ function EnemySlot({ cell }: { cell: ChampSelectEnemyCell }) {
     <div
       data-testid={`cs-enemy-cell-${cell.cell_id}`}
       style={{
-        flex: 1,
+        flex: "1 1 100px",
         minWidth: 0,
         display: "flex",
         alignItems: "center",
@@ -197,7 +197,7 @@ function EmptyAllySlot() {
   return (
     <div
       style={{
-        flex: 1,
+        flex: "1 1 100px",
         display: "flex",
         alignItems: "center",
         gap: 8,
@@ -231,7 +231,7 @@ function EmptyEnemySlot() {
   return (
     <div
       style={{
-        flex: 1,
+        flex: "1 1 100px",
         display: "flex",
         alignItems: "center",
         gap: 8,
@@ -387,8 +387,8 @@ export function BanStrip({
         <span className="kicker">BANS</span>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1px 1fr", gap: 14, alignItems: "stretch" }}>
-        <div style={{ display: "flex", gap: 7 }} data-testid="cs-ally-row">
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 1px minmax(0, 1fr)", gap: 14, alignItems: "stretch" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", minWidth: 0, gap: 7 }} data-testid="cs-ally-row">
           {allyCells.map((cell) => (
             <AllySlot key={cell.cell_id} cell={cell} />
           ))}
@@ -397,7 +397,7 @@ export function BanStrip({
           ))}
         </div>
         <div style={{ background: "linear-gradient(180deg,transparent,var(--color-line),transparent)" }} />
-        <div style={{ display: "flex", gap: 7 }} data-testid="cs-enemy-row">
+        <div style={{ display: "flex", flexWrap: "wrap", minWidth: 0, gap: 7 }} data-testid="cs-enemy-row">
           {enemyCells.map((cell) => (
             <EnemySlot key={cell.cell_id} cell={cell} />
           ))}

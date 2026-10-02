@@ -1,58 +1,59 @@
 # Bhayanak Legends
 
-A Windows 11 companion app for League of Legends that turns the [LoLTrends](https://github.com/theHimanshuShekhar/lol-trends) research into personal guidance: live advice during champ select and games, plus an Improvement Journal built from your own match history.
+A League of Legends companion with a local Improvement Journal and Findings Pack population context from [LoLTrends](https://github.com/theHimanshuShekhar/lol-trends). V1 supports the browser web view with a local FastAPI sidecar. The Tauri Windows shell and release tooling remain in the repository; native packaging and publication are outside this v1 acceptance scope.
 
-Friends-first by design: every population number is learned from the friend group's ~26k games, your Personal History never leaves your machine, and advice phrasing follows the research's Actionable/Diagnostic discipline.
+Personal History stays on this machine and is scoped to the resolved Riot account. Population findings come only from the versioned Findings Pack, with their own samples, patch scopes, and caveats. Population associations describe observations; they do not guarantee an outcome.
 
-## Screens
+## Available flows
 
-- **Live Companion** — champ select intel (ban advisor, mastery premium, counterpick honesty) and in-game objective priors; live win-probability arrives with the first model-bearing Findings Pack.
-- **Improvement Journal** — post-game digests, patch-over-patch trajectory, champion tier lists, and the era-first Backfill that fills your Personal History from the Riot API.
+- **Improvement Journal:** account/key settings, resumable era-first Backfill, role/champion filters, recent results, and measured feature observations with explicit missing-data states.
+- **Trajectory:** true match counts and patch win rates, with links to personal reviews. **Champions:** population role tiers, declared matchup evidence, and a selected champion's local rolling Trajectory.
+- **Post-game Review:** latest synced match, available checkpoints, bounded personal observations, and clearly separated population context. It updates through Backfill; a live game ending alone does not download a digest.
+- **Live Companion:** official-shaped champ-select roster, bans, role, pick/lock evidence, timer, and in-game scores, inventory, events, and clock. Enemy summoner names are stripped from champ select.
 
-## Architecture
+Canonical Findings Pack v7 withholds both Live WP and Personal What-If pending corrected training/validation. Compatible checkpoint Benchmarks and automatic habit verdicts are unavailable with the current evidence. The app keeps personal observations useful without filling these gaps with guesses. No champion-specific loadout or gameplan is advertised.
 
-Tauri 2 shell → spawns a PyInstaller-packaged **FastAPI sidecar** on loopback (port + token negotiated at spawn). The installed app runs the sidecar windowless; its presence is shown by the sidecar-dot in the main window. The webview talks REST + SSE to the sidecar only. Population numbers and model artifacts come from the versioned **Findings Pack** (LoLTrends' only obligation); personal features are extracted from match/timeline JSONs on-device. Decisions: [docs/adr/](docs/adr/) · glossary: [CONTEXT.md](CONTEXT.md) · interfaces: [docs/CONTRACT.md](docs/CONTRACT.md).
+## Browser development
 
-## Development
-
-Prereqs: Node 24 + pnpm 11, Rust (tauri), [uv](https://docs.astral.sh/uv/).
-
-```bash
-pnpm install
-cd backend && uv sync
-
-# sidecar (dev import enabled only for this non-frozen debug process)
-# Use one explicit local token (at least 32 characters, not `dev`) in both
-# variables; the frontend has no committed browser-token fallback.
-export BHAYANAK_TOKEN='replace-with-the-same-local-token-at-least-32-chars'
-BHAYANAK_PORT=23110 BHAYANAK_TOKEN="$BHAYANAK_TOKEN" BHAYANAK_ALLOW_IMPORT=true BHAYANAK_IMPORT_ROOTS='["../data/dev-import"]' uv run python -m bhayanak_legends.sidecar &
-
-# frontend against the sidecar; VITE_BL_TOKEN is required and must match
-cd .. && VITE_BL_PORT=23110 VITE_BL_TOKEN="$BHAYANAK_TOKEN" pnpm dev
-
-# or the full desktop shell (spawns the sidecar itself)
-pnpm tauri dev
-```
-
-Dev match data: point the app's import endpoint at a LoLTrends-layout folder (`POST /dev/import {dir}`), or run a real sync from the History screen with your own Riot personal key.
-
-Sync notes: Riot account lookup tries the selected region route first, then falls back across the other regional routes — SEA's account endpoint rejects valid keys, so SEA players resolve via Asia automatically. Match history always downloads on the selected route, so keep it on the route holding your matches (SEA for SG/PH/VN shards); resolving on Asia and seeing `0 / 0 matches` means the route is wrong, not the key.
-
-## Testing
+Prerequisites: Node 24, pnpm 11, and [uv](https://docs.astral.sh/uv/). Run from the repository root:
 
 ```bash
-cd backend && uv run pytest -q      # unit + integration
-pnpm vitest run                     # component tests
-pnpm exec playwright test           # e2e against dev server + sidecar
-pnpm build                          # typecheck + bundle
+pnpm install --frozen-lockfile
+uv sync --project backend --frozen
 ```
 
-## Releases
+Start the sidecar in one terminal:
 
-Tag a `v*` push: GitHub Actions validates the packaged Windows smoke, builds
-the deterministic canonical Findings Pack v2 payload, signs its generated
-manifest, and publishes the public token-free pack channel beside the signed
-Tauri auto-update feed (see [docs/adr/0005](docs/adr/0005-pack-delivery-via-release-channel.md)
-and [docs/workflows.md](docs/workflows.md)). Repo secrets required:
-`TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, and
-`FINDINGS_PACK_MANIFEST_SIGNING_KEY`.
+```bash
+export BHAYANAK_TOKEN='local-development-token-change-me-32chars'
+BHAYANAK_PORT=23110 uv run --project backend python -m bhayanak_legends.sidecar
+```
+
+Start the browser UI in another terminal, using exactly the same local token:
+
+```bash
+VITE_BL_PORT=23110 VITE_BL_TOKEN='local-development-token-change-me-32chars' pnpm dev
+```
+
+Open the printed Vite address (normally `http://localhost:1420`). The local token authenticates the browser to the sidecar; it is separate from the Riot API key. `BHAYANAK_TOKEN` and `VITE_BL_TOKEN` must be set to the same value; a Riot API key is needed for Backfill. Save your Riot ID, regional match route, and personal Riot key in the Improvement Journal to start Backfill. Saving settings alone does not validate the key against Riot; account resolution and sync show their own status and retry feedback. Account lookup can try other regional account routes; match downloads use the selected match route.
+
+Development import is optional and debug-only. To enable it, create an approved local folder first, then supply `BHAYANAK_ALLOW_IMPORT=true` and `BHAYANAK_IMPORT_ROOTS` as a JSON list of existing canonical directory paths. `POST /dev/import {"dir":"..."}` accepts only folders under those roots. Import is not a production onboarding flow.
+
+## Verification
+
+Run each command from the repository root:
+
+```bash
+uv run --project backend pytest backend/tests -q
+pnpm vitest run
+pnpm build
+pnpm exec playwright test
+```
+
+Playwright starts its own isolated sidecars, LCU/Live Client Data replay services, and Vite server. Do not start a separate sidecar for it. Fixtures include official integer bans and a JSON-string LCU version; Live Client Data omits nonofficial game ID/version fields. Synthetic available-model fixtures test mechanics only and do not constitute release evidence.
+
+See [v1 acceptance](docs/v1-acceptance.md) for supported scope and current validation, [CONTEXT.md](CONTEXT.md) for terminology, [the interface contract](docs/CONTRACT.md), and [architecture decisions](docs/adr/). Historical visual proposals in [design-deltas.md](docs/design-deltas.md) are archived.
+
+## Native releases
+
+Existing Windows build, signing, updater, and Findings Pack release workflows are documented in [docs/workflows.md](docs/workflows.md). Running those workflows, native Windows smoke testing, a real League session, and live Riot API validation are deferred from this web-view v1 acceptance. No release is published by completing the local gates.

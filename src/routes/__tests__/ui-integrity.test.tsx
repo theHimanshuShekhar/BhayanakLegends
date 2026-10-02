@@ -265,7 +265,7 @@ const routes = [
   ["champ-select", <ChampSelectPage />, () => screen.findByTestId("card-ban-context")],
   ["live-match", <LiveMatchPage />, () => screen.findByTestId("bridge-status")],
   ["postgame", <PostGamePage />, () => screen.findByTestId("verdict-header")],
-  ["progress", <ProgressPage />, () => screen.findByRole("heading", { name: "Benchmarks" })],
+  ["progress", <ProgressPage />, () => screen.findByRole("heading", { name: "Benchmarks · availability" })],
   ["champions", <ChampionsPage />, () => screen.findByRole("heading", { name: "Champion Evidence" })],
   ["history", <HistoryPage />, () => screen.findByTestId("summary-matches")],
 ] as const;
@@ -480,7 +480,7 @@ describe("route UI integrity", () => {
 
     // Trajectory: rail skeleton while the same graph stays parked.
     const progress = renderRoute(routes[3][1]);
-    await progress.findByRole("heading", { name: "Benchmarks" });
+    await progress.findByRole("heading", { name: "Benchmarks · availability" });
     expect(document.querySelectorAll(".history-skeletons").length).toBeGreaterThan(0);
 
     // Release everything; skeletons must not survive into the settled UI.

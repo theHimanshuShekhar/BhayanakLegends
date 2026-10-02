@@ -2,13 +2,20 @@
 
 `.github/workflows/verify.yml` is the reusable required-check workflow. It runs
 backend pytest, frontend Vitest, the production frontend build, Playwright
-against a sidecar on `127.0.0.1:23110`, and dependency audits. The CI sidecar
-uses the explicit non-production token
-`BHAYANAK_TOKEN=local-sidecar-development-token-32chars`, `BHAYANAK_ALLOW_IMPORT=true`,
-and a JSON-array `BHAYANAK_IMPORT_ROOTS` rooted at `data/dev-import`;
-`backend/tools/ci_seed.py` creates deterministic Personal History only when
-`data/dev-import/` is absent. Web-only development must set `VITE_BL_TOKEN`
-explicitly to that same token; only `VITE_BL_PORT` may default.
+against its owned replay stack, and dependency audits. Playwright starts canonical
+and test-only synthetic-model sidecars on `127.0.0.1:23122`/`:23125`, plus LCU
+and Live Client Data replay services on `:23123`/`:23124`. It seeds isolated
+owner-scoped Personal History, uses the explicit non-production local token
+`local-sidecar-development-token-32chars`, and pins item evidence to the replay's
+exact Data Dragon patch. The release manifest probe stays on loopback so tests
+cannot activate an external channel update. No separate development sidecar or
+real Riot key is needed. Web-only development must set `VITE_BL_TOKEN` explicitly
+to the same value as its sidecar's `BHAYANAK_TOKEN`.
+
+The web-view v1 acceptance scope and deferred native/release work are recorded in
+[v1 acceptance](v1-acceptance.md). The native workflow policy below remains a
+separate packaging/release gate; it is not evidence that a local web-view run
+validated Windows or published a release.
 
 
 ## Packaged Windows smoke
@@ -40,13 +47,14 @@ key over the exact canonical pack bytes and serves the manifest, detached
 signature, and payload. It also serves a separately signed manifest for a ZIP
 whose `findings-pack.v2.json` is deliberately unloadable. That invalid
 manifest declares `v7-smoke-invalid-129` only so the follow-up is newer than
-the retained canonical `v6`; the ZIP itself still contains the malformed JSON,
-can never activate, and does not rewrite the canonical pack or its v6
+the retained canonical `v7`; the ZIP itself still contains the malformed JSON,
+can never activate, and does not rewrite the canonical pack or its v7
 manifest. The smoke-only `tools/windows_pack_corrupt_smoke.py` uses a new
 isolated `PackStore`, activates the exact canonical signed payload through the
-real `ReleaseChannel`, executes every available model declaration against its
-model-card smoke vector/expected value/tolerance (currently `personal_what_if`;
-`live_wp` is withheld), and then offers the signed corrupt candidate through
+real `ReleaseChannel`, verifies withheld model declarations (canonical v7
+withholds both `personal_what_if` and `live_wp`) and executes any available
+model declaration against its model-card smoke vector/expected value/tolerance,
+and then offers the signed corrupt candidate through
 `check_and_activate(retained_version)`. Independent verifier subprocesses
 rebuild `PackStore` before and after rejection and require the generation
 pointer, canonical `pack_version`, archive hash, and all-model smoke proof to

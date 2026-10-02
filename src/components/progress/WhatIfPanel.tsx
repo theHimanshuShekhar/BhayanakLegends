@@ -157,6 +157,22 @@ export function WhatIfPanel({ pack, digest = null }: WhatIfPanelProps) {
           ? "Model provenance is unavailable or stale."
           : null;
 
+  if (declaration && declaration.release_status !== "available") {
+    return (
+      <section className="card3b" data-testid="what-if-panel" aria-label="Personal model availability" style={{ padding: 13 }}>
+        <SectionHead level={3} label="PERSONAL MODEL · WITHHELD" color="var(--color-dimmer)" />
+        <p role="status" style={{ fontSize: 10, lineHeight: 1.5, color: "var(--color-dim)" }}>
+          {unavailableReason} Personal observations and review profiles remain available above.
+        </p>
+        <button type="button" data-testid="what-if-run" disabled className="pill">Evaluate local model</button>
+        <p style={{ fontSize: 9, color: "var(--color-dimmer)" }}>
+          Current probability: <span data-testid="what-if-current">Unavailable</span> · Simulated probability:{" "}
+          <span data-testid="what-if-prediction">Unavailable</span>
+        </p>
+      </section>
+    );
+  }
+
   return (
     <div
       className="card3b"

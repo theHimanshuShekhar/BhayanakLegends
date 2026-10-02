@@ -47,6 +47,7 @@ describe("LiveCompanion", () => {
     liveStatusData = { ...inGameStatus, champ_select: champSelectStatus.champ_select };
     view.rerender(<LiveCompanion />);
     expect(await screen.findByTestId("live-companion-mode")).toHaveTextContent("in-game");
+    expect(document.documentElement.dataset.liveCompanion).toBe("normal");
     expect(invoke).toHaveBeenLastCalledWith("set_live_companion_mode", {
       mode: "in-game",
       expanded: false,

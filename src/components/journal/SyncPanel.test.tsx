@@ -240,7 +240,25 @@ describe("SyncPanel", () => {
       riot_key: "RGAPI-test",
     });
     expect(await screen.findByTestId("save-ok")).toBeInTheDocument();
+    expect(screen.getByTestId("input-riot-key")).toHaveValue("");
+    fireEvent.change(screen.getByTestId("input-riot-id"), { target: { value: "NextPlayer#TAG" } });
+    fireEvent.click(screen.getByTestId("save-settings"));
+    await waitFor(() => expect(api.updateSettings).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(api.updateSettings).mock.calls[1][0]).not.toHaveProperty("riot_key");
   });
+  it("retains a typed key after a failed save for explicit retry", async () => {
+    vi.mocked(api.updateSettings).mockRejectedValueOnce(new Error("request failed"));
+    renderPanel();
+    fireEvent.change(await screen.findByTestId("input-riot-key"), { target: { value: "RGAPI-fixture-retry" } });
+    fireEvent.click(screen.getByTestId("save-settings"));
+    expect(await screen.findByTestId("save-error")).toBeVisible();
+    expect(screen.getByTestId("input-riot-key")).toHaveValue("RGAPI-fixture-retry");
+    expect(screen.getByTestId("save-error")).not.toHaveTextContent("RGAPI-fixture-retry");
+    vi.mocked(api.updateSettings).mockResolvedValue(settings);
+    fireEvent.click(screen.getByTestId("save-settings"));
+    await waitFor(() => expect(screen.getByTestId("input-riot-key")).toHaveValue(""));
+  });
+
   it("allows clearing an existing saved identity", async () => {
     vi.mocked(api.updateSettings).mockResolvedValue({
       ...settings,

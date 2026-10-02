@@ -25,6 +25,8 @@ class ReplayState:
         self.data_dir = data_dir
         self.scenario = "idle"
         self._phase_generation = 0
+        self.version_calls = 0
+        self._running_since = time.monotonic()
         self.champ = load_json("champselect_session.json")
         self.game = load_json("allgamedata.json")
 
@@ -45,7 +47,7 @@ class ReplayState:
             "pack-error",
         }:
             return "ChampSelect"
-        if scenario in {"in-game", "in-game-pre-event", "in-game-update", "in-game-empty", "malformed"}:
+        if scenario in {"in-game", "in-game-running", "in-game-pre-event", "in-game-update", "in-game-empty", "malformed"}:
             return "InProgress"
         return "None"
 
@@ -142,7 +144,8 @@ class ReplayState:
             for player in self.game["allPlayers"]:
                 player["items"] = []
             self.game["events"]["Events"] = []
-        elif scenario in {"in-game", "in-game-pre-event", "in-game-update"}:
+        elif scenario in {"in-game", "in-game-running", "in-game-pre-event", "in-game-update"}:
+            self._running_since = time.monotonic()
             self.game = load_json("allgamedata.json")
             self._refresh_live_observation()
             if scenario == "in-game-pre-event":
@@ -195,14 +198,26 @@ class ReplayState:
             if path == "phase":
                 return 200, self._gameflow_for(self.scenario)
             if path == "session":
-                return 200, self.champ if self.scenario.startswith("champ-select") else None
+                champ = json.loads(json.dumps(self.champ))
+                champ["bans"] = {key: [entry["championId"] if isinstance(entry, dict) else entry for entry in values] for key, values in champ["bans"].items()}
+                return 200, champ if self.scenario.startswith("champ-select") else None
+            if path == "version":
+                self.version_calls += 1
+                return 200, "15.18.1"
             if path == "summoner":
                 return 200, {"summonerId": "replay"}
         else:
             if path == "allgamedata":
                 if self.scenario.startswith("in-game"):
                     self._refresh_live_observation()
-                    return 200, self.game
+                    game = json.loads(json.dumps(self.game))
+                    game["gameData"].pop("gameId", None)
+                    game["gameData"].pop("gameVersion", None)
+                    if self.scenario == "in-game-running":
+                        game["gameData"]["gameTime"] += time.monotonic() - self._running_since
+                        game.pop("observed_at_s", None)
+                        game.pop("replay_phase_generation", None)
+                    return 200, game
                 return 200, None
         return 404, {"error": "not found"}
 
@@ -217,8 +232,8 @@ class Handler(BaseHTTPRequestHandler):
     def replay(self) -> ReplayState:
         return self.server.replay  # type: ignore[attr-defined]
 
-    def _send(self, status: int, payload: object) -> None:
-        if isinstance(payload, str):
+    def _send(self, status: int, payload: object, *, json_string: bool = False) -> None:
+        if isinstance(payload, str) and not json_string:
             body = payload.encode("utf-8")
             content_type = "text/plain"
         else:
@@ -233,12 +248,13 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/health":
-            self._send(200, {"status": "ok", "kind": self.replay.kind, "scenario": self.replay.scenario})
+            self._send(200, {"status": "ok", "kind": self.replay.kind, "scenario": self.replay.scenario, "version_calls": self.replay.version_calls})
             return
         routes = {
             "/lol-gameflow/v1/gameflow-phase": "phase",
             "/lol-champ-select/v1/session": "session",
             "/lol-summoner/v1/current-summoner": "summoner",
+            "/lol-patch/v1/game-version": "version",
             "/liveclientdata/allgamedata": "allgamedata",
         }
         route = routes.get(path)
@@ -246,7 +262,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, {"error": "not found"})
             return
         status, payload = self.replay.response(route)
-        self._send(status, payload)
+        self._send(status, payload, json_string=route == "version")
 
     def do_POST(self) -> None:
         if urlparse(self.path).path != "/control":

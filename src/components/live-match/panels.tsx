@@ -106,18 +106,6 @@ export function ActivePlayerCard({ player }: { player: PlayerLive | null }) {
   );
 }
 
-export function CheatSheetCard() {
-  return (
-    <section className="card3" aria-labelledby="cheat-sheet-heading" style={{ padding: "10px 12px", display: "flex", alignItems: "center", gap: 9 }}>
-      <SectionHead color="var(--color-info)" label={<span id="cheat-sheet-heading">ROLE CHEAT-SHEET</span>} />
-      <div style={{ fontSize: 10, lineHeight: 1.4, color: "var(--color-soft-text)" }}>
-        <b style={{ color: "var(--color-text)" }}>Role cheat-sheet:</b> the per-role lever list (lane gold,
-        plates, show timing) is pulled from the Findings Pack once the live bridge names your role.
-      </div>
-    </section>
-  );
-}
-
 type TeamKey = "order" | "chaos";
 
 type TeamTotals = {

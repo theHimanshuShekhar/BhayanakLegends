@@ -880,3 +880,29 @@ async def test_live_tick_publishes_all_streams_with_unknown_riot_values():
     # Unchanged raw payload: normalization makes it equal, so no duplicate frames.
     await service.tick()
     assert drain(queue) == []
+
+
+async def test_client_version_accepts_official_json_string(monkeypatch):
+    connection = HttpxLcuConnection()
+    async def get_json(path):
+        assert path == lcu_module.CLIENT_VERSION_PATH
+        return "16.19.1"
+    monkeypatch.setattr(connection, "_get_json", get_json)
+    assert await connection.client_version() == "16.19.1"
+
+
+def test_champ_select_accepts_official_integer_bans():
+    session = load_json("champselect_session.json")
+    session["bans"] = {"myTeamBans": [25, 0, 1], "theirTeamBans": [412, 60]}
+    snapshot = build_champ_select_snapshot(session, "ChampSelect", CHAMPION_NAMES)
+    assert [ban.champion_id for ban in snapshot.bans_ally] == [25, 1]
+    assert [ban.champion_id for ban in snapshot.bans_enemy] == [412, 60]
+    assert "FixturePlayer06" not in json.dumps(snapshot.model_dump())
+
+
+@pytest.mark.parametrize("bans", [None, [], "invalid", {"myTeamBans": "invalid"}, {"myTeamBans": [True, -1, {}, "25", None, 25]}])
+def test_champ_select_malformed_bans_do_not_crash(bans):
+    session = load_json("champselect_session.json")
+    session["bans"] = bans
+    snapshot = build_champ_select_snapshot(session, "ChampSelect", CHAMPION_NAMES)
+    assert [ban.champion_id for ban in snapshot.bans_ally] == ([25] if isinstance(bans, dict) and isinstance(bans.get("myTeamBans"), list) else [])

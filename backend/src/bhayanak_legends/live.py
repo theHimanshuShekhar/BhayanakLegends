@@ -162,9 +162,10 @@ def _has_completed_local_pick(
 
 def _cs_bans(raw_bans: dict | None, key: str, names: dict[int, str]) -> list[CsBan]:
     bans: list[CsBan] = []
-    for entry in (raw_bans or {}).get(key) or []:
-        champion_id = int(entry.get("championId") or 0)
-        if not champion_id:
+    entries = raw_bans.get(key) if isinstance(raw_bans, dict) else None
+    for entry in entries if isinstance(entries, list) else []:
+        champion_id = entry.get("championId") if isinstance(entry, dict) else entry
+        if not isinstance(champion_id, int) or isinstance(champion_id, bool) or champion_id <= 0:
             continue  # pick turn not used yet
         bans.append(CsBan(champion_id=champion_id, champion=names.get(champion_id)))
     return bans
@@ -738,6 +739,10 @@ class LiveService:
         self._ingame_dump: dict | None = None
         self._status_dump: dict | None = None
         self._game_id: int | None = None
+        self._last_live_clock: float | None = None
+        self._last_phase: str | None = None
+        self._patch_attempts = 0
+        self._patch_retry_at = 0.0
         self._event_delta_tracker = _LiveEventDeltaTracker()
 
     @property
@@ -903,11 +908,44 @@ class LiveService:
                         game_id = int(raw_game_id) if raw_game_id is not None else None
                     except (TypeError, ValueError, OverflowError):
                         game_id = None
-            new_game_lifecycle = game_id is not None and game_id != self._game_id
-            if new_game_lifecycle:
+            clock_value = None
+            if isinstance(raw_game, dict) and isinstance(raw_game.get("gameData"), dict):
+                try:
+                    value = raw_game["gameData"].get("gameTime", raw_game["gameData"].get("gameClock"))
+                    if not isinstance(value, bool):
+                        clock_value = float(value)
+                    if clock_value is not None and (not math.isfinite(clock_value) or clock_value < 0):
+                        clock_value = None
+                except (TypeError, ValueError, OverflowError):
+                    pass
+            ended = clock_value is not None and any(
+                event.name == "GameEnd" and event.t_s <= clock_value
+                for event in _raw_live_events(raw_game)
+            )
+            if clock_value is None or ended:
+                raw_game = None
+                clock_value = None
+            new_game_lifecycle = clock_value is not None and (
+                self._last_live_clock is None
+                or clock_value < self._last_live_clock
+                or (game_id is not None and game_id != self._game_id)
+                or (phase.lower() == "gamestart" and self._last_phase != "gamestart")
+            )
+            if new_game_lifecycle or clock_value is None:
                 self._reset_live_feature_stream()
-            if self._configured_patch is None and new_game_lifecycle:
+                self._event_delta_tracker.reset()
                 self._discovered_patch = None
+                self._patch_attempts = 0
+                self._patch_retry_at = 0.0
+            if (
+                clock_value is not None
+                and self._configured_patch is None
+                and self._discovered_patch is None
+                and self._patch_attempts < 3
+                and time.monotonic() >= self._patch_retry_at
+            ):
+                self._patch_attempts += 1
+                self._patch_retry_at = time.monotonic() + 10.0
                 version_reader = getattr(self._lcu, "client_version", None)
                 if callable(version_reader):
                     try:
@@ -918,14 +956,8 @@ class LiveService:
                             self._discovered_patch = candidate_patch.strip()
                     except Exception:
                         self._discovered_patch = None
-            clock_value = 0.0
-            if isinstance(raw_game, dict):
-                game_data = raw_game.get("gameData")
-                if isinstance(game_data, dict):
-                    try:
-                        clock_value = float(game_data.get("gameTime", game_data.get("gameClock")) or 0)
-                    except (TypeError, ValueError, OverflowError):
-                        clock_value = 0.0
+            self._last_live_clock = clock_value
+            clock_value = clock_value or 0.0
             inference, vector = await self._live_inference(raw_game, clock_value)
             ingame, snapshot_game_id = build_ingame_snapshot(raw_game, inference=inference)
             if snapshot_game_id != self._game_id:
@@ -941,10 +973,13 @@ class LiveService:
             ingame = ingame.model_copy(update={"event_deltas": event_deltas})
         else:
             self._game_id = None
+            self._last_live_clock = None
+            self._patch_attempts = 0
             self._discovered_patch = None
             self._event_delta_tracker.reset()
             self._reset_live_feature_stream()
 
+        self._last_phase = phase.lower() if phase else None
         await self._publish_changed("champselect.state", champ_select.model_dump(), "_session_dump")
         await self._publish_changed("live.state", ingame.model_dump(), "_ingame_dump")
         coarse = self._coarse_status(champ_select, ingame, last_error)

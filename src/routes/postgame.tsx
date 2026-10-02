@@ -28,7 +28,7 @@ export function PostGamePage() {
         background: "radial-gradient(120% 80% at 20% 0%,#2a1520,var(--color-bg) 55%)",
       }}
     >
-      <PageHeader kicker="post-game review · the 30 seconds after the game" title="Post-game Review" />
+      <PageHeader kicker="latest synced match · personal observations" title="Post-game Review" />
       {(query.isLoading || packQuery.isLoading) && (
         <div role="status" aria-live="polite" style={{ minHeight: 15, fontSize: 10.5, color: "var(--color-dim)" }}>
           Loading post-game review…
@@ -71,7 +71,7 @@ export function PostGamePage() {
               </h2>
               <p style={{ margin: 0, fontSize: 10.5, lineHeight: 1.5, color: "var(--color-soft-text)" }}>
                 Older games fill in through Backfill — start it from Improvement Journal. This digest
-                covers the latest game only.
+                covers the latest synced game only. A live game ending does not download a new digest.
               </p>
             </section>
           </div>

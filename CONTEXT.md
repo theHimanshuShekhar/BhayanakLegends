@@ -1,6 +1,6 @@
 # Bhayanak Legends
 
-A Windows companion app for League of Legends that turns the LoLTrends research into personal guidance: live advice during champ select and games, plus a historical improvement journal.
+A League of Legends companion for personal match review and clearly labeled LoLTrends population context. The Improvement Journal describes Personal History; the Live Companion mirrors observed champ-select and in-game state.
 
 ## Language
 
@@ -15,7 +15,7 @@ The local user's own matches downloaded from the Riot API and extracted into per
 _Avoid_: match cache, user data
 
 **Live Companion**:
-The app screen covering champ select and in-game advice.
+The app screen covering observed champ-select and in-game state, with separately labeled Findings Pack population context.
 _Avoid_: live screen, overlay (reserved for overlay frameworks we don't use)
 
 **Improvement Journal**:

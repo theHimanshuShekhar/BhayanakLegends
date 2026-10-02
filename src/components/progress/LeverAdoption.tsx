@@ -18,7 +18,7 @@ export function LeverAdoption({ pack }: { pack: FindingsPack | undefined }) {
     >
       <SectionHead
         level={3}
-        label="LEVER ADOPTION"
+        label="POPULATION ASSOCIATIONS"
         color="var(--color-info)"
         right={
           <span className="pill" style={{ background: "var(--color-info-low)", color: "var(--color-soft-blue)" }}>
@@ -106,13 +106,6 @@ export function LeverAdoption({ pack }: { pack: FindingsPack | undefined }) {
                   {available
                     ? `Observational population association, not a guarantee. ${explanation}`
                     : `Population association unavailable: ${unavailableReason}${caveat ? ` ${caveat}` : ""}`}
-                </div>
-                <div
-                  data-testid={`habit-bar-${habit.key}`}
-                  aria-hidden="true"
-                  style={{ height: 4, borderRadius: 999, background: "var(--color-deep)", overflow: "hidden" }}
-                >
-                  <div style={{ width: 0, height: "100%", background: "var(--color-surface-3)" }} />
                 </div>
               </li>
             );

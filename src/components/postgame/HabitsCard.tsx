@@ -104,7 +104,7 @@ export function HabitsCard({
             : "linear-gradient(165deg,#2d1c28,var(--color-surface-2) 65%)",
       }}
     >
-      <SectionHead color={win && !idle ? "var(--color-teal)" : "var(--color-info)"} label={<span id="postgame-habits-heading">Game habits</span>} />
+      <SectionHead color={win && !idle ? "var(--color-teal)" : "var(--color-info)"} label={<span id="postgame-habits-heading">Personal observations</span>} />
       <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
         <SectionHead level={3} dot={false} label="Personal History observations" />
         <span className="mono-n" style={{ marginLeft: "auto", fontSize: 10, color: "var(--color-dimmer)" }}>
@@ -127,22 +127,6 @@ export function HabitsCard({
             </li>
           ))}
         </ul>
-      )}
-      {populationRows.length > 0 && (
-        <div data-testid="population-habit-guidance">
-          <SectionHead level={3} dot={false} label="Findings Pack population associations" />
-          <ul aria-label="Population habit associations" style={{ display: "flex", flexDirection: "column", gap: 6, listStyle: "none", margin: "7px 0 0", padding: 0 }}>
-            {populationRows.map((row) => (
-              <li
-                key={row.key}
-                data-testid={`population-habit-${row.key}`}
-                style={{ padding: "7px 9px", borderRadius: 12, background: "var(--color-surface-2)", boxShadow: "var(--shadow-z1)", fontSize: 9, lineHeight: 1.45, color: "var(--color-dimmer)" }}
-              >
-                {populationDescription(row)}
-              </li>
-            ))}
-          </ul>
-        </div>
       )}
       {personalRows.length > 0 && (
         <ul aria-label="Personal feature observations" data-testid="habit-feature-observations" style={{ display: "flex", flexDirection: "column", gap: 6, listStyle: "none", margin: 0, padding: 0 }}>
@@ -177,6 +161,22 @@ export function HabitsCard({
             );
           })}
         </ul>
+      )}
+      {populationRows.length > 0 && (
+        <div data-testid="population-habit-guidance">
+          <SectionHead level={3} dot={false} label="Findings Pack population associations" />
+          <ul aria-label="Population habit associations" style={{ display: "flex", flexDirection: "column", gap: 6, listStyle: "none", margin: "7px 0 0", padding: 0 }}>
+            {populationRows.map((row) => (
+              <li
+                key={row.key}
+                data-testid={`population-habit-${row.key}`}
+                style={{ padding: "7px 9px", borderRadius: 12, background: "var(--color-surface-2)", boxShadow: "var(--shadow-z1)", fontSize: 9, lineHeight: 1.45, color: "var(--color-dimmer)" }}
+              >
+                {populationDescription(row)}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
       {outcomeRows.length === 0 && personalRows.length === 0 && (
         <div

@@ -1,0 +1,86 @@
+{
+  "version": "15.18.1",
+  "source": "https://ddragon.leagueoflegends.com/cdn/15.18.1/data/en_US/item.json",
+  "data": {
+    "1056": {
+      "gold": {
+        "base": 400,
+        "purchasable": true,
+        "total": 400,
+        "sell": 160
+      }
+    },
+    "2003": {
+      "gold": {
+        "base": 50,
+        "purchasable": true,
+        "total": 50,
+        "sell": 20
+      }
+    },
+    "3046": {
+      "gold": {
+        "base": 950,
+        "purchasable": true,
+        "total": 2650,
+        "sell": 1855
+      }
+    },
+    "3053": {
+      "gold": {
+        "base": 775,
+        "purchasable": true,
+        "total": 3200,
+        "sell": 2240
+      }
+    },
+    "3065": {
+      "gold": {
+        "base": 650,
+        "purchasable": true,
+        "total": 2700,
+        "sell": 1890
+      }
+    },
+    "3072": {
+      "gold": {
+        "base": 325,
+        "purchasable": true,
+        "total": 3400,
+        "sell": 2380
+      }
+    },
+    "3142": {
+      "gold": {
+        "base": 675,
+        "purchasable": true,
+        "total": 2800,
+        "sell": 1960
+      }
+    },
+    "3157": {
+      "gold": {
+        "base": 450,
+        "purchasable": true,
+        "total": 3250,
+        "sell": 2275
+      }
+    },
+    "3190": {
+      "gold": {
+        "base": 700,
+        "purchasable": true,
+        "total": 2200,
+        "sell": 1540
+      }
+    },
+    "3340": {
+      "gold": {
+        "base": 0,
+        "purchasable": true,
+        "total": 0,
+        "sell": 0
+      }
+    }
+  }
+}

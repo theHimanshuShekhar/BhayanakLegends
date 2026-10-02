@@ -346,12 +346,10 @@ test.describe("Personal History What-If synthetic sidecar replay", () => {
     await page.unroute("**/pack");
     await page.route("**/pack", (route) => route.fulfill({ json: withheldPack }));
     await page.reload();
-    await expect(page.getByTestId("what-if-plate-baseline")).toContainText(
-      "Personal History plate value: 7.5 platesNot used by a What-If model while its model card is unavailable.",
-    );
-    await expect(page.getByTestId("what-if-plate-evidence")).not.toContainText(
-      /model-card input|model.*adjustable/i,
-    );
+    await expect(page.getByTestId("what-if-panel")).toContainText("Model release is withheld for review.");
+    await expect(page.getByTestId("what-if-plate-baseline")).toHaveCount(0);
+    await expect(page.getByTestId("what-if-plate-evidence")).toHaveCount(0);
+    await expect(page.getByRole("slider")).toHaveCount(0);
     await expect(page.getByTestId("what-if-run")).toBeDisabled();
   });
 });

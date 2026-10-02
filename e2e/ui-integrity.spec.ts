@@ -129,7 +129,11 @@ async function attachEvidence(testInfo: TestInfo, name: string, payload: unknown
 
 async function screenshot(page: Page, testInfo: TestInfo, name: string): Promise<string> {
   const path = testInfo.outputPath(`${name}.png`);
-  await page.screenshot({ path, fullPage: true });
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await Promise.all(document.getAnimations().filter((animation) => animation.effect?.getTiming().iterations !== Infinity).map((animation) => animation.finished.catch(() => undefined)));
+  });
+  await page.screenshot({ path, fullPage: true, animations: "disabled" });
   await testInfo.attach(name, { path, contentType: "image/png" });
   return `${name}.png`;
 }
@@ -138,8 +142,16 @@ function clickNav(page: Page, route: Route) {
   return page.getByTestId(`nav-${route.nav}`).click();
 }
 
+async function openWithCanonicalPack(page: Page, path: string) {
+  const packResponse = page.waitForResponse((response) => response.url() === `${SIDECAR}/pack` && response.request().method() === "GET", { timeout: 30_000 });
+  await page.goto(path);
+  const response = await packResponse;
+  expect(response.status(), "route must receive the canonical Findings Pack").toBe(200);
+  await expect(page.getByText(/^Findings Pack v7 ·/)).toBeVisible({ timeout: 30_000 });
+}
+
 async function gotoRoute(page: Page, route: Route) {
-  await page.goto(route.path);
+  await openWithCanonicalPack(page, route.path);
   const h1 = page.getByRole("heading", { level: 1, name: route.h1 });
   await expect(h1).toBeVisible();
   if (route.ready) {
@@ -286,6 +298,10 @@ test.describe("cross-route UI integrity", () => {
           await clickNav(page, route);
           await expectFocusedH1(page, route.h1);
         }
+
+        if (route.ready) await expect(page.getByTestId(route.ready)).toBeVisible();
+        if (route.path === "/progress") await expect(page.getByTestId("progress-summary")).toBeVisible();
+        await expect(page.locator("[aria-busy=true]")).toHaveCount(0, { timeout: 30_000 });
 
         // Exactly one h1 per route document.
         expect(await page.locator("h1").count()).toBe(1);
@@ -548,6 +564,7 @@ test.describe("cross-route UI integrity", () => {
   });
 
   test("representative loading, empty, error, victory, and defeat fixtures", async ({ page }, testInfo) => {
+    test.setTimeout(90_000);
     const evidence = makeEvidence();
     await page.setViewportSize(VIEWPORTS[0]);
     const victoryDigest = {
@@ -1194,4 +1211,76 @@ test.describe("cross-route UI integrity", () => {
       });
     }
   });
+});
+
+// Canonical v7 with populated owner history; no available-model substitutions.
+test("v1 settled canonical personal reviews and official Live Companion renders", async ({ page, request }, testInfo) => {
+  test.setTimeout(90_000);
+  const errors = collectBrowserErrors(page);
+  const setLatest = await request.post(`${LCU}/control`, { data: { scenario: "history-eligible" } });
+  expect(setLatest.ok()).toBeTruthy();
+  for (const viewport of VIEWPORTS) {
+    await page.setViewportSize(viewport);
+    const size = `${viewport.width}x${viewport.height}`;
+    await idleBaseline(request);
+    await openWithCanonicalPack(page, "/history");
+    await expect(page.getByTestId("summary-matches")).toHaveText("2");
+    await expect(page.getByTestId("insights-sample-size")).toContainText("2");
+    await expect(page.getByTestId("journal-feature-insights")).toBeVisible();
+    await expect(page.getByTestId("what-if-panel")).toContainText("WITHHELD");
+    await screenshot(page, testInfo, `v1-canonical-history-${size}`);
+
+    await openWithCanonicalPack(page, "/progress");
+    await expect(page.getByTestId("summary-matches-progress")).toHaveText("2 matches");
+    await expect(page.getByTestId("rolling-wr-svg")).toBeVisible();
+    await expect(page.getByTestId("benchmarks-contract-suppressed")).toBeVisible();
+    await screenshot(page, testInfo, `v1-canonical-trajectory-${size}`);
+
+    await openWithCanonicalPack(page, "/postgame");
+    await expect(page.getByTestId("verdict-sub")).toContainText("Ahri");
+    await expect(page.getByTestId("habit-feature-observations")).toBeVisible();
+    await expect(page.getByTestId("habit-plates_taken_by_14m")).toContainText("8 plates");
+    await screenshot(page, testInfo, `v1-canonical-postgame-${size}`);
+
+    await openWithCanonicalPack(page, "/champions");
+    await page.getByTestId("tier-row-Ahri").click();
+    await expect(page.getByTestId("trajectory-svg")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("trajectory-aggregates")).toContainText("2");
+    await screenshot(page, testInfo, `v1-canonical-champions-${size}`);
+
+    await setScenario(request, LCU, "champ-select");
+    await setScenario(request, LIVE, "champ-select");
+    await openWithCanonicalPack(page, "/champ-select");
+    await expect(page.getByTestId("cs-ally-row")).toContainText("Annie");
+    await expect(page.getByTestId("your-lane-tier")).toContainText("LOCKED");
+    await expect(page.getByTestId("cs-enemy-row")).not.toContainText("FixturePlayer06");
+    for (const compact of [{ width: 980, height: 620 }, { width: 640, height: 410 }]) {
+      await page.setViewportSize(compact);
+      const cards = page.locator('[data-testid^="cs-ally-cell-"], [data-testid^="cs-enemy-cell-"]');
+      await expect(cards).toHaveCount(10);
+      const clipped = await cards.evaluateAll((nodes) => nodes.filter((node) => {
+        const box = node.getBoundingClientRect();
+        return box.left < 0 || box.right > window.innerWidth;
+      }).length);
+      expect(clipped).toBe(0);
+    }
+    await page.setViewportSize(viewport);
+    await screenshot(page, testInfo, `v1-official-champ-select-${size}`);
+
+    await setScenario(request, LCU, "in-game-running");
+    await setScenario(request, LIVE, "in-game-running");
+    await openWithCanonicalPack(page, "/live");
+    await expect(page.getByTestId("player-row-local")).toContainText("Viktor");
+    await expect(page.getByTestId("wp-status")).toHaveText("unavailable");
+    await expect(page.getByTestId("wp-value")).toHaveText("Unavailable: live model contract unavailable");
+    const canonicalLive = await request.get(`${SIDECAR}/live/ingame`, { headers: AUTH });
+    expect(canonicalLive.ok()).toBe(true);
+    expect((await canonicalLive.json()).inference).toMatchObject({ status: "suppressed", probability: null });
+    await expect(page.getByTestId("habit-nudges")).toContainText("POPULATION CONTEXT");
+    await expect(page.locator("html")).toHaveAttribute("data-live-companion", "normal");
+    await expect(page.locator("body")).toHaveCSS("background-color", "rgb(14, 16, 32)");
+    await screenshot(page, testInfo, `v1-official-live-${size}`);
+    assertOverflowRows(await measureOverflow(page), `v1 canonical @ ${size}`);
+  }
+  expect(errors).toEqual([]);
 });

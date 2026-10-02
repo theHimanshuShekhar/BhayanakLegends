@@ -90,6 +90,7 @@ export function SyncPanel() {
     if (key) patch.riot_key = key;
     save.mutate(patch, {
       onSuccess: () => {
+        setKey("");
         setDirty(false);
         setRiotIdEdited(false);
         setRegionEdited(false);

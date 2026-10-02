@@ -478,8 +478,14 @@ game time, and matching non-null model/pack provenance. Every other status carri
 null probability and may carry only truthful diagnostic metadata.
 `allgamedata` may omit `gameVersion`; production must provide a trusted current
 patch through the configured LCU/config seam. A configured override remains
-stable; otherwise the LCU-discovered client version is refreshed for each new
-game ID and cleared when the in-game lifecycle ends. Data Dragon must match the
+stable; otherwise the LCU-discovered client version is refreshed at each observable
+in-game lifecycle boundary: initial valid observation, reconnect after missing
+phase/payload, clock rollback, GameStart phase entry, or optional game ID change.
+A phase exit or an observed GameEnd at/before the current clock clears discovery,
+feature continuity, and event-delta baselines. Missing/non-finite/negative clocks
+do not start discovery; future GameEnd events do not end a lifecycle. Discovery
+failures retry at most three times per lifecycle, at least ten seconds apart,
+without substituting a latest patch. Data Dragon must match the
 selected patch by numeric major.minor. `gameData.gameTime` is the official observation
 time. The client has no source wall-clock capture field, so frozen-stream stale
 detection uses only a local monotonic receipt continuity/fingerprint bound; that

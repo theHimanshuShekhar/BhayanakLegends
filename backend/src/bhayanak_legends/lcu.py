@@ -210,7 +210,7 @@ class HttpxLcuConnection:
         self._client = None
         self._key = None
 
-    async def _get_json(self, path: str) -> dict[str, Any] | None:
+    async def _get_json(self, path: str) -> Any:
         if not await self._ensure_client():
             return None
         assert self._client is not None
@@ -239,13 +239,17 @@ class HttpxLcuConnection:
         return str(phase).strip().strip('"') or None
 
     async def champ_select_session(self) -> dict[str, Any] | None:
-        return await self._get_json(CHAMP_SELECT_SESSION_PATH)
+        payload = await self._get_json(CHAMP_SELECT_SESSION_PATH)
+        return payload if isinstance(payload, dict) else None
 
     async def current_summoner(self) -> dict[str, Any] | None:
-        return await self._get_json(CURRENT_SUMMONER_PATH)
+        payload = await self._get_json(CURRENT_SUMMONER_PATH)
+        return payload if isinstance(payload, dict) else None
 
     async def client_version(self) -> str | None:
         payload = await self._get_json(CLIENT_VERSION_PATH)
+        if isinstance(payload, str) and _patch_key(payload) is not None:
+            return payload.strip()
         if isinstance(payload, dict):
             for key in ("version", "gameVersion", "patch"):
                 value = payload.get(key)

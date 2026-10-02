@@ -174,9 +174,10 @@ def main() -> int:
     seed_personal_history(temp_dir)
     (temp_dir / "replay-import").mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
+    env.pop("BHAYANAK_LIVE_PATCH", None)
     env.update(
         {
-            "BHAYANAK_LIVE_PATCH": "15.18",
+            "BHAYANAK_PACK_RELEASE_MANIFEST_URL": f"http://127.0.0.1:{LCU_PORT}/no-release-manifest",
             "BHAYANAK_PORT": str(SIDECAR_PORT),
             "BHAYANAK_TOKEN": TOKEN,
             "BHAYANAK_ALLOW_IMPORT": "1",
@@ -237,11 +238,11 @@ def main() -> int:
         fixture_env = {**env, "BHAYANAK_PORT": str(LIVE_FIXTURE_PORT),
                        "BHAYANAK_DATA_DIR": str(fixture_data), "BHAYANAK_PACK_DIR": str(fixture_pack)}
         fixture_sidecar = subprocess.Popen(
-            ["uv", "run", "python", "-m", "bhayanak_legends.sidecar"], cwd=BACKEND, env=fixture_env)
+            ["uv", "run", "python", str(ROOT / "e2e/replay_sidecar.py")], cwd=BACKEND, env=fixture_env)
         processes.append(fixture_sidecar)
         wait_for_port(LIVE_FIXTURE_PORT, fixture_sidecar, "test-only available live sidecar")
         sidecar = subprocess.Popen(
-            ["uv", "run", "python", "-m", "bhayanak_legends.sidecar"],
+            ["uv", "run", "python", str(ROOT / "e2e/replay_sidecar.py")],
             cwd=BACKEND,
             env=env,
         )

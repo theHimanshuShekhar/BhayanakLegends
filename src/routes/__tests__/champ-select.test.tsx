@@ -94,10 +94,12 @@ describe("ChampSelectPage", () => {
     expect(screen.getByTestId("role-tier-rows")).toBeInTheDocument();
   });
 
-  it("keeps loadout and gameplan surfaces read-only when v2 has no champion-specific finding", async () => {
+  it("keeps useful draft context without unavailable loadout or gameplan panels", async () => {
     renderPage();
-    expect(await screen.findByText(/no exact champion-specific loadout finding exists/i)).toBeInTheDocument();
-    expect(await screen.findByText(/no exact champion-specific gameplan finding exists/i)).toBeInTheDocument();
+    expect(await screen.findByTestId("card-role-tiers")).toBeInTheDocument();
+    expect(screen.getByTestId("card-comp-read")).toBeInTheDocument();
+    expect(screen.queryByTestId("card-loadout")).toBeNull();
+    expect(screen.queryByTestId("card-how-to-play")).toBeNull();
     expect(screen.queryByTestId("cs-apply-loadout")).toBeNull();
   });
 
@@ -132,7 +134,6 @@ describe("ChampSelectPage", () => {
 
     expect(screen.getByTestId("card-comp-read")).toHaveTextContent("2/5 picked");
     expect(await screen.findByTestId("card-role-tiers")).toHaveTextContent(/could not be loaded/i);
-    expect(screen.getByTestId("card-how-to-play")).toHaveTextContent(/could not be loaded/i);
   });
 
   it("keeps session facts visible while the v2 pack is loading", async () => {
@@ -172,7 +173,7 @@ describe("ChampSelectPage", () => {
     renderPage();
     const tiers = await screen.findByTestId("card-role-tiers");
     await waitFor(() => expect(tiers).toHaveTextContent(/evidence is missing/i));
-    expect(screen.getByTestId("card-how-to-play")).toHaveTextContent(/pack is missing/i);
-    expect(screen.getByTestId("card-loadout")).toHaveTextContent(/pack is missing/i);
+    expect(screen.queryByTestId("card-how-to-play")).toBeNull();
+    expect(screen.queryByTestId("card-loadout")).toBeNull();
   });
 });

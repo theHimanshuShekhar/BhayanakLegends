@@ -104,7 +104,7 @@ describe("PostGamePage", () => {
       "No games analyzed yet — Backfill from History",
     );
     expect(screen.getByTestId("verdict")).toHaveTextContent("No game analyzed");
-    expect(screen.getByText(/post-game review · the 30 seconds after the game/i)).toBeInTheDocument();
+    expect(screen.getByText(/latest synced match · personal observations/i)).toBeInTheDocument();
   });
 
   it("renders the v2 digest verdict and checkpoints", async () => {

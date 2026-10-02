@@ -27,7 +27,7 @@ export function RightNowCard({ pack }: { pack: FindingsPackV2 | undefined }) {
       aria-labelledby="right-now-heading"
       style={{ padding: 12, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 7 }}
     >
-      <SectionHead color="var(--color-info)" label={<span id="right-now-heading">RIGHT NOW</span>} />
+      <SectionHead color="var(--color-info)" label={<span id="right-now-heading">POPULATION CONTEXT</span>} />
       <div
         style={{
           display: "flex",
@@ -39,10 +39,10 @@ export function RightNowCard({ pack }: { pack: FindingsPackV2 | undefined }) {
         }}
       >
         <span className="pill" style={{ alignSelf: "flex-start", background: "var(--color-accent)", color: "var(--color-bg)" }}>
-          Act
+          Pack
         </span>
         <p style={{ margin: 0, fontSize: 10.5, lineHeight: 1.5, color: "var(--color-soft-lavender)" }}>
-          Act-level nudges read the live game state — they require the :2999 bridge.
+          Findings Pack associations describe the population. These rows do not evaluate this game.
         </p>
       </div>
       <ul aria-label="Population guidance" style={{ display: "flex", flexDirection: "column", gap: 7, listStyle: "none", margin: 0, padding: 0 }}>

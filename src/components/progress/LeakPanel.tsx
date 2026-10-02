@@ -35,8 +35,7 @@ export function LeakPanel() {
         }}
         data-testid="deaths-idle-caption"
       >
-        Unavailable: timeline features are not in the Findings Pack — sync games from the History
-        tab to populate this panel.
+        Unavailable: deaths by game minute are not part of the current Personal History contract.
       </p>
     </div>
   );

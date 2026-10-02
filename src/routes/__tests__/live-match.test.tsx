@@ -213,4 +213,12 @@ describe("LiveMatchPage", () => {
     });
     expect(screen.getByText("Findings Pack v7")).toBeInTheDocument();
   });
+  it("labels population context without promising a role cheat-sheet or live habit evaluation", async () => {
+    renderPage();
+    const context = await screen.findByTestId("habit-nudges");
+    expect(context).toHaveTextContent("POPULATION CONTEXT");
+    expect(context).toHaveTextContent("These rows do not evaluate this game.");
+    expect(screen.queryByText("ROLE CHEAT-SHEET")).toBeNull();
+  });
+
 });

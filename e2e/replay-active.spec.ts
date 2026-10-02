@@ -106,6 +106,15 @@ async function setScenario(request: APIRequestContext, base: string, scenario: s
   expect(response.ok()).toBeTruthy();
 }
 
+async function openLiveWithPack(page: Page) {
+  const packResponse = page.waitForResponse((response) => response.url() === `${SIDECAR}/pack` && response.request().method() === "GET", { timeout: 30_000 });
+  await page.goto("/live");
+  const response = await packResponse;
+  expect(response.status(), "live route must receive an authenticated Findings Pack").toBe(200);
+  await expect(page.getByText(/^Findings Pack synthetic-inventory-live-test-fixture ·/)).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("habit-nudges")).toContainText("POPULATION CONTEXT");
+}
+
 async function readIngame(request: APIRequestContext): Promise<LiveSnapshot> {
   const response = await request.get(`${SIDECAR}/live/ingame`, { headers: AUTH });
   expect(response.ok()).toBeTruthy();
@@ -192,7 +201,11 @@ function expectNoBrowserErrors(errors: string[]) {
 
 async function captureState(page: Page, testInfo: TestInfo, state: string) {
   const path = testInfo.outputPath(`${state}.png`);
-  await page.screenshot({ path, fullPage: true });
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await Promise.all(document.getAnimations().filter((animation) => animation.effect?.getTiming().iterations !== Infinity).map((animation) => animation.finished.catch(() => undefined)));
+  });
+  await page.screenshot({ path, fullPage: true, animations: "disabled" });
   await testInfo.attach(`live-${state}`, { path, contentType: "image/png" });
 }
 
@@ -310,16 +323,18 @@ async function waitForPreloadedStatus(
 ) {
   await expect
     .poll(async () => {
-      const response = await request.get(`${SIDECAR}/live/status`, { headers: AUTH });
-      expect(response.ok()).toBeTruthy();
-      const status = (await response.json()) as {
+      const statuses = await Promise.all([23125, 23122].map(async (port) => {
+        const response = await request.get(`http://127.0.0.1:${port}/live/status`, { headers: { ...AUTH, Host: `127.0.0.1:${port}` } });
+        expect(response.ok()).toBeTruthy();
+        return await response.json();
+      }));
+      return statuses.every((status: {
         champ_select: { active: boolean };
         ingame: { active: boolean };
-      };
-      return (
+      }) => (
         (expected.champSelect === undefined || status.champ_select.active === expected.champSelect) &&
         (expected.inGame === undefined || status.ingame.active === expected.inGame)
-      );
+      ));
     }, { timeout: 30_000 })
     .toBe(true);
 }
@@ -341,17 +356,19 @@ function countEventStreams(page: Page) {
 
 test.describe("active Live Companion replay", () => {
   test("in-game replay proves idle → active → update → reconnect without reload", async ({ page, request }, testInfo) => {
+    test.setTimeout(90_000);
     const browserErrors = collectBrowserErrors(page);
     await page.setViewportSize(VIEWPORTS[0]);
     await setScenario(request, LCU, "idle");
     await setScenario(request, LIVE, "idle");
-    await page.goto("/live");
+    await waitForPreloadedStatus(request, { inGame: false });
+    await openLiveWithPack(page);
     await expect(page.getByTestId("live-route-status")).toHaveText("Waiting for Live Companion game data");
     await expect(page.getByRole("status").filter({ hasText: /waiting for live companion game data/i })).toHaveCount(1);
     await captureState(page, testInfo, "idle");
 
-    await setScenario(request, LCU, "in-game");
-    await setScenario(request, LIVE, "in-game");
+    await setScenario(request, LCU, "in-game-running");
+    await setScenario(request, LIVE, "in-game-running");
     await waitForPreloadedStatus(request, { inGame: true });
     await expect(page.getByTestId("bridge-status")).toContainText(":2999");
     await expect(page.getByTestId("player-row-local")).toContainText("Viktor");
@@ -397,19 +414,66 @@ test.describe("active Live Companion replay", () => {
     expectNoBrowserErrors(browserErrors);
   });
 
+  test("official payloads discover patch once per observed lifecycle", async ({ page, request }) => {
+    const browserErrors = collectBrowserErrors(page);
+    await setScenario(request, LCU, "idle");
+    await setScenario(request, LIVE, "idle");
+    await waitForPreloadedStatus(request, { inGame: false });
+    const versionCalls = async () => (await (await request.get(`${LCU}/health`)).json()).version_calls as number;
+    const before = await versionCalls();
+    const versionResponse = await request.get(`${LCU}/lol-patch/v1/game-version`);
+    expect(versionResponse.headers()["content-type"]).toBe("application/json");
+    expect(await versionResponse.json()).toBe("15.18.1");
+    const baseline = before + 1;
+    await openLiveWithPack(page);
+    await setScenario(request, LCU, "in-game-running");
+    await setScenario(request, LIVE, "in-game-running");
+    await waitForPreloadedStatus(request, { inGame: true });
+    await expect(page.getByTestId("player-row-local")).toContainText("Viktor");
+    await expect(page.getByTestId("wp-status")).toHaveText("available");
+    await expect.poll(versionCalls).toBeGreaterThan(baseline);
+    await expect.poll(async () => {
+      const status = await request.get("http://127.0.0.1:23122/live/status", {
+        headers: { ...AUTH, Host: "127.0.0.1:23122" },
+      });
+      return (await status.json()).ingame.active;
+    }).toBe(true);
+    const activeCalls = await versionCalls();
+    await page.waitForTimeout(4500); // more than two real poll ticks
+    expect(await versionCalls()).toBe(activeCalls);
+    await setScenario(request, LCU, "reconnect");
+    await setScenario(request, LIVE, "reconnect");
+    await waitForPreloadedStatus(request, { inGame: false });
+    await setScenario(request, LCU, "in-game-running");
+    await setScenario(request, LIVE, "in-game-running");
+    await waitForPreloadedStatus(request, { inGame: true });
+    await expect.poll(versionCalls).toBeGreaterThan(activeCalls);
+    await expect(page.getByTestId("wp-status")).toHaveText("available");
+    expectNoBrowserErrors(browserErrors);
+  });
+
   test("live data contract detector", async ({ page, request }, testInfo) => {
+    test.setTimeout(90_000);
     const browserErrors = collectBrowserErrors(page);
     await page.setViewportSize(VIEWPORTS[1]);
-    await setScenario(request, LCU, "in-game");
-    await setScenario(request, LIVE, "in-game");
-    await page.goto("/live");
+    await setScenario(request, LCU, "idle");
+    await setScenario(request, LIVE, "idle");
+    await waitForPreloadedStatus(request, { inGame: false });
+    await openLiveWithPack(page);
+    await setScenario(request, LCU, "in-game-running");
+    await setScenario(request, LIVE, "in-game-running");
+    await waitForPreloadedStatus(request, { inGame: true });
     await expect(page.getByTestId("player-row-local")).toBeVisible();
     const snapshot = await readIngame(request);
     await expectLiveDataContractDetector(page, snapshot);
     await expectNoHorizontalClipping(page);
     await setScenario(request, LCU, "in-game-empty");
     await setScenario(request, LIVE, "in-game-empty");
-    await expect(page.getByText("No items reported", { exact: true })).toHaveCount(10);
+    await expect.poll(async () => {
+      const current = await readIngame(request);
+      return { items: [...current.teams.order, ...current.teams.chaos].flatMap((player) => player.items).length, events: current.events.length };
+    }, { timeout: 30_000 }).toEqual({ items: 0, events: 0 });
+    await expect(page.getByText("No items reported", { exact: true })).toHaveCount(10, { timeout: 15_000 });
     await expect(page.getByTestId("event-feed")).toHaveText(/No events reported/);
     const empty = await readIngame(request);
     expect(empty.teams.order.flatMap((player) => player.items)).toHaveLength(0);
@@ -421,18 +485,21 @@ test.describe("active Live Companion replay", () => {
   });
 
   test("live contrast", async ({ page, request }, testInfo) => {
+    test.setTimeout(90_000);
     const browserErrors = collectBrowserErrors(page);
     for (const viewport of VIEWPORTS) {
       await page.setViewportSize(viewport);
       await setScenario(request, LCU, "idle");
       await setScenario(request, LIVE, "idle");
-      await page.goto("/live");
+      await waitForPreloadedStatus(request, { inGame: false });
+      await openLiveWithPack(page);
       await expect(page.getByTestId("live-route-status")).toContainText("Waiting");
       await expectNoHorizontalClipping(page);
       await captureState(page, testInfo, `contrast-neutral-${viewport.width}`);
 
-      await setScenario(request, LCU, "in-game");
-      await setScenario(request, LIVE, "in-game");
+      await setScenario(request, LCU, "in-game-running");
+      await setScenario(request, LIVE, "in-game-running");
+      await waitForPreloadedStatus(request, { inGame: true });
       await expect(page.getByTestId("player-row-local")).toBeVisible();
       await expectNoHorizontalClipping(page);
       await captureState(page, testInfo, `contrast-active-${viewport.width}`);
@@ -518,6 +585,7 @@ test.describe("active Live Companion replay", () => {
     const browserErrors = collectBrowserErrors(page);
     await setScenario(request, LCU, "idle");
     await setScenario(request, LIVE, "idle");
+    await waitForPreloadedStatus(request, { inGame: false });
     await page.goto("/live");
     await setScenario(request, LCU, "in-game");
     await setScenario(request, LIVE, "in-game");
@@ -596,8 +664,8 @@ test.describe("active Live Companion replay", () => {
       await captureState(page, testInfo, `flow-hydrated-${viewport.width}`);
 
       // Champ select → in-game happens reactively on the same document.
-      await setScenario(request, LCU, "in-game");
-      await setScenario(request, LIVE, "in-game");
+      await setScenario(request, LCU, "in-game-running");
+      await setScenario(request, LIVE, "in-game-running");
       await waitForPreloadedStatus(request, { inGame: true, champSelect: false });
       const expand = page.getByRole("button", { name: "Expand Live Companion" });
       await expect(expand).toBeVisible();
@@ -617,10 +685,7 @@ test.describe("active Live Companion replay", () => {
       await expect(page.getByTestId("live-route-status")).toHaveText("Live Companion game data active");
       await expect(page.getByTestId("bridge-status")).toContainText(":2999 · 2s poll");
 
-      // The replay's frozen 754s frame becomes stale after five seconds;
-      // advance the official game clock before asserting model availability.
-      await setScenario(request, LIVE, "in-game-pre-event");
-      const initial = await waitForPreEventSnapshot(request);
+      const initial = await readIngame(request);
       await expect(initial.teams.order.flatMap((player) => player.items)).not.toHaveLength(0);
       await expectRenderedSnapshot(page, initial);
       await expectLiveDataContractDetector(page, initial);
@@ -632,6 +697,9 @@ test.describe("active Live Companion replay", () => {
       await expect(page.getByTestId("wp-status")).toHaveText("available");
       await expectNoHorizontalClipping(page);
       await captureState(page, testInfo, `flow-in-game-${viewport.width}`);
+      // Establish the causal baseline immediately before the deterministic event.
+      await setScenario(request, LIVE, "in-game-pre-event");
+      await waitForPreEventSnapshot(request);
       await setScenario(request, LIVE, "in-game-update");
       await expect(page.getByTestId("event-feed")).toContainText("BaronKill");
       await expect(page.getByTestId("active-kda")).toContainText("5 / 2 / 7");

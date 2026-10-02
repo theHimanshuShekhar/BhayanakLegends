@@ -6,7 +6,6 @@ import { CaveatFooter } from "../components/journal/CaveatFooter";
 import { ProgressSummaryCard } from "../components/progress/ProgressSummaryCard";
 import { RollingWrChart } from "../components/progress/RollingWrChart";
 import { BenchmarkCards } from "../components/progress/BenchmarkCards";
-import { LeakPanel } from "../components/progress/LeakPanel";
 import { LeverAdoption } from "../components/progress/LeverAdoption";
 import { LaneConversion } from "../components/progress/LaneConversion";
 import { PageHeader } from "../components/Layout";
@@ -46,6 +45,10 @@ export function ProgressPage() {
               </h2>
               {summary.data ? (
                 <ProgressSummaryCard summary={summary.data} />
+              ) : summary.isError ? (
+                <p role="alert" style={{ margin: 0, fontSize: 10.5, color: "var(--color-danger)" }}>
+                  {actionableErrorMessage(summary.error)}
+                </p>
               ) : (
                 <p role="status" aria-live="polite" style={{ margin: 0, fontSize: 10.5, color: "var(--color-dim)" }}>
                   Loading Personal History summary
@@ -62,7 +65,7 @@ export function ProgressPage() {
 
           <section aria-labelledby="benchmarks-heading">
             <h2 id="benchmarks-heading" className="route-panel-heading">
-              Benchmarks
+              Benchmarks · availability
             </h2>
             {benchmarks.isError && (
               <div role="alert" style={{ fontSize: 10.5, color: "var(--color-danger)" }}>
@@ -87,11 +90,17 @@ export function ProgressPage() {
             )}
           </section>
 
-          <section aria-labelledby="deaths-heading">
-            <h2 id="deaths-heading" className="route-panel-heading">
-              Deaths by game minute
-            </h2>
-            <LeakPanel />
+          <section className="card3" aria-labelledby="journal-review-heading" style={{ padding: 14 }}>
+            <h2 id="journal-review-heading" className="route-panel-heading">Review your matches</h2>
+            <p style={{ fontSize: 10.5, lineHeight: 1.5, color: "var(--color-dim)" }}>
+              The Improvement Journal contains role and champion profiles, recent results, and observed
+              checkpoints. Champions shows the rolling Trajectory for a selected champion.
+            </p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 14, fontSize: 11 }}>
+              <a href="/history">Open Improvement Journal</a>
+              <a href="/champions">Explore champion Trajectory</a>
+              <a href="/postgame">Review latest game</a>
+            </div>
           </section>
 
           {aggregates.isError && (
@@ -104,7 +113,7 @@ export function ProgressPage() {
         <aside className="progress-rail">
           <section aria-labelledby="lever-adoption-heading">
             <h2 id="lever-adoption-heading" className="route-panel-heading">
-              Lever adoption
+              Population associations
             </h2>
             <LeverAdoption pack={isFindingsPackV2(packEvidence) ? packEvidence : undefined} />
             {pack.isLoading && (

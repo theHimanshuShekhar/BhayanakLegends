@@ -77,7 +77,7 @@ export function YourLaneCard({
           </div>
           <div style={{ fontSize: 10, color: "var(--color-dim)", marginTop: 3 }}>
             {locked
-              ? "Locked in — lane intel waits for the in-game Live Client feed."
+              ? "Champion pick locked in."
               : hasChampion
                 ? "Selection is visible, but completion is not confirmed."
                 : "Pick intent and role evidence remain visible until lock."}

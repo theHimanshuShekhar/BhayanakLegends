@@ -52,7 +52,8 @@ export function LiveCompanion() {
   }, [liveStatus.data]);
 
   useEffect(() => {
-    document.documentElement.dataset.liveCompanion = phase === "in-game" ? "widget" : "normal";
+    const nativeShell = "__TAURI_INTERNALS__" in window;
+    document.documentElement.dataset.liveCompanion = nativeShell && phase === "in-game" ? "widget" : "normal";
     return () => {
       delete document.documentElement.dataset.liveCompanion;
     };

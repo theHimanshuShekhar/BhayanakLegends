@@ -8,7 +8,6 @@ import { isFindingsPackV2, type FindingsPackV2 } from "../api/pack-v2";
 import { useEvents } from "../api/sse";
 import { useLiveIngame, usePack } from "../api/hooks";
 import {
-  CheatSheetCard,
   ActivePlayerCard,
   EventFeedCard,
   ItemsByPlayerCard,
@@ -213,7 +212,7 @@ export function LiveMatchPage() {
         </div>
       )}
 
-      <PlayerList snapshot={ingame} />
+      <PlayerList snapshot={ingame} loading={ingameQuery.isLoading} />
 
       <div
         className="live-match-columns"
@@ -228,7 +227,6 @@ export function LiveMatchPage() {
       >
         <div className="live-match-column" style={{ display: "flex", flexDirection: "column", gap: 10, minHeight: 0 }}>
           <ActivePlayerCard player={findLocalPlayer(ingame)} />
-          <CheatSheetCard />
           <RightNowCard pack={renderPack} />
         </div>
 

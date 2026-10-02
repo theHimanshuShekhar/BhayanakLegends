@@ -1,6 +1,6 @@
 import { isFindingsPackV2 } from "../api/pack-v2";
 import { useHistorySummary, usePack, usePostgameLatest } from "../api/hooks";
-import { classifyApiError } from "../api/client";
+import { actionableErrorMessage, classifyApiError } from "../api/client";
 import { CaveatFooter } from "../components/journal/CaveatFooter";
 import { InsightsProfiles } from "../components/journal/InsightsProfiles";
 import { WhatIfPanel } from "../components/progress/WhatIfPanel";
@@ -98,9 +98,7 @@ export function HistoryPage() {
                   : "var(--color-amber)",
             }}
           >
-            {classifyApiError(summary.error) === "offline"
-              ? "The sidecar is offline. Reopen the app and try again."
-              : "No local shards found — start a Backfill below or import a folder."}
+            {actionableErrorMessage(summary.error)}
           </div>
         )}
 
@@ -193,9 +191,9 @@ export function HistoryPage() {
         )}
       </section>
 
-      <SyncPanel />
-
       <InsightsProfiles />
+
+      <SyncPanel />
       <WhatIfPanel pack={packV2} digest={digest.data ?? null} />
 
       <CaveatFooter />

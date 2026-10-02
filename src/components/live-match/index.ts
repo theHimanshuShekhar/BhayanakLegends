@@ -4,7 +4,6 @@ export { RightNowCard } from "./RightNowCard";
 export { ObjectivesCard } from "./ObjectivesCard";
 export {
   ActivePlayerCard,
-  CheatSheetCard,
   TeamVsTeamCard,
   EventFeedCard,
   ItemsByPlayerCard,

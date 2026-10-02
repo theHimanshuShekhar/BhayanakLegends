@@ -1045,7 +1045,7 @@ export function EvidenceMeta({
                   : "var(--color-info-low)",
             color:
               metadata.releaseStatus === "withheld"
-                ? "var(--color-danger)"
+                ? "var(--color-soft-rose)"
                 : metadata.releaseStatus === "approximate"
                   ? "var(--color-amber)"
                   : "var(--color-info)",
